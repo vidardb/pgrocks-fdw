@@ -53,6 +53,8 @@ static List *asuraPlanForeignModify(PlannerInfo *root,
                                     Index resultRelation,
                                     int subplan_index);
 
+static int asuraIsForeignRelUpdatable(Relation rel);
+
 static void asuraBeginForeignModify(ModifyTableState *mtstate,
                                     ResultRelInfo *rinfo,
                                     List *fdw_private,
@@ -75,8 +77,6 @@ static TupleTableSlot *asuraExecForeignDelete(EState *estate,
                                               TupleTableSlot *planSlot);
 
 static void asuraEndForeignModify(EState *estate, ResultRelInfo *rinfo);
-
-static int	asuraIsForeignRelUpdatable(Relation rel);
 
 static void asuraExplainForeignScan(ForeignScanState *node,
                                     struct ExplainState * es);
@@ -112,7 +112,7 @@ static List *asuraImportForeignSchema(ImportForeignSchemaStmt *stmt,
 /*
  * structures used by the FDW
  *
- * These next structures are not actually used by asura,but something like
+ * These next structures are not actually used by asura, but something like
  * them will be needed by anything more complicated that does actual work.
  */
 
@@ -188,9 +188,9 @@ Datum asura_fdw_handler(PG_FUNCTION_ARGS) {
 
     /* remainder are optional - use NULL if not required */
     /* support for insert / update / delete */
-    fdwroutine->IsForeignRelUpdatable = asuraIsForeignRelUpdatable;
     fdwroutine->AddForeignUpdateTargets = asuraAddForeignUpdateTargets; /* U D */
     fdwroutine->PlanForeignModify = asuraPlanForeignModify; /* I U D */
+    fdwroutine->IsForeignRelUpdatable = asuraIsForeignRelUpdatable;
     fdwroutine->BeginForeignModify = asuraBeginForeignModify; /* I U D */
     fdwroutine->ExecForeignInsert = asuraExecForeignInsert; /* I */
     fdwroutine->ExecForeignUpdate = asuraExecForeignUpdate; /* U */
@@ -204,15 +204,15 @@ Datum asura_fdw_handler(PG_FUNCTION_ARGS) {
     /* support for ANALYSE */
     fdwroutine->AnalyzeForeignTable = asuraAnalyzeForeignTable; /* ANALYZE only */
 
-    /* Support functions for IMPORT FOREIGN SCHEMA */
-    fdwroutine->ImportForeignSchema = asuraImportForeignSchema;
-
     /* Support for scanning foreign joins */
     fdwroutine->GetForeignJoinPaths = asuraGetForeignJoinPaths;
 
     /* Support for locking foreign rows */
     fdwroutine->GetForeignRowMarkType = asuraGetForeignRowMarkType;
     fdwroutine->RefetchForeignRow = asuraRefetchForeignRow;
+
+    /* Support functions for IMPORT FOREIGN SCHEMA */
+    fdwroutine->ImportForeignSchema = asuraImportForeignSchema;
 
     PG_RETURN_POINTER(fdwroutine);
 }
@@ -528,6 +528,30 @@ static List *asuraPlanForeignModify(PlannerInfo *root,
     return NULL;
 }
 
+static int asuraIsForeignRelUpdatable(Relation rel) {
+    printf("\n-----------------IsForeignRelUpdatable----------------------\n");
+    /*
+     * Report which update operations the specified foreign table supports.
+     * The return value should be a bit mask of rule event numbers indicating
+     * which operations are supported by the foreign table, using the CmdType
+     * enumeration; that is, (1 << CMD_UPDATE) = 4 for UPDATE, (1 <<
+     * CMD_INSERT) = 8 for INSERT, and (1 << CMD_DELETE) = 16 for DELETE.
+     *
+     * If the IsForeignRelUpdatable pointer is set to NULL, foreign tables are
+     * assumed to be insertable, updatable, or deletable if the FDW provides
+     * ExecForeignInsert, ExecForeignUpdate, or ExecForeignDelete
+     * respectively. This function is only needed if the FDW supports some
+     * tables that are updatable and some that are not. (Even then, it's
+     * permissible to throw an error in the execution routine instead of
+     * checking in this function. However, this function is used to determine
+     * updatability for display in the information_schema views.)
+     */
+
+    elog(DEBUG1, "entering function %s", __func__);
+
+    return (1 << CMD_UPDATE) | (1 << CMD_INSERT) | (1 << CMD_DELETE);
+}
+
 static void asuraBeginForeignModify(ModifyTableState *mtstate,
                                     ResultRelInfo *rinfo,
                                     List *fdw_private,
@@ -710,30 +734,6 @@ static void asuraEndForeignModify(EState *estate, ResultRelInfo *rinfo) {
      */
 
     elog(DEBUG1, "entering function %s", __func__);
-}
-
-static int asuraIsForeignRelUpdatable(Relation rel) {
-    printf("\n-----------------IsForeignRelUpdatable----------------------\n");
-    /*
-     * Report which update operations the specified foreign table supports.
-     * The return value should be a bit mask of rule event numbers indicating
-     * which operations are supported by the foreign table, using the CmdType
-     * enumeration; that is, (1 << CMD_UPDATE) = 4 for UPDATE, (1 <<
-     * CMD_INSERT) = 8 for INSERT, and (1 << CMD_DELETE) = 16 for DELETE.
-     *
-     * If the IsForeignRelUpdatable pointer is set to NULL, foreign tables are
-     * assumed to be insertable, updatable, or deletable if the FDW provides
-     * ExecForeignInsert, ExecForeignUpdate, or ExecForeignDelete
-     * respectively. This function is only needed if the FDW supports some
-     * tables that are updatable and some that are not. (Even then, it's
-     * permissible to throw an error in the execution routine instead of
-     * checking in this function. However, this function is used to determine
-     * updatability for display in the information_schema views.)
-     */
-
-    elog(DEBUG1, "entering function %s", __func__);
-
-    return (1 << CMD_UPDATE) | (1 << CMD_INSERT) | (1 << CMD_DELETE);
 }
 
 static void asuraExplainForeignScan(ForeignScanState *node,

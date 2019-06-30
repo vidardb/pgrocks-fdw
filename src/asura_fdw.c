@@ -25,16 +25,16 @@ static void asuraGetForeignRelSize(PlannerInfo *root,
                                    Oid foreigntableid);
 
 static void asuraGetForeignPaths(PlannerInfo *root,
-						 RelOptInfo *baserel,
-						 Oid foreigntableid);
+                                 RelOptInfo *baserel,
+                                 Oid foreigntableid);
 
 static ForeignScan *asuraGetForeignPlan(PlannerInfo *root,
-						RelOptInfo *baserel,
-						Oid foreigntableid,
-						ForeignPath *best_path,
-						List *tlist,
-						List *scan_clauses,
-						Plan *outer_plan);
+                                        RelOptInfo *baserel,
+                                        Oid foreigntableid,
+                                        ForeignPath *best_path,
+                                        List *tlist,
+                                        List *scan_clauses,
+                                        Plan *outer_plan);
 
 static void asuraBeginForeignScan(ForeignScanState *node, int eflags);
 
@@ -45,69 +45,69 @@ static void asuraReScanForeignScan(ForeignScanState *node);
 static void asuraEndForeignScan(ForeignScanState *node);
 
 static void asuraAddForeignUpdateTargets(Query *parsetree,
-								 RangeTblEntry *target_rte,
-								 Relation target_relation);
+                                         RangeTblEntry *target_rte,
+                                         Relation target_relation);
 
 static List *asuraPlanForeignModify(PlannerInfo *root,
-						   ModifyTable *plan,
-						   Index resultRelation,
-						   int subplan_index);
+                                    ModifyTable *plan,
+                                    Index resultRelation,
+                                    int subplan_index);
 
 static void asuraBeginForeignModify(ModifyTableState *mtstate,
-							ResultRelInfo *rinfo,
-							List *fdw_private,
-							int subplan_index,
-							int eflags);
+                                    ResultRelInfo *rinfo,
+                                    List *fdw_private,
+                                    int subplan_index,
+                                    int eflags);
 
 static TupleTableSlot *asuraExecForeignInsert(EState *estate,
-						   ResultRelInfo *rinfo,
-						   TupleTableSlot *slot,
-						   TupleTableSlot *planSlot);
+                                              ResultRelInfo *rinfo,
+                                              TupleTableSlot *slot,
+                                              TupleTableSlot *planSlot);
 
 static TupleTableSlot *asuraExecForeignUpdate(EState *estate,
-						   ResultRelInfo *rinfo,
-						   TupleTableSlot *slot,
-						   TupleTableSlot *planSlot);
+                                              ResultRelInfo *rinfo,
+                                              TupleTableSlot *slot,
+                                              TupleTableSlot *planSlot);
 
 static TupleTableSlot *asuraExecForeignDelete(EState *estate,
-						   ResultRelInfo *rinfo,
-						   TupleTableSlot *slot,
-						   TupleTableSlot *planSlot);
+                                              ResultRelInfo *rinfo,
+                                              TupleTableSlot *slot,
+                                              TupleTableSlot *planSlot);
 
 static void asuraEndForeignModify(EState *estate, ResultRelInfo *rinfo);
 
 static int	asuraIsForeignRelUpdatable(Relation rel);
 
 static void asuraExplainForeignScan(ForeignScanState *node,
-							struct ExplainState * es);
+                                    struct ExplainState * es);
 
 static void asuraExplainForeignModify(ModifyTableState *mtstate,
-							  ResultRelInfo *rinfo,
-							  List *fdw_private,
-							  int subplan_index,
-							  struct ExplainState * es);
+                                      ResultRelInfo *rinfo,
+                                      List *fdw_private,
+                                      int subplan_index,
+                                      struct ExplainState * es);
 
 static bool asuraAnalyzeForeignTable(Relation relation,
-							 AcquireSampleRowsFunc *func,
-							 BlockNumber *totalpages);
+                                     AcquireSampleRowsFunc *func,
+                                     BlockNumber *totalpages);
 
 static void asuraGetForeignJoinPaths(PlannerInfo *root,
-							 RelOptInfo *joinrel,
-							 RelOptInfo *outerrel,
-							 RelOptInfo *innerrel,
-							 JoinType jointype,
-							 JoinPathExtraData *extra);
+                                     RelOptInfo *joinrel,
+                                     RelOptInfo *outerrel,
+                                     RelOptInfo *innerrel,
+                                     JoinType jointype,
+                                     JoinPathExtraData *extra);
 
 static RowMarkType asuraGetForeignRowMarkType(RangeTblEntry *rte,
-							   LockClauseStrength strength);
+                                              LockClauseStrength strength);
 
 static HeapTuple asuraRefetchForeignRow(EState *estate,
-						   ExecRowMark *erm,
-						   Datum rowid,
-						   bool *updated);
+                                        ExecRowMark *erm,
+                                        Datum rowid,
+                                        bool *updated);
 
 static List *asuraImportForeignSchema(ImportForeignSchemaStmt *stmt,
-							 Oid serverOid);
+                                      Oid serverOid);
 
 /*
  * structures used by the FDW
@@ -120,8 +120,8 @@ static List *asuraImportForeignSchema(ImportForeignSchemaStmt *stmt,
  * Describes the valid options for objects that use this wrapper.
  */
 struct asuraFdwOption {
-	const char *optname;
-	Oid			optcontext;		/* Oid of catalog in which option may appear */
+    const char *optname;
+    Oid optcontext; /* Oid of catalog in which option may appear */
 };
 
 /*
@@ -129,8 +129,8 @@ struct asuraFdwOption {
  * baserel->fdw_private and fetched in asuraGetForeignPaths.
  */
 typedef struct {
-	char	   *foo;
-	int			bar;
+    char *foo;
+    int bar;
 } AsuraFdwPlanState;
 
 /*
@@ -142,8 +142,8 @@ typedef struct {
  * asuraEndForeignScan and asuraReScanForeignScan.
  */
 typedef struct {
-	char	   *baz;
-	int			blurfl;
+    char *baz;
+    int blurfl;
 } AsuraFdwScanState;
 
 /*
@@ -155,13 +155,12 @@ typedef struct {
  * asuraEndForeignModify.
  */
 typedef struct {
-	char	   *chimp;
-	int			chump;
+    char *chimp;
+    int chump;
 } AsuraFdwModifyState;
 
 
-Datum
-asura_fdw_handler(PG_FUNCTION_ARGS) {
+Datum asura_fdw_handler(PG_FUNCTION_ARGS) {
 	printf("\n-----------------asura_fdw_handler----------------------\n");
 	FdwRoutine *fdwroutine = makeNode(FdwRoutine);
 
@@ -190,20 +189,20 @@ asura_fdw_handler(PG_FUNCTION_ARGS) {
 	/* remainder are optional - use NULL if not required */
 	/* support for insert / update / delete */
 	fdwroutine->IsForeignRelUpdatable = asuraIsForeignRelUpdatable;
-	fdwroutine->AddForeignUpdateTargets = asuraAddForeignUpdateTargets;		/* U D */
+	fdwroutine->AddForeignUpdateTargets = asuraAddForeignUpdateTargets;	/* U D */
 	fdwroutine->PlanForeignModify = asuraPlanForeignModify; /* I U D */
-	fdwroutine->BeginForeignModify = asuraBeginForeignModify;		/* I U D */
+	fdwroutine->BeginForeignModify = asuraBeginForeignModify; /* I U D */
 	fdwroutine->ExecForeignInsert = asuraExecForeignInsert; /* I */
 	fdwroutine->ExecForeignUpdate = asuraExecForeignUpdate; /* U */
 	fdwroutine->ExecForeignDelete = asuraExecForeignDelete; /* D */
 	fdwroutine->EndForeignModify = asuraEndForeignModify;	/* I U D */
 
 	/* support for EXPLAIN */
-	fdwroutine->ExplainForeignScan = asuraExplainForeignScan;		/* EXPLAIN S U D */
-	fdwroutine->ExplainForeignModify = asuraExplainForeignModify;	/* EXPLAIN I U D */
+	fdwroutine->ExplainForeignScan = asuraExplainForeignScan; /* EXPLAIN S U D */
+	fdwroutine->ExplainForeignModify = asuraExplainForeignModify; /* EXPLAIN I U D */
 
 	/* support for ANALYSE */
-	fdwroutine->AnalyzeForeignTable = asuraAnalyzeForeignTable;		/* ANALYZE only */
+	fdwroutine->AnalyzeForeignTable = asuraAnalyzeForeignTable; /* ANALYZE only */
 
 	/* Support functions for IMPORT FOREIGN SCHEMA */
 	fdwroutine->ImportForeignSchema = asuraImportForeignSchema;
@@ -218,9 +217,8 @@ asura_fdw_handler(PG_FUNCTION_ARGS) {
 	PG_RETURN_POINTER(fdwroutine);
 }
 
-Datum
-asura_fdw_validator(PG_FUNCTION_ARGS) {
-	List	   *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
+Datum asura_fdw_validator(PG_FUNCTION_ARGS) {
+	List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
 
 	elog(DEBUG1, "entering function %s", __func__);
 
@@ -237,11 +235,9 @@ asura_fdw_validator(PG_FUNCTION_ARGS) {
 	PG_RETURN_VOID();
 }
 
-//#if (PG_VERSION_NUM >= 90200)
-static void
-asuraGetForeignRelSize(PlannerInfo *root,
-						   RelOptInfo *baserel,
-						   Oid foreigntableid) {
+static void asuraGetForeignRelSize(PlannerInfo *root,
+                                   RelOptInfo *baserel,
+                                   Oid foreigntableid) {
 	printf("\n-----------------GetForeignRelSize----------------------\n");
 	/*
 	 * Obtain relation size estimates for a foreign table. This is called at
@@ -272,10 +268,9 @@ asuraGetForeignRelSize(PlannerInfo *root,
 	/* initialize required state in plan_state */
 }
 
-static void
-asuraGetForeignPaths(PlannerInfo *root,
-						 RelOptInfo *baserel,
-						 Oid foreigntableid) {
+static void asuraGetForeignPaths(PlannerInfo *root,
+                                 RelOptInfo *baserel,
+                                 Oid foreigntableid) {
 	printf("\n-----------------GetForeignPaths----------------------\n");
 	/*
 	 * Create possible access paths for a scan on a foreign table. This is
@@ -314,15 +309,13 @@ asuraGetForeignPaths(PlannerInfo *root,
 									 NIL));		/* no fdw_private data */
 }
 
-
-static ForeignScan *
-asuraGetForeignPlan(PlannerInfo *root,
-						RelOptInfo *baserel,
-						Oid foreigntableid,
-						ForeignPath *best_path,
-						List *tlist,
-						List *scan_clauses,
-						Plan *outer_plan) {
+static ForeignScan *asuraGetForeignPlan(PlannerInfo *root,
+                                        RelOptInfo *baserel,
+                                        Oid foreigntableid,
+                                        ForeignPath *best_path,
+                                        List *tlist,
+                                        List *scan_clauses,
+                                        Plan *outer_plan) {
 	printf("\n-----------------GetForeignPlan----------------------\n");
 	/*
 	 * Create a ForeignScan plan node from the selected foreign access path.
@@ -365,8 +358,7 @@ asuraGetForeignPlan(PlannerInfo *root,
 							outer_plan);
 }
 
-static void
-asuraBeginForeignScan(ForeignScanState *node, int eflags) {
+static void asuraBeginForeignScan(ForeignScanState *node, int eflags) {
 	printf("\n-----------------BeginForeignScan----------------------\n");
 	/*
 	 * Begin executing a foreign scan. This is called during executor startup.
@@ -393,9 +385,7 @@ asuraBeginForeignScan(ForeignScanState *node, int eflags) {
 	elog(DEBUG1, "entering function %s", __func__);
 }
 
-
-static TupleTableSlot *
-asuraIterateForeignScan(ForeignScanState *node) {
+static TupleTableSlot *asuraIterateForeignScan(ForeignScanState *node) {
 	printf("\n-----------------IterateForeignScan----------------------\n");
 	/*
 	 * Fetch one row from the foreign source, returning it in a tuple table
@@ -440,9 +430,7 @@ asuraIterateForeignScan(ForeignScanState *node) {
 	return slot;
 }
 
-
-static void
-asuraReScanForeignScan(ForeignScanState *node) {
+static void asuraReScanForeignScan(ForeignScanState *node) {
 	printf("\n-----------------ReScanForeignScan----------------------\n");
 	/*
 	 * Restart the scan from the beginning. Note that any parameters the scan
@@ -459,9 +447,7 @@ asuraReScanForeignScan(ForeignScanState *node) {
 	elog(DEBUG1, "entering function %s", __func__);
 }
 
-
-static void
-asuraEndForeignScan(ForeignScanState *node) {
+static void asuraEndForeignScan(ForeignScanState *node) {
 	printf("\n-----------------EndForeignScan----------------------\n");
 	/*
 	 * End the scan and release resources. It is normally not important to
@@ -478,11 +464,9 @@ asuraEndForeignScan(ForeignScanState *node) {
 	elog(DEBUG1, "entering function %s", __func__);
 }
 
-
-static void
-asuraAddForeignUpdateTargets(Query *parsetree,
-								 RangeTblEntry *target_rte,
-								 Relation target_relation) {
+static void asuraAddForeignUpdateTargets(Query *parsetree,
+                                         RangeTblEntry *target_rte,
+                                         Relation target_relation) {
 	printf("\n-----------------AddForeignUpdateTargets----------------------\n");
 	/*
 	 * UPDATE and DELETE operations are performed against rows previously
@@ -514,12 +498,10 @@ asuraAddForeignUpdateTargets(Query *parsetree,
 	elog(DEBUG1, "entering function %s", __func__);
 }
 
-
-static List *
-asuraPlanForeignModify(PlannerInfo *root,
-						   ModifyTable *plan,
-						   Index resultRelation,
-						   int subplan_index) {
+static List *asuraPlanForeignModify(PlannerInfo *root,
+                                    ModifyTable *plan,
+                                    Index resultRelation,
+                                    int subplan_index) {
 	printf("\n-----------------PlanForeignModify----------------------\n");
 	/*
 	 * Perform any additional planning actions needed for an insert, update,
@@ -546,13 +528,11 @@ asuraPlanForeignModify(PlannerInfo *root,
 	return NULL;
 }
 
-
-static void
-asuraBeginForeignModify(ModifyTableState *mtstate,
-							ResultRelInfo *rinfo,
-							List *fdw_private,
-							int subplan_index,
-							int eflags) {
+static void asuraBeginForeignModify(ModifyTableState *mtstate,
+                                    ResultRelInfo *rinfo,
+                                    List *fdw_private,
+                                    int subplan_index,
+                                    int eflags) {
 	printf("\n-----------------BeginForeignModify----------------------\n");
 	/*
 	 * Begin executing a foreign table modification operation. This routine is
@@ -586,12 +566,10 @@ asuraBeginForeignModify(ModifyTableState *mtstate,
 	elog(DEBUG1, "entering function %s", __func__);
 }
 
-
-static TupleTableSlot *
-asuraExecForeignInsert(EState *estate,
-						   ResultRelInfo *rinfo,
-						   TupleTableSlot *slot,
-						   TupleTableSlot *planSlot) {
+static TupleTableSlot *asuraExecForeignInsert(EState *estate,
+                                              ResultRelInfo *rinfo,
+                                              TupleTableSlot *slot,
+                                              TupleTableSlot *planSlot) {
 	printf("\n-----------------ExecForeignInsert----------------------\n");
 	/*
 	 * Insert one tuple into the foreign table. estate is global execution
@@ -631,12 +609,10 @@ asuraExecForeignInsert(EState *estate,
 	return slot;
 }
 
-
-static TupleTableSlot *
-asuraExecForeignUpdate(EState *estate,
-						   ResultRelInfo *rinfo,
-						   TupleTableSlot *slot,
-						   TupleTableSlot *planSlot) {
+static TupleTableSlot *asuraExecForeignUpdate(EState *estate,
+                                              ResultRelInfo *rinfo,
+                                              TupleTableSlot *slot,
+                                              TupleTableSlot *planSlot) {
 	printf("\n-----------------ExecForeignUpdate----------------------\n");
 	/*
 	 * Update one tuple in the foreign table. estate is global execution state
@@ -676,12 +652,10 @@ asuraExecForeignUpdate(EState *estate,
 	return slot;
 }
 
-
-static TupleTableSlot *
-asuraExecForeignDelete(EState *estate,
-						   ResultRelInfo *rinfo,
-						   TupleTableSlot *slot,
-						   TupleTableSlot *planSlot) {
+static TupleTableSlot *asuraExecForeignDelete(EState *estate,
+                                              ResultRelInfo *rinfo,
+                                              TupleTableSlot *slot,
+                                              TupleTableSlot *planSlot) {
 	printf("\n-----------------ExecForeignDelete----------------------\n");
 	/*
 	 * Delete one tuple from the foreign table. estate is global execution
@@ -718,10 +692,7 @@ asuraExecForeignDelete(EState *estate,
 	return slot;
 }
 
-
-static void
-asuraEndForeignModify(EState *estate,
-						  ResultRelInfo *rinfo) {
+static void asuraEndForeignModify(EState *estate, ResultRelInfo *rinfo) {
 	printf("\n-----------------EndForeignModify----------------------\n");
 	/*
 	 * End the table update and release resources. It is normally not
@@ -741,8 +712,7 @@ asuraEndForeignModify(EState *estate,
 	elog(DEBUG1, "entering function %s", __func__);
 }
 
-static int
-asuraIsForeignRelUpdatable(Relation rel) {
+static int asuraIsForeignRelUpdatable(Relation rel) {
 	printf("\n-----------------IsForeignRelUpdatable----------------------\n");
 	/*
 	 * Report which update operations the specified foreign table supports.
@@ -766,10 +736,8 @@ asuraIsForeignRelUpdatable(Relation rel) {
 	return (1 << CMD_UPDATE) | (1 << CMD_INSERT) | (1 << CMD_DELETE);
 }
 
-
-static void
-asuraExplainForeignScan(ForeignScanState *node,
-							struct ExplainState * es) {
+static void asuraExplainForeignScan(ForeignScanState *node,
+                                    struct ExplainState * es) {
 	printf("\n-----------------ExplainForeignScan----------------------\n");
 	/*
 	 * Print additional EXPLAIN output for a foreign table scan. This function
@@ -785,13 +753,11 @@ asuraExplainForeignScan(ForeignScanState *node,
 	elog(DEBUG1, "entering function %s", __func__);
 }
 
-
-static void
-asuraExplainForeignModify(ModifyTableState *mtstate,
-							  ResultRelInfo *rinfo,
-							  List *fdw_private,
-							  int subplan_index,
-							  struct ExplainState * es) {
+static void asuraExplainForeignModify(ModifyTableState *mtstate,
+                                      ResultRelInfo *rinfo,
+                                      List *fdw_private,
+                                      int subplan_index,
+                                      struct ExplainState * es) {
 	printf("\n-----------------ExplainForeignModify----------------------\n");
 	/*
 	 * Print additional EXPLAIN output for a foreign table update. This
@@ -814,11 +780,9 @@ asuraExplainForeignModify(ModifyTableState *mtstate,
 	elog(DEBUG1, "entering function %s", __func__);
 }
 
-
-static bool
-asuraAnalyzeForeignTable(Relation relation,
-							 AcquireSampleRowsFunc *func,
-							 BlockNumber *totalpages) {
+static bool asuraAnalyzeForeignTable(Relation relation,
+                                     AcquireSampleRowsFunc *func,
+                                     BlockNumber *totalpages) {
 	printf("\n-----------------AnalyzeForeignTable----------------------\n");
 	/* ----
 	 * This function is called when ANALYZE is executed on a foreign table. If
@@ -852,14 +816,12 @@ asuraAnalyzeForeignTable(Relation relation,
 	return false;
 }
 
-
-static void
-asuraGetForeignJoinPaths(PlannerInfo *root,
-							 RelOptInfo *joinrel,
-							 RelOptInfo *outerrel,
-							 RelOptInfo *innerrel,
-							 JoinType jointype,
-							 JoinPathExtraData *extra) {
+static void asuraGetForeignJoinPaths(PlannerInfo *root,
+                                     RelOptInfo *joinrel,
+                                     RelOptInfo *outerrel,
+                                     RelOptInfo *innerrel,
+                                     JoinType jointype,
+                                     JoinPathExtraData *extra) {
 	printf("\n-----------------GetForeignJoinPaths----------------------\n");
 	/*
 	 * Create possible access paths for a join of two (or more) foreign tables
@@ -894,10 +856,8 @@ asuraGetForeignJoinPaths(PlannerInfo *root,
 	elog(DEBUG1, "entering function %s", __func__);
 }
 
-
-static RowMarkType
-asuraGetForeignRowMarkType(RangeTblEntry *rte,
-							   LockClauseStrength strength) {
+static RowMarkType asuraGetForeignRowMarkType(RangeTblEntry *rte,
+                                              LockClauseStrength strength) {
 	printf("\n-----------------GetForeignRowMarkType----------------------\n");
 	/*
 	 * Report which row-marking option to use for a foreign table. rte is the
@@ -919,11 +879,10 @@ asuraGetForeignRowMarkType(RangeTblEntry *rte,
 	return ROW_MARK_COPY;
 }
 
-static HeapTuple
-asuraRefetchForeignRow(EState *estate,
-						   ExecRowMark *erm,
-						   Datum rowid,
-						   bool *updated) {
+static HeapTuple asuraRefetchForeignRow(EState *estate,
+                                        ExecRowMark *erm,
+                                        Datum rowid,
+                                        bool *updated) {
 	printf("\n-----------------RefetchForeignRow----------------------\n");
 	/*
 	 * Re-fetch one tuple from the foreign table, after locking it if
@@ -962,10 +921,8 @@ asuraRefetchForeignRow(EState *estate,
 	return NULL;
 }
 
-
-static List *
-asuraImportForeignSchema(ImportForeignSchemaStmt *stmt,
-							 Oid serverOid) {
+static List *asuraImportForeignSchema(ImportForeignSchemaStmt *stmt,
+                                      Oid serverOid) {
 	printf("\n-----------------ImportForeignSchema----------------------\n");
 	/*
 	 * Obtain a list of foreign table creation commands. This function is

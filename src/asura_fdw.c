@@ -79,13 +79,13 @@ static TupleTableSlot *asuraExecForeignDelete(EState *estate,
 static void asuraEndForeignModify(EState *estate, ResultRelInfo *rinfo);
 
 static void asuraExplainForeignScan(ForeignScanState *node,
-                                    struct ExplainState * es);
+                                    struct ExplainState *es);
 
 static void asuraExplainForeignModify(ModifyTableState *mtstate,
                                       ResultRelInfo *rinfo,
                                       List *fdw_private,
                                       int subplan_index,
-                                      struct ExplainState * es);
+                                      struct ExplainState *es);
 
 static bool asuraAnalyzeForeignTable(Relation relation,
                                      AcquireSampleRowsFunc *func,

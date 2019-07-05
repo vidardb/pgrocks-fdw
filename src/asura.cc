@@ -12,114 +12,70 @@ extern "C" {
 
 std::string kDBPath = "/tmp/rocksdb_simple_example";
 
-/**
- * Create a database object.
- */
-KVDB *dbnew() {
+void* dbopen() {
     DB* db;
     Options options;
     options.IncreaseParallelism();
     options.create_if_missing = true;
     Status s = DB::Open(options, kDBPath, &db);
     assert(s.ok());
-    return (KVDB *)db;
+    return db;
 }
 
-/**
- * Destroy a database object.
- */
-void dbdel(KVDB *db) {
-    DB *pdb = (DB *)db;
-    delete pdb;
+void dbclose(void* db) {
+    db = static_cast<DB*>(db);
+    delete db;
 }
 
-/**
- * Open a database file.
- */
-bool dbopen(KVDB *db, const char *host, int32_t port, double timeout) {
-    DB *pdb = (DB *)db;
-    return pdb->open(host, port, timeout);
+uint64_t dbcount(void* db) {
+    db = static_cast<DB*>(db);
+    string num;
+    db->GetProperty("rocksdb.estimate-num-keys", &num);
+    return stoull(num);
 }
 
-/**
- * Close the database file.
- */
-bool dbclose(KVDB *db) {
-    DB *pdb = (DB *)db;
-    return pdb->close();
+void* getiter(void* db) {
+    Iterator* it = db->NewIterator(ReadOptions());
+    return it;
 }
 
-/*
- * get a count of the number of keys
- */
-int64_t dbcount(KVDB *db) {
-    DB *pdb = (DB *)db;
-    return pdb->count();
+void delcur(void* it) {
+    it = static_cast<Iterator*>(it);
+    delete it;
 }
 
-CUR *getcur(KVDB *db) {
-    DB *pdb = (DB *)db;
-    RemoteDB::Cursor *cur = pdb->cursor();
-    cur->jump();
-    return (CUR *) cur;
-}
-
-void delcur(CUR *cur) {
-    DB::Cursor *rcur = (DB::Cursor *) cur;
-    delete rcur;
-}
-
-bool next(KVDB *db, CUR *cur, char **key, char **value) {
-    std::string skey;
-    std::string sval;
-    DB::Cursor *rcur = (DB::Cursor *) cur;
-    bool res = rcur->get(&skey, &sval, NULL, true);
-    if (!res) return false;
-    *key = (char *) palloc(sizeof(char)*(skey.length()+1));
-    *value = (char *) palloc(sizeof(char)*(sval.length()+1));
-    std::strcpy(*key, skey.c_str());
-    std::strcpy(*value, sval.c_str());
+bool next(void* db, void* it, char** key, char** value) {
+    it = static_cast<Iterator*>(it);
+    if (!it->Valid()) return false;
+    *key = (char*) palloc(it->key().size()+1);
+    *value = (char*) palloc(it->value().size()+1);
+    strcpy(*key, it->key().data());
+    strcpy(*value, it->value().data());
     return true;
 }
 
-bool get(KVDB *db, char *key, char **value) {
-    std::string skey(key);
-    std::string sval;
-    DB *pdb = (DB *)db;
-    if (!pdb->get(skey, &sval)) return false;
-    *value = (char *) palloc(sizeof(char)*(sval.length()+1));
-    std::strcpy(*value, sval.c_str());
+bool get(void* db, char* key, char** value) {
+    db = static_cast<DB*>(db);
+    string skey(key), sval;
+    Status s = db->Get(ReadOptions(), key, &sval);
+    if (!s.ok()) return false;
+    *value = (char*) palloc(sval.length()+1);
+    strcpy(*value, sval.c_str());
     return true;
 }
 
-bool add(KVDB *db, const char *key, const char *value) {
-    DB *pdb = (DB *)db;
-    std::string skey(key);
-    std::string sval(value);
-    return pdb->add(skey, sval);
+bool add(void* db, char* key, char* value) {
+    db = static_cast<DB*>(db);
+    string skey(key), sval(value);
+    Status s = db->Put(WriteOptions(), skey, sval);
+    return s.ok()? true: false;
 }
 
-bool replace(KVDB *db, const char *key, const char *value) {
-    DB *pdb = (DB *)db;
-    std::string skey(key);
-    std::string sval(value);
-    return pdb->replace(skey, sval);
-}
-
-bool remove(KVDB *db, const char *key) {
-    DB *pdb = (DB *)db;
-    std::string skey(key);
-    return pdb->remove(skey);
-}
-
-const char *geterror(KVDB *db) {
-    DB *pdb = (DB *)db;
-    return pdb->error().name();
-}
-
-const char *geterrormsg(KVDB *db) {
-    DB *pdb = (DB *)db;
-    return pdb->error().message();
+bool remove(void* db, char* key) {
+    db = static_cast<DB*>(db);
+    string skey(key);
+    Status s = db->Delete(WriteOptions(), skey);
+    return s.ok()? true: false;
 }
 
 }

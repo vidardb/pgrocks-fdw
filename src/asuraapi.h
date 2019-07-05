@@ -36,32 +36,20 @@ extern "C" {
 /**
  * C wrapper
  */
-typedef struct {
-    void *db;                              /**< dummy member */
-} KVDB;
 
-typedef struct {
-    void *cur;                             /**< dummy member */
-} CUR;
+void* dbopen();
+void dbclose(void* db);
 
-KVDB *dbnew();
-void dbdel(KVDB *db);
-bool dbopen(KVDB *db, const char *host, int32_t port, double timeout);
-bool dbclose(KVDB *db);
+uint64_t dbcount(void* db);
 
-int64_t dbcount(KVDB *db);
+void* getiter(void* db);
+void delcur(void* it);
+bool next(void* db, void* it, char** key, char** value);
 
-CUR *getcur(KVDB *DB);
-void delcur(CUR *cur);
-bool next(KVDB *db, CUR *cur, char **key, char **value);
-bool get(KVDB *db, char *key, char **value);
+bool get(void* db, char* key, char** value);
+bool add(void* db, char* key, char* value);
+bool remove(void* db, char* key);
 
-bool add(KVDB *db, const char *key, const char *value);
-bool replace(KVDB *db, const char *key, const char *value);
-bool remove(KVDB *db, const char *key);
-
-const char *geterror(KVDB* db);
-const char *geterrormsg(KVDB* db);
 
 #if defined(__cplusplus)
 }

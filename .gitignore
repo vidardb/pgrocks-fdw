@@ -3,3 +3,4 @@
 *.bc
 .cproject
 .project
+kv_fdw--0.0.1.sql-sql

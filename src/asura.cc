@@ -1,4 +1,3 @@
-
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/options.h"
@@ -23,25 +22,21 @@ void* dbopen() {
 }
 
 void dbclose(void* db) {
-    db = static_cast<DB*>(db);
-    delete db;
+    if (db) delete static_cast<DB*>(db);
 }
 
 uint64_t dbcount(void* db) {
-    db = static_cast<DB*>(db);
     string num;
-    db->GetProperty("rocksdb.estimate-num-keys", &num);
+    static_cast<DB*>(db)->GetProperty("rocksdb.estimate-num-keys", &num);
     return stoull(num);
 }
 
 void* getiter(void* db) {
-    Iterator* it = db->NewIterator(ReadOptions());
-    return it;
+    return static_cast<DB*>(db)->NewIterator(ReadOptions());
 }
 
 void delcur(void* it) {
-    it = static_cast<Iterator*>(it);
-    delete it;
+    if (it) delete static_cast<Iterator*>(it);
 }
 
 bool next(void* db, void* it, char** key, char** value) {
@@ -55,9 +50,8 @@ bool next(void* db, void* it, char** key, char** value) {
 }
 
 bool get(void* db, char* key, char** value) {
-    db = static_cast<DB*>(db);
     string skey(key), sval;
-    Status s = db->Get(ReadOptions(), key, &sval);
+    Status s = static_cast<DB*>(db)->Get(ReadOptions(), key, &sval);
     if (!s.ok()) return false;
     *value = (char*) palloc(sval.length()+1);
     strcpy(*value, sval.c_str());
@@ -65,16 +59,14 @@ bool get(void* db, char* key, char** value) {
 }
 
 bool add(void* db, char* key, char* value) {
-    db = static_cast<DB*>(db);
     string skey(key), sval(value);
-    Status s = db->Put(WriteOptions(), skey, sval);
+    Status s = static_cast<DB*>(db)->Put(WriteOptions(), skey, sval);
     return s.ok()? true: false;
 }
 
 bool remove(void* db, char* key) {
-    db = static_cast<DB*>(db);
     string skey(key);
-    Status s = db->Delete(WriteOptions(), skey);
+    Status s = static_cast<DB*>(db)->Delete(WriteOptions(), skey);
     return s.ok()? true: false;
 }
 

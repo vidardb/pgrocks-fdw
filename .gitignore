@@ -1,3 +1,4 @@
 *.so
-.cproject
-.project
+*.o
+*.cproject
+*.project

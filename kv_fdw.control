@@ -1,0 +1,5 @@
+# KV FDW
+comment = 'KV Foreign Data Wrapper'
+default_version = '0.0.1'
+module_pathname = '$libdir/kv_fdw'
+relocatable = true

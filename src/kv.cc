@@ -3,13 +3,13 @@
 #include "rocksdb/options.h"
 using namespace rocksdb;
 
-#include "asuraapi.h"
+#include "kvapi.h"
 using namespace std;
 
 extern "C" {
 #include "postgres.h"
 
-std::string kDBPath = "/tmp/rocksdb_simple_example";
+string kDBPath = "/tmp/rocksdb_simple_example";
 
 void* Open() {
     DB* db;

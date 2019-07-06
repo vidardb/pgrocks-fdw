@@ -1,12 +1,12 @@
 /*
- * This is a C wrapper around Asura's C++ interface.
+ * This is a C wrapper around C++ interface.
  * Needed for PostgreSQL integration
  *
  */
 
 
-#ifndef _ASURAAPI_H                       /* duplication check */
-#define _ASURAAPI_H
+#ifndef _KVAPI_H                       /* duplication check */
+#define _KVAPI_H
 
 #if defined(__cplusplus)
 extern "C" {
@@ -32,6 +32,7 @@ extern "C" {
 #include <string.h>
 #include <time.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 /**
  * C wrapper

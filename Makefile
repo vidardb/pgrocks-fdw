@@ -1,6 +1,6 @@
 
 PG_CPPFLAGS += -Wno-declaration-after-statement
-EXTENSION    = asura_fdw
+EXTENSION    = kv_fdw
 EXTVERSION   = $(shell grep default_version $(EXTENSION).control | sed -e "s/default_version[[:space:]]*=[[:space:]]*'\([^']*\)'/\1/")
 
 DATA         = $(filter-out $(wildcard sql/*--*.sql),$(wildcard sql/*.sql))

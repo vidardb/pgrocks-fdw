@@ -21,52 +21,51 @@ PG_FUNCTION_INFO_V1(fdw_validator);
 /*
  * structures used by the FDW
  *
- * These next structures are not actually used by asura, but something like
+ * These next structures are not actually used, but something like
  * them will be needed by anything more complicated that does actual work.
  */
 
 /*
  * Describes the valid options for objects that use this wrapper.
  */
-struct asuraFdwOption {
+struct FdwOption {
     const char *optname;
     Oid optcontext; /* Oid of catalog in which option may appear */
 };
 
 /*
- * The plan state is set up in asuraGetForeignRelSize and stashed away in
- * baserel->fdw_private and fetched in asuraGetForeignPaths.
+ * The plan state is set up in GetForeignRelSize and stashed away in
+ * baserel->fdw_private and fetched in GetForeignPaths.
  */
 typedef struct {
     char *foo;
     int bar;
-} AsuraFdwPlanState;
+} FdwPlanState;
 
 /*
  * The scan state is for maintaining state for a scan, eiher for a
  * SELECT or UPDATE or DELETE.
  *
- * It is set up in asuraBeginForeignScan and stashed in node->fdw_state
- * and subsequently used in asuraIterateForeignScan,
- * asuraEndForeignScan and asuraReScanForeignScan.
+ * It is set up in BeginForeignScan and stashed in node->fdw_state
+ * and subsequently used in IterateForeignScan,
+ * EndForeignScan and ReScanForeignScan.
  */
 typedef struct {
     char *baz;
     int blurfl;
-} AsuraFdwScanState;
+} FdwScanState;
 
 /*
  * The modify state is for maintaining state of modify operations.
  *
- * It is set up in asuraBeginForeignModify and stashed in
- * rinfo->ri_FdwState and subsequently used in asuraExecForeignInsert,
- * asuraExecForeignUpdate, asuraExecForeignDelete and
- * asuraEndForeignModify.
+ * It is set up in BeginForeignModify and stashed in
+ * rinfo->ri_FdwState and subsequently used in ExecForeignInsert,
+ * ExecForeignUpdate, ExecForeignDelete and EndForeignModify.
  */
 typedef struct {
     char *chimp;
     int chump;
-} AsuraFdwModifyState;
+} FdwModifyState;
 
 static void *db = NULL;
 
@@ -94,7 +93,7 @@ static void GetForeignRelSize(PlannerInfo *root,
 
     baserel->rows = 0;
 
-    AsuraFdwPlanState *plan_state = palloc0(sizeof(AsuraFdwPlanState));
+    FdwPlanState *plan_state = palloc0(sizeof(FdwPlanState));
     baserel->fdw_private = (void *) plan_state;
 
     /* initialize required state in plan_state */
@@ -122,7 +121,7 @@ static void GetForeignPaths(PlannerInfo *root,
      */
 
     /*
-     * AsuraFdwPlanState *plan_state = baserel->fdw_private;
+     * FdwPlanState *plan_state = baserel->fdw_private;
      */
 
     elog(DEBUG1, "entering function %s", __func__);
@@ -163,9 +162,10 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
      * recommended to use make_foreignscan to build the ForeignScan node.
      *
      */
+    elog(DEBUG1, "entering function %s", __func__);
 
     /*
-     * AsuraFdwPlanState *plan_state = baserel->fdw_private;
+     * FdwPlanState *plan_state = baserel->fdw_private;
      */
 
     Index scan_relid = baserel->relid;
@@ -177,8 +177,6 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
      * nodes from the clauses and ignore pseudoconstants (which will be
      * handled elsewhere).
      */
-
-    elog(DEBUG1, "entering function %s", __func__);
 
     scan_clauses = extract_actual_clauses(scan_clauses, false);
 
@@ -213,11 +211,10 @@ static void BeginForeignScan(ForeignScanState *node, int eflags) {
      * ExplainForeignScan and EndForeignScan.
      *
      */
-
-    AsuraFdwScanState * scan_state = palloc0(sizeof(AsuraFdwScanState));
-    node->fdw_state = scan_state;
-
     elog(DEBUG1, "entering function %s", __func__);
+
+    FdwScanState * scan_state = palloc0(sizeof(FdwScanState));
+    node->fdw_state = scan_state;
 }
 
 static TupleTableSlot *IterateForeignScan(ForeignScanState *node) {
@@ -247,8 +244,8 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *node) {
      */
 
     /* ----
-     * AsuraFdwScanState *scan_state =
-     *	 (AsuraFdwScanState *) node->fdw_state;
+     * FdwScanState *scan_state =
+     *	 (FdwScanState *) node->fdw_state;
      * ----
      */
 
@@ -273,8 +270,8 @@ static void ReScanForeignScan(ForeignScanState *node) {
      */
 
     /* ----
-     * AsuraFdwScanState *scan_state =
-     *	 (AsuraFdwScanState *) node->fdw_state;
+     * FdwScanState *scan_state =
+     *	 (FdwScanState *) node->fdw_state;
      * ----
      */
 
@@ -290,8 +287,8 @@ static void EndForeignScan(ForeignScanState *node) {
      */
 
     /* ----
-     * AsuraFdwScanState *scan_state =
-     *	 (AsuraFdwScanState *) node->fdw_state;
+     * FdwScanState *scan_state =
+     *	 (FdwScanState *) node->fdw_state;
      * ----
      */
 
@@ -418,7 +415,7 @@ static void BeginForeignModify(ModifyTableState *mtstate,
      * during executor startup.
      */
 
-    AsuraFdwModifyState *modify_state = palloc0(sizeof(AsuraFdwModifyState));
+    FdwModifyState *modify_state = palloc0(sizeof(FdwModifyState));
     rinfo->ri_FdwState = modify_state;
 
     elog(DEBUG1, "entering function %s", __func__);
@@ -457,8 +454,8 @@ static TupleTableSlot *ExecForeignInsert(EState *estate,
      */
 
     /* ----
-     * AsuraFdwModifyState *modify_state =
-     *	 (AsuraFdwModifyState *) rinfo->ri_FdwState;
+     * FdwModifyState *modify_state =
+     *	 (FdwModifyState *) rinfo->ri_FdwState;
      * ----
      */
 
@@ -500,8 +497,8 @@ static TupleTableSlot *ExecForeignUpdate(EState *estate,
      */
 
     /* ----
-     * AsuraFdwModifyState *modify_state =
-     *	 (AsuraFdwModifyState *) rinfo->ri_FdwState;
+     * FdwModifyState *modify_state =
+     *	 (FdwModifyState *) rinfo->ri_FdwState;
      * ----
      */
 
@@ -540,8 +537,8 @@ static TupleTableSlot *ExecForeignDelete(EState *estate,
      */
 
     /* ----
-     * AsuraFdwModifyState *modify_state =
-     *	 (AsuraFdwModifyState *) rinfo->ri_FdwState;
+     * FdwModifyState *modify_state =
+     *	 (FdwModifyState *) rinfo->ri_FdwState;
      * ----
      */
 
@@ -562,8 +559,8 @@ static void EndForeignModify(EState *estate, ResultRelInfo *rinfo) {
      */
 
     /* ----
-     * AsuraFdwModifyState *modify_state =
-     *	 (AsuraFdwModifyState *) rinfo->ri_FdwState;
+     * FdwModifyState *modify_state =
+     *	 (FdwModifyState *) rinfo->ri_FdwState;
      * ----
      */
 
@@ -606,8 +603,8 @@ static void ExplainForeignModify(ModifyTableState *mtstate,
      */
 
     /* ----
-     * AsuraFdwModifyState *modify_state =
-     *	 (AsuraFdwModifyState *) rinfo->ri_FdwState;
+     * FdwModifyState *modify_state =
+     *	 (FdwModifyState *) rinfo->ri_FdwState;
      * ----
      */
 
@@ -797,7 +794,7 @@ static List *ImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid) {
 }
 
 Datum fdw_handler(PG_FUNCTION_ARGS) {
-    printf("\n-----------------asura_fdw_handler----------------------\n");
+    printf("\n-----------------fdw_handler----------------------\n");
     FdwRoutine *fdwroutine = makeNode(FdwRoutine);
 
     elog(DEBUG1, "entering function %s", __func__);
@@ -866,7 +863,7 @@ Datum fdw_validator(PG_FUNCTION_ARGS) {
         ereport(ERROR,
                 (errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
                  errmsg("invalid options"),
-                 errhint("Asura FDW does not support any options")));
+                 errhint("FDW does not support any options")));
 
     PG_RETURN_VOID();
 }

@@ -1,4 +1,5 @@
 #include "postgres.h"
+#include "asuraapi.h"
 
 #include "access/reloptions.h"
 #include "foreign/fdwapi.h"

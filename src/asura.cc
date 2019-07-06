@@ -11,7 +11,7 @@ extern "C" {
 
 std::string kDBPath = "/tmp/rocksdb_simple_example";
 
-void* dbopen() {
+void* Open() {
     DB* db;
     Options options;
     options.IncreaseParallelism();
@@ -21,25 +21,25 @@ void* dbopen() {
     return db;
 }
 
-void dbclose(void* db) {
+void Close(void* db) {
     if (db) delete static_cast<DB*>(db);
 }
 
-uint64_t dbcount(void* db) {
+uint64_t Count(void* db) {
     string num;
     static_cast<DB*>(db)->GetProperty("rocksdb.estimate-num-keys", &num);
     return stoull(num);
 }
 
-void* getiter(void* db) {
+void* GetIter(void* db) {
     return static_cast<DB*>(db)->NewIterator(ReadOptions());
 }
 
-void delcur(void* it) {
+void DelIter(void* it) {
     if (it) delete static_cast<Iterator*>(it);
 }
 
-bool next(void* db, void* it, char** key, char** value) {
+bool Next(void* db, void* it, char** key, char** value) {
     it = static_cast<Iterator*>(it);
     if (!it->Valid()) return false;
     *key = (char*) palloc(it->key().size()+1);
@@ -49,7 +49,7 @@ bool next(void* db, void* it, char** key, char** value) {
     return true;
 }
 
-bool get(void* db, char* key, char** value) {
+bool Get(void* db, char* key, char** value) {
     string skey(key), sval;
     Status s = static_cast<DB*>(db)->Get(ReadOptions(), key, &sval);
     if (!s.ok()) return false;
@@ -58,13 +58,13 @@ bool get(void* db, char* key, char** value) {
     return true;
 }
 
-bool add(void* db, char* key, char* value) {
+bool Put(void* db, char* key, char* value) {
     string skey(key), sval(value);
     Status s = static_cast<DB*>(db)->Put(WriteOptions(), skey, sval);
     return s.ok()? true: false;
 }
 
-bool remove(void* db, char* key) {
+bool Delete(void* db, char* key) {
     string skey(key);
     Status s = static_cast<DB*>(db)->Delete(WriteOptions(), skey);
     return s.ok()? true: false;

@@ -37,18 +37,18 @@ extern "C" {
  * C wrapper
  */
 
-void* dbopen();
-void dbclose(void* db);
+void* Open();
+void Close(void* db);
 
-uint64_t dbcount(void* db);
+uint64_t Count(void* db);
 
-void* getiter(void* db);
-void delcur(void* it);
-bool next(void* db, void* it, char** key, char** value);
+void* GetIter(void* db);
+void DelIter(void* it);
+bool Next(void* db, void* it, char** key, char** value);
 
-bool get(void* db, char* key, char** value);
-bool add(void* db, char* key, char* value);
-bool remove(void* db, char* key);
+bool Get(void* db, char* key, char** value);
+bool Put(void* db, char* key, char* value);
+bool Delete(void* db, char* key);
 
 
 #if defined(__cplusplus)

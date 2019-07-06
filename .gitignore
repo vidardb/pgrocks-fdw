@@ -1,5 +1,5 @@
 *.so
 *.o
 *.bc
-*.cproject
-*.project
+.cproject
+.project

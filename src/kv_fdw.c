@@ -1,13 +1,18 @@
-#include <src/kvapi.h>
+#include "kvapi.h"
 #include "postgres.h"
+
 #include "access/reloptions.h"
 #include "foreign/fdwapi.h"
 #include "foreign/foreign.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/planmain.h"
 #include "optimizer/restrictinfo.h"
+#include "funcapi.h"
 
 PG_MODULE_MAGIC;
+
+//taken from redis_fdw
+#define PROCID_TEXTEQ 67
 
 /*
  * SQL functions
@@ -51,8 +56,12 @@ typedef struct {
  * EndForeignScan and ReScanForeignScan.
  */
 typedef struct {
-    char *baz;
-    int blurfl;
+    void *db;
+    void *iter;
+    bool key_based_qual;
+    char *key_based_qual_value;
+    bool key_based_qual_sent;
+    AttInMetadata *attinmeta;
 } FdwScanState;
 
 /*
@@ -191,6 +200,46 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
                             outer_plan);
 }
 
+static void GetKeyBasedQual(Node *node,
+                            TupleDesc tupdesc,
+                            char **value,
+                            bool *key_based_qual) {
+    char *key = NULL;
+    *value = NULL;
+    *key_based_qual = false;
+
+    if (!node) return;
+
+    if (IsA(node, OpExpr)) {
+        OpExpr *op = (OpExpr *) node;
+        if (list_length(op->args) != 2) return;
+
+        Node *left = list_nth(op->args, 0);
+        if (!IsA(left, Var)) return;
+        Index varattno = ((Var *) left)->varattno;
+
+        Node *right = list_nth(op->args, 1);
+        if (IsA(right, Const)) {
+            StringInfoData buf;
+            initStringInfo(&buf);
+
+            /* And get the column and value... */
+            key = NameStr(tupdesc->attrs[varattno - 1].attname);  // ???????????
+            *value = TextDatumGetCString(((Const *) right)->constvalue);
+            /*
+             * We can push down this qual if: - The operatory is TEXTEQ - The
+             * qual is on the key column
+             */
+            if (op->opfuncid == PROCID_TEXTEQ && strcmp(key, "key") == 0) {
+                *key_based_qual = true;
+            }
+            return;
+        }
+    }
+
+    return;
+}
+
 static void BeginForeignScan(ForeignScanState *node, int eflags) {
     printf("\n-----------------BeginForeignScan----------------------\n");
     /*
@@ -213,8 +262,36 @@ static void BeginForeignScan(ForeignScanState *node, int eflags) {
      */
     elog(DEBUG1, "entering function %s", __func__);
 
-    FdwScanState * scan_state = palloc0(sizeof(FdwScanState));
-    node->fdw_state = scan_state;
+    FdwScanState *scan_state = palloc0(sizeof(FdwScanState));
+    scan_state->db = db;
+    scan_state->iter = NULL;
+    scan_state->key_based_qual = false;
+    scan_state->key_based_qual_value = NULL;
+    scan_state->key_based_qual_sent = false;
+    scan_state->attinmeta = NULL;
+
+    node->fdw_state = (void *) scan_state;
+
+    if (eflags & EXEC_FLAG_EXPLAIN_ONLY) return;
+
+    scan_state->attinmeta =
+            TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
+
+    if (node->ss.ps.plan->qual) {
+        ListCell *lc;
+        foreach(lc, node->ss.ps.qual) {
+            /* Only the first qual can be pushed down */
+            ExprState *state = lfirst(lc);
+            GetKeyBasedQual((Node *) state->expr,
+                            node->ss.ss_currentRelation->rd_att,
+                            &scan_state->key_based_qual_value,
+                            &scan_state->key_based_qual);
+            if (scan_state->key_based_qual) break;
+        }
+    }
+
+    if (!scan_state->key_based_qual)
+        scan_state->iter = GetIter(scan_state->db);
 }
 
 static TupleTableSlot *IterateForeignScan(ForeignScanState *node) {

@@ -8,6 +8,9 @@
 #include "optimizer/planmain.h"
 #include "optimizer/restrictinfo.h"
 #include "funcapi.h"
+#include "utils/rel.h"
+#include "utils/builtins.h"
+#include "nodes/makefuncs.h"
 
 PG_MODULE_MAGIC;
 
@@ -224,7 +227,7 @@ static void GetKeyBasedQual(Node *node,
             initStringInfo(&buf);
 
             /* And get the column and value... */
-            key = NameStr(tupdesc->attrs[varattno - 1].attname);  // ???????????
+            key = NameStr(tupdesc->attrs[varattno - 1].attname);
             *value = TextDatumGetCString(((Const *) right)->constvalue);
             /*
              * We can push down this qual if: - The operatory is TEXTEQ - The
@@ -268,18 +271,16 @@ static void BeginForeignScan(ForeignScanState *node, int eflags) {
     scan_state->key_based_qual = false;
     scan_state->key_based_qual_value = NULL;
     scan_state->key_based_qual_sent = false;
-    scan_state->attinmeta = NULL;
+    scan_state->attinmeta =
+            TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
 
     node->fdw_state = (void *) scan_state;
 
     if (eflags & EXEC_FLAG_EXPLAIN_ONLY) return;
 
-    scan_state->attinmeta =
-            TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
-
     if (node->ss.ps.plan->qual) {
         ListCell *lc;
-        foreach(lc, node->ss.ps.qual) {
+        foreach (lc, node->ss.ps.qual) {
             /* Only the first qual can be pushed down */
             ExprState *state = lfirst(lc);
             GetKeyBasedQual((Node *) state->expr,
@@ -290,8 +291,9 @@ static void BeginForeignScan(ForeignScanState *node, int eflags) {
         }
     }
 
-    if (!scan_state->key_based_qual)
+    if (!scan_state->key_based_qual) {
         scan_state->iter = GetIter(scan_state->db);
+    }
 }
 
 static TupleTableSlot *IterateForeignScan(ForeignScanState *node) {
@@ -326,13 +328,39 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *node) {
      * ----
      */
 
-    TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
-
     elog(DEBUG1, "entering function %s", __func__);
 
+
+    TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
     ExecClearTuple(slot);
 
+    FdwScanState *scan_state = (FdwScanState *) node->fdw_state;
+
+    bool found = false;
+    char *key;
+    char *value;
+
     /* get the next record, if any, and fill in the slot */
+    if (scan_state->key_based_qual) {
+        if (!scan_state->key_based_qual_sent) {
+            scan_state->key_based_qual_sent = true;
+            found = Get(scan_state->db, scan_state->key_based_qual_value, &value);
+        }
+    } else {
+        found = Next(scan_state->db, scan_state->iter, &key, &value);
+    }
+
+    if (found) {
+        char **values = (char **) palloc(sizeof(char *) * 2);
+        if (scan_state->key_based_qual) {
+            values[0] = scan_state->key_based_qual_value;
+        } else {
+            values[0] = key;
+        }
+        values[1] = value;
+        HeapTuple tuple = BuildTupleFromCStrings(scan_state->attinmeta, values);
+        ExecStoreTuple(tuple, slot, InvalidBuffer, false);
+    }
 
     /* then return the slot */
     return slot;
@@ -370,6 +398,19 @@ static void EndForeignScan(ForeignScanState *node) {
      */
 
     elog(DEBUG1, "entering function %s", __func__);
+
+    FdwScanState *scan_state = (FdwScanState *) node->fdw_state;
+
+    if (scan_state) {
+        if (scan_state->iter) {
+            DelIter(scan_state->iter);
+            scan_state->iter = NULL;
+        }
+
+        if (scan_state->db) {
+            scan_state->db = NULL;
+        }
+    }
 }
 
 static void AddForeignUpdateTargets(Query *parsetree,
@@ -404,6 +445,24 @@ static void AddForeignUpdateTargets(Query *parsetree,
      */
 
     elog(DEBUG1, "entering function %s", __func__);
+
+    Form_pg_attribute attr = &RelationGetDescr(target_relation)->attrs[0];
+
+    Var *varnode = makeVar(parsetree->resultRelation,
+                           attr->attnum,
+                           attr->atttypid,
+                           attr->atttypmod,
+                           attr->attcollation,
+                           0);
+    /* Wrap it in a resjunk TLE with the right name ... */
+    const char *attrname = "key_junk";
+    TargetEntry *entry = makeTargetEntry((Expr *) varnode,
+                                         list_length(parsetree->targetList) + 1,
+                                         pstrdup(attrname),
+                                         true);
+
+    /* ... and add it to the query's targetlist */
+    parsetree->targetList = lappend(parsetree->targetList, entry);
 }
 
 static List *PlanForeignModify(PlannerInfo *root,

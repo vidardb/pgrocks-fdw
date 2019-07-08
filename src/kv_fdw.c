@@ -551,10 +551,10 @@ static void BeginForeignModify(ModifyTableState *mtstate,
      * during executor startup.
      */
 
+    elog(DEBUG1, "entering function %s", __func__);
+
     FdwModifyState *modify_state = palloc0(sizeof(FdwModifyState));
     rinfo->ri_FdwState = modify_state;
-
-    elog(DEBUG1, "entering function %s", __func__);
 }
 
 static TupleTableSlot *ExecForeignInsert(EState *estate,

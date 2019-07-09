@@ -11,6 +11,7 @@
 #include "utils/rel.h"
 #include "utils/builtins.h"
 #include "nodes/makefuncs.h"
+#include "utils/lsyscache.h"
 
 PG_MODULE_MAGIC;
 
@@ -75,8 +76,11 @@ typedef struct {
  * ExecForeignUpdate, ExecForeignDelete and EndForeignModify.
  */
 typedef struct {
-    char *chimp;
-    int chump;
+    void *db;
+    Relation rel;
+    FmgrInfo *key_info;
+    FmgrInfo *value_info;
+    AttrNumber key_junk_no;
 } FdwModifyState;
 
 static void *db = NULL;
@@ -553,7 +557,37 @@ static void BeginForeignModify(ModifyTableState *mtstate,
 
     elog(DEBUG1, "entering function %s", __func__);
 
+    if (eflags & EXEC_FLAG_EXPLAIN_ONLY) return;
+
     FdwModifyState *modify_state = palloc0(sizeof(FdwModifyState));
+    modify_state->db = db;
+    modify_state->rel = rinfo->ri_RelationDesc;
+    modify_state->key_info = palloc0(sizeof(FmgrInfo));
+    modify_state->value_info = palloc0(sizeof(FmgrInfo));
+
+    CmdType operation = mtstate->operation;
+    if (operation == CMD_UPDATE || operation == CMD_DELETE) {
+        /* Find the ctid resjunk column in the subplan's result */
+        Plan *subplan = mtstate->mt_plans[subplan_index]->plan;
+        modify_state->key_junk_no =
+                ExecFindJunkAttributeInTlist(subplan->targetlist, "key_junk");
+        if (!AttributeNumberIsValid(modify_state->key_junk_no)) {
+            elog(ERROR, "could not find key junk column");
+        }
+    }
+
+    Form_pg_attribute attr = &RelationGetDescr(modify_state->rel)->attrs[0];
+    Assert(!attr->attisdropped);
+    Oid typefnoid;
+    bool isvarlena;
+    getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena);
+    fmgr_info(typefnoid, modify_state->key_info);
+
+    attr = &RelationGetDescr(modify_state->rel)->attrs[1];
+    Assert(!attr->attisdropped);
+    getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena);
+    fmgr_info(typefnoid, modify_state->value_info);
+
     rinfo->ri_FdwState = modify_state;
 }
 
@@ -597,6 +631,20 @@ static TupleTableSlot *ExecForeignInsert(EState *estate,
 
     elog(DEBUG1, "entering function %s", __func__);
 
+    FdwModifyState *modify_state = (FdwModifyState *) rinfo->ri_FdwState;
+
+    bool isnull;
+    Datum value = slot_getattr(planSlot, 1, &isnull);
+    if (isnull) elog(ERROR, "can't get key value");
+    char *key_value = OutputFunctionCall(modify_state->key_info, value);
+
+    value = slot_getattr(planSlot, 2, &isnull);
+    if (isnull) elog(ERROR, "can't get value value");
+    char *value_value = OutputFunctionCall(modify_state->value_info, value);
+
+    if (!Put(modify_state->db, key_value, value_value)) {
+        elog(ERROR, "Error from ExecForeignInsert");
+    }
     return slot;
 }
 
@@ -640,6 +688,33 @@ static TupleTableSlot *ExecForeignUpdate(EState *estate,
 
     elog(DEBUG1, "entering function %s", __func__);
 
+    FdwModifyState *modify_state = (FdwModifyState *) rinfo->ri_FdwState;
+
+    bool isnull;
+    Datum value = ExecGetJunkAttribute(planSlot,
+                                       modify_state->key_junk_no,
+                                       &isnull);
+    if (isnull) elog(ERROR, "can't get junk key value");
+    char *key_value = OutputFunctionCall(modify_state->key_info, value);
+
+    value = slot_getattr(planSlot, 1, &isnull);
+    if (isnull) elog(ERROR, "can't get new key value");
+    char *key_value_new = OutputFunctionCall(modify_state->key_info, value);
+    if (strcmp(key_value, key_value_new) != 0) {
+        elog(ERROR,
+             "You cannot update key values (original key value was %s)",
+             key_value);
+        return slot;
+    }
+
+    value = slot_getattr(planSlot, 2, &isnull);
+    if (isnull) elog(ERROR, "can't get value value");
+    char *value_value = OutputFunctionCall(modify_state->value_info, value);
+
+    if(!Put(modify_state->db, key_value, value_value)) {
+        elog(ERROR, "Error from ExecForeignUpdate");
+    }
+
     return slot;
 }
 
@@ -680,6 +755,18 @@ static TupleTableSlot *ExecForeignDelete(EState *estate,
 
     elog(DEBUG1, "entering function %s", __func__);
 
+    FdwModifyState *modify_state = (FdwModifyState *) rinfo->ri_FdwState;
+
+    bool isnull;
+    Datum value = ExecGetJunkAttribute(planSlot, modify_state->key_junk_no, &isnull);
+    if (isnull) elog(ERROR, "can't get key value");
+
+    char *key_value = OutputFunctionCall(modify_state->key_info, value);
+
+    if (!Delete(modify_state->db, key_value)) {
+        elog(ERROR, "Error from ExecForeignDelete");
+    }
+
     return slot;
 }
 
@@ -701,6 +788,10 @@ static void EndForeignModify(EState *estate, ResultRelInfo *rinfo) {
      */
 
     elog(DEBUG1, "entering function %s", __func__);
+
+    FdwModifyState *modify_state = (FdwModifyState *) rinfo->ri_FdwState;
+
+    if (modify_state && modify_state->db) modify_state->db = NULL;
 }
 
 static void ExplainForeignScan(ForeignScanState *node,

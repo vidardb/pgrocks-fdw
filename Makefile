@@ -10,9 +10,10 @@ TESTS        = $(wildcard test/sql/*.sql)
 REGRESS      = $(patsubst test/sql/%.sql,%,$(TESTS))
 REGRESS_OPTS = --inputdir=test --outputdir=test \
 	--load-language=plpgsql --load-extension=$(EXTENSION)
-MODULE_big      = $(EXTENSION)
-OBJS         =  $(patsubst %.c,%.o,$(wildcard src/*.c))
-PG_CONFIG    = pg_config
+MODULE_big   = $(EXTENSION)
+OBJS         =  $(patsubst %.c,%.o,$(wildcard src/*.c)) #src/kv.o
+PG_CONFIG    = /usr/lib/postgresql/11/bin/pg_config
+SHLIB_LINK   = -lrocksdb
 
 sql/$(EXTENSION)--$(EXTVERSION).sql: sql/$(EXTENSION).sql
 	cp $< $@

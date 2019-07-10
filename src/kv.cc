@@ -39,8 +39,8 @@ void DelIter(void* it) {
     if (it) delete static_cast<Iterator*>(it);
 }
 
-bool Next(void* db, void* it, char** key, char** value) {
-    it = static_cast<Iterator*>(it);
+bool Next(void* db, void* iter, char** key, char** value) {
+    Iterator* it = static_cast<Iterator*>(it);
     if (!it->Valid()) return false;
     *key = (char*) palloc(it->key().size()+1);
     *value = (char*) palloc(it->value().size()+1);

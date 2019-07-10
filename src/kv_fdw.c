@@ -21,11 +21,11 @@ PG_MODULE_MAGIC;
 /*
  * SQL functions
  */
-extern Datum fdw_handler(PG_FUNCTION_ARGS);
-extern Datum fdw_validator(PG_FUNCTION_ARGS);
+extern Datum kv_fdw_handler(PG_FUNCTION_ARGS);
+extern Datum kv_fdw_validator(PG_FUNCTION_ARGS);
 
-PG_FUNCTION_INFO_V1(fdw_handler);
-PG_FUNCTION_INFO_V1(fdw_validator);
+PG_FUNCTION_INFO_V1(kv_fdw_handler);
+PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 /*
  * structures used by the FDW
@@ -1020,7 +1020,7 @@ static List *ImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid) {
     return NULL;
 }
 
-Datum fdw_handler(PG_FUNCTION_ARGS) {
+Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
     printf("\n-----------------fdw_handler----------------------\n");
     FdwRoutine *fdwroutine = makeNode(FdwRoutine);
 
@@ -1077,7 +1077,7 @@ Datum fdw_handler(PG_FUNCTION_ARGS) {
     PG_RETURN_POINTER(fdwroutine);
 }
 
-Datum fdw_validator(PG_FUNCTION_ARGS) {
+Datum kv_fdw_validator(PG_FUNCTION_ARGS) {
     List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
 
     elog(DEBUG1, "entering function %s", __func__);

@@ -4,20 +4,23 @@
 using namespace rocksdb;
 
 #include "kvapi.h"
+#include <iostream>
 using namespace std;
 
 extern "C" {
 #include "postgres.h"
 
-string kDBPath = "/tmp/rocksdb_simple_example";
+string kDBPath = "/home/jsc/Desktop/tmp/";
 
 void* Open() {
+    cout<<"Open"<<endl;
     DB* db;
     Options options;
     options.IncreaseParallelism();
     options.create_if_missing = true;
     Status s = DB::Open(options, kDBPath, &db);
     assert(s.ok());
+    if (!s.ok()) cout<<"Open Error!"<<endl;
     return db;
 }
 

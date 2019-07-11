@@ -560,6 +560,7 @@ static void BeginForeignModify(ModifyTableState *mtstate,
     if (eflags & EXEC_FLAG_EXPLAIN_ONLY) return;
 
     FdwModifyState *modify_state = palloc0(sizeof(FdwModifyState));
+    if (!db) db = Open();
     modify_state->db = db;
     modify_state->rel = rinfo->ri_RelationDesc;
     modify_state->key_info = palloc0(sizeof(FmgrInfo));

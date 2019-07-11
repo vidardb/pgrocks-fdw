@@ -13,14 +13,12 @@ extern "C" {
 string kDBPath = "/home/jsc/Desktop/tmp/";
 
 void* Open() {
-    cout<<"Open"<<endl;
     DB* db;
     Options options;
     options.IncreaseParallelism();
     options.create_if_missing = true;
     Status s = DB::Open(options, kDBPath, &db);
     assert(s.ok());
-    if (!s.ok()) cout<<"Open Error!"<<endl;
     return db;
 }
 
@@ -62,6 +60,7 @@ bool Get(void* db, char* key, char** value) {
 }
 
 bool Put(void* db, char* key, char* value) {
+    cout<<"Put"<<endl;
     string skey(key), sval(value);
     Status s = static_cast<DB*>(db)->Put(WriteOptions(), skey, sval);
     return s.ok()? true: false;

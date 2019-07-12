@@ -1,19 +1,9 @@
-/*
- * This is a C wrapper around C++ interface.
- * Needed for PostgreSQL integration
- *
- */
 
-
-#ifndef _KVAPI_H                       /* duplication check */
+#ifndef _KVAPI_H
 #define _KVAPI_H
 
 #if defined(__cplusplus)
 extern "C" {
-#endif
-
-#if !defined(__STDC_LIMIT_MACROS)
-#define __STDC_LIMIT_MACROS  1           /**< enable limit macros for C++ */
 #endif
 
 #include <assert.h>
@@ -56,4 +46,4 @@ bool Delete(void* db, char* key);
 }
 #endif
 
-#endif                                   /* duplication check */
+#endif

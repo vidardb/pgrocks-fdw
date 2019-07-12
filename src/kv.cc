@@ -1,13 +1,14 @@
+
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/options.h"
 using namespace rocksdb;
-
-#include "kvapi.h"
-#include <iostream>
 using namespace std;
 
+#include "kvapi.h"
+
 extern "C" {
+
 #include "postgres.h"
 
 string kDBPath = "/home/jsc/Desktop/tmp/";
@@ -60,7 +61,6 @@ bool Get(void* db, char* key, char** value) {
 }
 
 bool Put(void* db, char* key, char* value) {
-    cout<<"Put"<<endl;
     string skey(key), sval(value);
     Status s = static_cast<DB*>(db)->Put(WriteOptions(), skey, sval);
     return s.ok()? true: false;

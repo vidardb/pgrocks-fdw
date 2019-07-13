@@ -35,7 +35,7 @@ uint64_t Count(void* db);
 
 void* GetIter(void* db);
 void DelIter(void* it);
-bool Next(void* db, void* it, char** key, char** value);
+bool Next(void* db, void* iter, char** key, char** value);
 
 bool Get(void* db, char* key, char** value);
 bool Put(void* db, char* key, char* value);

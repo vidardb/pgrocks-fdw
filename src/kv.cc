@@ -34,7 +34,9 @@ uint64_t Count(void* db) {
 }
 
 void* GetIter(void* db) {
-    return static_cast<DB*>(db)->NewIterator(ReadOptions());
+    Iterator* it = static_cast<DB*>(db)->NewIterator(ReadOptions());
+    it->SeekToFirst();
+    return it;
 }
 
 void DelIter(void* it) {
@@ -48,6 +50,7 @@ bool Next(void* db, void* iter, char** key, char** value) {
     *value = (char*) palloc(it->value().size()+1);
     strcpy(*key, it->key().data());
     strcpy(*value, it->value().data());
+    it->Next();
     return true;
 }
 

@@ -237,6 +237,7 @@ static void GetKeyBasedQual(Node *node,
              * We can push down this qual if: - The operatory is TEXTEQ - The
              * qual is on the key column
              */
+            printf("PROCID_TEXTEQ");
             if (op->opfuncid == PROCID_TEXTEQ && strcmp(key, "key") == 0) {
                 *key_based_qual = true;
             }
@@ -283,6 +284,7 @@ static void BeginForeignScan(ForeignScanState *node, int eflags) {
     if (eflags & EXEC_FLAG_EXPLAIN_ONLY) return;
 
     if (node->ss.ps.plan->qual) {
+        printf("\nqual\n");
         ListCell *lc;
         foreach (lc, node->ss.ps.qual) {
             /* Only the first qual can be pushed down */
@@ -291,7 +293,10 @@ static void BeginForeignScan(ForeignScanState *node, int eflags) {
                             node->ss.ss_currentRelation->rd_att,
                             &scan_state->key_based_qual_value,
                             &scan_state->key_based_qual);
-            if (scan_state->key_based_qual) break;
+            if (scan_state->key_based_qual) {
+                printf("\nkey_based_qual\n");
+                break;
+            }
         }
     }
 

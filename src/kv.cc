@@ -14,7 +14,7 @@ extern "C" {
 string kDBPath = "/home/jsc/Desktop/tmp/";
 
 void* Open() {
-    DB* db;
+    DB* db = nullptr;
     Options options;
     options.IncreaseParallelism();
     options.create_if_missing = true;
@@ -55,7 +55,7 @@ bool Next(void* db, void* iter, char** key, char** value) {
 }
 
 bool Get(void* db, char* key, char** value) {
-    string skey(key), sval;
+    string sval;
     Status s = static_cast<DB*>(db)->Get(ReadOptions(), key, &sval);
     if (!s.ok()) return false;
     *value = (char*) palloc(sval.length()+1);
@@ -64,14 +64,12 @@ bool Get(void* db, char* key, char** value) {
 }
 
 bool Put(void* db, char* key, char* value) {
-    string skey(key), sval(value);
-    Status s = static_cast<DB*>(db)->Put(WriteOptions(), skey, sval);
+    Status s = static_cast<DB*>(db)->Put(WriteOptions(), key, value);
     return s.ok()? true: false;
 }
 
 bool Delete(void* db, char* key) {
-    string skey(key);
-    Status s = static_cast<DB*>(db)->Delete(WriteOptions(), skey);
+    Status s = static_cast<DB*>(db)->Delete(WriteOptions(), key);
     return s.ok()? true: false;
 }
 

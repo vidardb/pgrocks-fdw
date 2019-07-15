@@ -107,8 +107,6 @@ static void GetForeignRelSize(PlannerInfo *root,
      */
     elog(DEBUG1, "entering function %s", __func__);
 
-    baserel->rows = 0;
-
     FdwPlanState *plan_state = palloc0(sizeof(FdwPlanState));
     baserel->fdw_private = (void *) plan_state;
 
@@ -271,6 +269,7 @@ static void BeginForeignScan(ForeignScanState *node, int eflags) {
     elog(DEBUG1, "entering function %s", __func__);
 
     FdwScanState *scan_state = palloc0(sizeof(FdwScanState));
+    if (!db) db = Open();
     scan_state->db = db;
     scan_state->iter = NULL;
     scan_state->key_based_qual = false;
@@ -286,10 +285,11 @@ static void BeginForeignScan(ForeignScanState *node, int eflags) {
     if (node->ss.ps.plan->qual) {
         printf("\nqual\n");
         ListCell *lc;
-        foreach (lc, node->ss.ps.qual) {
+        foreach (lc, node->ss.ps.plan->qual) {
             /* Only the first qual can be pushed down */
-            ExprState *state = lfirst(lc);
-            GetKeyBasedQual((Node *) state->expr,
+            printf("\nOnly the first qual can be pushed down\n");
+            Expr *state = lfirst(lc);
+            GetKeyBasedQual((Node *) state,
                             node->ss.ss_currentRelation->rd_att,
                             &scan_state->key_based_qual_value,
                             &scan_state->key_based_qual);
@@ -1084,6 +1084,7 @@ Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
 }
 
 Datum kv_fdw_validator(PG_FUNCTION_ARGS) {
+    printf("\n-----------------fdw_validator----------------------\n");
     List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
 
     elog(DEBUG1, "entering function %s", __func__);

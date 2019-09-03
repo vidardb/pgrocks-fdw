@@ -5,7 +5,7 @@
 using namespace rocksdb;
 using namespace std;
 
-#include "kvapi.h"
+#include "kv.h"
 
 extern "C" {
 

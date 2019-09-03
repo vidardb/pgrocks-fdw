@@ -1,26 +1,11 @@
 
-#ifndef _KVAPI_H
-#define _KVAPI_H
+#ifndef _KV_H
+#define _KV_H
 
 #if defined(__cplusplus)
 extern "C" {
 #endif
 
-#include <assert.h>
-#include <ctype.h>
-#include <errno.h>
-#include <float.h>
-#include <limits.h>
-#include <locale.h>
-#include <math.h>
-#include <setjmp.h>
-#include <stdarg.h>
-#include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <signal.h>
-#include <string.h>
-#include <time.h>
 #include <stdint.h>
 #include <stdbool.h>
 

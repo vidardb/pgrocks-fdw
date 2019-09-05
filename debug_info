@@ -1,0 +1,56 @@
+INSERT INTO test VALUES('a', 'a');
+-----------------fdw_handler----------------------
+-----------------PlanForeignModify----------------------
+-----------------fdw_handler----------------------
+-----------------IsForeignRelUpdatable----------------------
+-----------------BeginForeignModify----------------------
+-----------------ExecForeignInsert----------------------
+-----------------EndForeignModify----------------------
+
+SELECT * FROM test;
+-----------------GetForeignRelSize----------------------
+-----------------GetForeignPaths----------------------
+-----------------GetForeignPlan----------------------
+-----------------BeginForeignScan----------------------
+-----------------IterateForeignScan----------------------
+-----------------IterateForeignScan----------------------
+-----------------EndForeignScan----------------------
+
+UPDATE test SET value='b';
+-----------------AddForeignUpdateTargets----------------------
+-----------------GetForeignRelSize----------------------
+-----------------GetForeignPaths----------------------
+-----------------GetForeignPlan----------------------
+-----------------PlanForeignModify----------------------
+-----------------IsForeignRelUpdatable----------------------
+-----------------BeginForeignScan----------------------
+-----------------BeginForeignModify----------------------
+-----------------IterateForeignScan----------------------
+-----------------ExecForeignUpdate----------------------
+-----------------IterateForeignScan----------------------
+-----------------EndForeignModify----------------------
+-----------------EndForeignScan----------------------
+
+DELETE FROM test WHERE key='a';
+-----------------AddForeignUpdateTargets----------------------
+-----------------GetForeignRelSize----------------------
+-----------------GetForeignPaths----------------------
+-----------------GetForeignPlan----------------------
+-----------------PlanForeignModify----------------------
+-----------------IsForeignRelUpdatable----------------------
+-----------------BeginForeignScan----------------------
+-----------------BeginForeignModify----------------------
+-----------------IterateForeignScan----------------------
+-----------------ExecForeignDelete----------------------
+-----------------IterateForeignScan----------------------
+-----------------EndForeignModify----------------------
+-----------------EndForeignScan----------------------
+
+EXPLAIN select * from test;
+-----------------GetForeignRelSize----------------------
+-----------------GetForeignPaths----------------------
+-----------------GetForeignPlan----------------------
+-----------------BeginForeignScan----------------------
+-----------------ExplainForeignScan----------------------
+-----------------EndForeignScan----------------------
+

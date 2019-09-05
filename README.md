@@ -15,4 +15,5 @@ DROP SERVER kv_server;
 DROP EXTENSION kv_fdw;  
 
 # start PostgreSQL with debug mode
+sudo service postgresql stop  
 sudo -u postgres /usr/lib/postgresql/11/bin/postgres -d 0 -D /var/lib/postgresql/11/main -c config_file=/etc/postgresql/11/main/postgresql.conf  

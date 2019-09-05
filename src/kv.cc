@@ -1,6 +1,5 @@
 
 #include "rocksdb/db.h"
-#include "rocksdb/slice.h"
 #include "rocksdb/options.h"
 using namespace rocksdb;
 using namespace std;
@@ -24,7 +23,9 @@ void* Open() {
 }
 
 void Close(void* db) {
-    if (db) delete static_cast<DB*>(db);
+    if (db) {
+        delete static_cast<DB*>(db);
+    }
 }
 
 uint64_t Count(void* db) {
@@ -40,16 +41,20 @@ void* GetIter(void* db) {
 }
 
 void DelIter(void* it) {
-    if (it) delete static_cast<Iterator*>(it);
+    if (it) {
+        delete static_cast<Iterator*>(it);
+    }
 }
 
 bool Next(void* db, void* iter, char** key, char** value) {
     Iterator* it = static_cast<Iterator*>(iter);
     if (!it->Valid()) return false;
-    *key = (char*) palloc(it->key().size()+1);
-    *value = (char*) palloc(it->value().size()+1);
-    strcpy(*key, it->key().data());
-    strcpy(*value, it->value().data());
+    size_t keyLen = it->key().size() + 1, valLen = it->value().size() + 1;
+    *key = (char*) palloc0(keyLen);
+    *value = (char*) palloc0(valLen);
+    // assuming key & val in storage engine end without trailing zero
+    strncpy(*key, it->key().data(), keyLen-1);
+    strncpy(*value, it->value().data(), valLen-1);
     it->Next();
     return true;
 }
@@ -58,8 +63,8 @@ bool Get(void* db, char* key, char** value) {
     string sval;
     Status s = static_cast<DB*>(db)->Get(ReadOptions(), key, &sval);
     if (!s.ok()) return false;
-    *value = (char*) palloc(sval.length()+1);
-    strcpy(*value, sval.c_str());
+    *value = (char*) palloc0(sval.length()+1);
+    strncpy(*value, sval.c_str(), sval.length());
     return true;
 }
 

@@ -1,6 +1,6 @@
-#include <src/kv.h>
+#include "kv.h"
+#include "utility.h"
 #include "postgres.h"
-
 #include "access/reloptions.h"
 #include "foreign/fdwapi.h"
 #include "foreign/foreign.h"
@@ -85,6 +85,7 @@ typedef struct {
 
 static void *db = NULL;
 
+
 static void GetForeignRelSize(PlannerInfo *root,
                               RelOptInfo *baserel,
                               Oid foreigntableid) {
@@ -111,7 +112,9 @@ static void GetForeignRelSize(PlannerInfo *root,
     baserel->fdw_private = (void *) plan_state;
 
     /* initialize required state in plan_state */
-    if (!db) db = Open();
+    if (!db) {
+        db = Open();
+    }
     baserel->rows = Count(db);
 }
 
@@ -213,14 +216,20 @@ static void GetKeyBasedQual(Node *node,
     *value = NULL;
     *key_based_qual = false;
 
-    if (!node) return;
+    if (!node) {
+        return;
+    }
 
     if (IsA(node, OpExpr)) {
         OpExpr *op = (OpExpr *) node;
-        if (list_length(op->args) != 2) return;
+        if (list_length(op->args) != 2) {
+            return;
+        }
 
         Node *left = list_nth(op->args, 0);
-        if (!IsA(left, Var)) return;
+        if (!IsA(left, Var)) {
+            return;
+        }
         Index varattno = ((Var *) left)->varattno;
 
         Node *right = list_nth(op->args, 1);
@@ -269,7 +278,9 @@ static void BeginForeignScan(ForeignScanState *node, int eflags) {
     elog(DEBUG1, "entering function %s", __func__);
 
     FdwScanState *scan_state = palloc0(sizeof(FdwScanState));
-    if (!db) db = Open();
+    if (!db) {
+        db = Open();
+    }
     scan_state->db = db;
     scan_state->iter = NULL;
     scan_state->key_based_qual = false;
@@ -565,7 +576,9 @@ static void BeginForeignModify(ModifyTableState *mtstate,
     if (eflags & EXEC_FLAG_EXPLAIN_ONLY) return;
 
     FdwModifyState *modify_state = palloc0(sizeof(FdwModifyState));
-    if (!db) db = Open();
+    if (!db) {
+        db = Open();
+    }
     modify_state->db = db;
     modify_state->rel = rinfo->ri_RelationDesc;
     modify_state->key_info = palloc0(sizeof(FmgrInfo));
@@ -641,11 +654,15 @@ static TupleTableSlot *ExecForeignInsert(EState *estate,
 
     bool isnull;
     Datum value = slot_getattr(planSlot, 1, &isnull);
-    if (isnull) elog(ERROR, "can't get key value");
+    if (isnull) {
+        elog(ERROR, "can't get key value");
+    }
     char *key_value = OutputFunctionCall(modify_state->key_info, value);
 
     value = slot_getattr(planSlot, 2, &isnull);
-    if (isnull) elog(ERROR, "can't get value value");
+    if (isnull) {
+        elog(ERROR, "can't get value value");
+    }
     char *value_value = OutputFunctionCall(modify_state->value_info, value);
 
     if (!Put(modify_state->db, key_value, value_value)) {
@@ -700,11 +717,15 @@ static TupleTableSlot *ExecForeignUpdate(EState *estate,
     Datum value = ExecGetJunkAttribute(planSlot,
                                        modify_state->key_junk_no,
                                        &isnull);
-    if (isnull) elog(ERROR, "can't get junk key value");
+    if (isnull) {
+        elog(ERROR, "can't get junk key value");
+    }
     char *key_value = OutputFunctionCall(modify_state->key_info, value);
 
     value = slot_getattr(planSlot, 1, &isnull);
-    if (isnull) elog(ERROR, "can't get new key value");
+    if (isnull) {
+        elog(ERROR, "can't get new key value");
+    }
     char *key_value_new = OutputFunctionCall(modify_state->key_info, value);
     if (strcmp(key_value, key_value_new) != 0) {
         elog(ERROR,
@@ -714,10 +735,12 @@ static TupleTableSlot *ExecForeignUpdate(EState *estate,
     }
 
     value = slot_getattr(planSlot, 2, &isnull);
-    if (isnull) elog(ERROR, "can't get value value");
+    if (isnull) {
+        elog(ERROR, "can't get value value");
+    }
     char *value_value = OutputFunctionCall(modify_state->value_info, value);
 
-    if(!Put(modify_state->db, key_value, value_value)) {
+    if (!Put(modify_state->db, key_value, value_value)) {
         elog(ERROR, "Error from ExecForeignUpdate");
     }
 
@@ -765,7 +788,9 @@ static TupleTableSlot *ExecForeignDelete(EState *estate,
 
     bool isnull;
     Datum value = ExecGetJunkAttribute(planSlot, modify_state->key_junk_no, &isnull);
-    if (isnull) elog(ERROR, "can't get key value");
+    if (isnull) {
+        elog(ERROR, "can't get key value");
+    }
 
     char *key_value = OutputFunctionCall(modify_state->key_info, value);
 
@@ -797,7 +822,9 @@ static void EndForeignModify(EState *estate, ResultRelInfo *rinfo) {
 
     FdwModifyState *modify_state = (FdwModifyState *) rinfo->ri_FdwState;
 
-    if (modify_state && modify_state->db) modify_state->db = NULL;
+    if (modify_state && modify_state->db) {
+        modify_state->db = NULL;
+    }
 }
 
 static void ExplainForeignScan(ForeignScanState *node,

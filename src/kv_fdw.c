@@ -1,4 +1,3 @@
-#include "kv.h"
 #include "utility.h"
 #include "postgres.h"
 #include "access/reloptions.h"
@@ -17,12 +16,6 @@ PG_MODULE_MAGIC;
 
 //taken from redis_fdw
 #define PROCID_TEXTEQ 67
-
-/*
- * SQL functions
- */
-extern Datum kv_fdw_handler(PG_FUNCTION_ARGS);
-extern Datum kv_fdw_validator(PG_FUNCTION_ARGS);
 
 PG_FUNCTION_INFO_V1(kv_fdw_handler);
 PG_FUNCTION_INFO_V1(kv_fdw_validator);
@@ -113,7 +106,7 @@ static void GetForeignRelSize(PlannerInfo *root,
 
     /* initialize required state in plan_state */
     if (!db) {
-        db = Open();
+        db = Open("");
     }
     baserel->rows = Count(db);
 }
@@ -279,7 +272,7 @@ static void BeginForeignScan(ForeignScanState *node, int eflags) {
 
     FdwScanState *scan_state = palloc0(sizeof(FdwScanState));
     if (!db) {
-        db = Open();
+        db = Open("");
     }
     scan_state->db = db;
     scan_state->iter = NULL;
@@ -577,7 +570,7 @@ static void BeginForeignModify(ModifyTableState *mtstate,
 
     FdwModifyState *modify_state = palloc0(sizeof(FdwModifyState));
     if (!db) {
-        db = Open();
+        db = Open("");
     }
     modify_state->db = db;
     modify_state->rel = rinfo->ri_RelationDesc;

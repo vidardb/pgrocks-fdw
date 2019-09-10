@@ -12,12 +12,12 @@ extern "C" {
 
 string kDBPath = "/home/jsc/Desktop/tmp/";
 
-void* Open() {
+void* Open(char* path) {
     DB* db = nullptr;
     Options options;
     options.IncreaseParallelism();
     options.create_if_missing = true;
-    Status s = DB::Open(options, kDBPath, &db);
+    Status s = DB::Open(options, string(path), &db);
     assert(s.ok());
     return db;
 }

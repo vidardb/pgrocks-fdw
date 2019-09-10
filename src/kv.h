@@ -13,7 +13,7 @@ extern "C" {
  * C wrapper
  */
 
-void* Open();
+void* Open(char* path);
 void Close(void* db);
 
 uint64_t Count(void* db);

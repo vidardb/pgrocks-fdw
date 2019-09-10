@@ -1005,47 +1005,6 @@ static HeapTuple RefetchForeignRow(EState *estate,
     return NULL;
 }
 
-static List *ImportForeignSchema(ImportForeignSchemaStmt *stmt, Oid serverOid) {
-    printf("\n-----------------ImportForeignSchema----------------------\n");
-    /*
-     * Obtain a list of foreign table creation commands. This function is
-     * called when executing IMPORT FOREIGN SCHEMA, and is passed the parse
-     * tree for that statement, as well as the OID of the foreign server to
-     * use. It should return a list of C strings, each of which must contain a
-     * CREATE FOREIGN TABLE command. These strings will be parsed and executed
-     * by the core server.
-     *
-     * Within the ImportForeignSchemaStmt struct, remote_schema is the name of
-     * the remote schema from which tables are to be imported. list_type
-     * identifies how to filter table names: FDW_IMPORT_SCHEMA_ALL means that
-     * all tables in the remote schema should be imported (in this case
-     * table_list is empty), FDW_IMPORT_SCHEMA_LIMIT_TO means to include only
-     * tables listed in table_list, and FDW_IMPORT_SCHEMA_EXCEPT means to
-     * exclude the tables listed in table_list. options is a list of options
-     * used for the import process. The meanings of the options are up to the
-     * FDW. For example, an FDW could use an option to define whether the NOT
-     * NULL attributes of columns should be imported. These options need not
-     * have anything to do with those supported by the FDW as database object
-     * options.
-     *
-     * The FDW may ignore the local_schema field of the
-     * ImportForeignSchemaStmt, because the core server will automatically
-     * insert that name into the parsed CREATE FOREIGN TABLE commands.
-     *
-     * The FDW does not have to concern itself with implementing the filtering
-     * specified by list_type and table_list, either, as the core server will
-     * automatically skip any returned commands for tables excluded according
-     * to those options. However, it's often useful to avoid the work of
-     * creating commands for excluded tables in the first place. The function
-     * IsImportableForeignTable() may be useful to test whether a given
-     * foreign-table name will pass the filter.
-     */
-
-    elog(DEBUG1, "entering function %s", __func__);
-
-    return NULL;
-}
-
 Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
     printf("\n-----------------fdw_handler----------------------\n");
     FdwRoutine *fdwroutine = makeNode(FdwRoutine);
@@ -1096,9 +1055,6 @@ Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
     /* Support for locking foreign rows */
     fdwroutine->GetForeignRowMarkType = GetForeignRowMarkType;
     fdwroutine->RefetchForeignRow = RefetchForeignRow;
-
-    /* Support functions for IMPORT FOREIGN SCHEMA */
-    fdwroutine->ImportForeignSchema = ImportForeignSchema;
 
     PG_RETURN_POINTER(fdwroutine);
 }

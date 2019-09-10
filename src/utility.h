@@ -10,6 +10,9 @@
 #include "commands/event_trigger.h"
 #include "tcop/utility.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_class.h"
+#include "utils/lsyscache.h"
+#include "commands/defrem.h"
 #include "kv.h"
 
 #define KV_FDW_NAME "kv_fdw"
@@ -24,9 +27,37 @@
 
 PG_FUNCTION_INFO_V1(kv_ddl_event_end_trigger);
 
+/* Function declarations for extension loading and unloading */
+extern void _PG_init(void);
+extern void _PG_fini(void);
+
+/* local functions forward declarations */
+static void KVProcessUtility(PlannedStmt *plannedStatement, const char *queryString,
+                                 ProcessUtilityContext context,
+                                 ParamListInfo paramListInfo,
+                                 QueryEnvironment *queryEnvironment,
+                                 DestReceiver *destReceiver, char *completionTag);
+
 /* saved hook value in case of unload */
 static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
 
+/*
+ * _PG_init is called when the module is loaded. In this function we save the
+ * previous utility hook, and then install our hook to pre-intercept calls to
+ * the copy command.
+ */
+void _PG_init(void) {
+    PreviousProcessUtilityHook = ProcessUtility_hook;
+    ProcessUtility_hook = KVProcessUtility;
+}
+
+/*
+ * _PG_fini is called when the module is unloaded. This function uninstalls the
+ * extension's hooks.
+ */
+void _PG_fini(void) {
+    ProcessUtility_hook = PreviousProcessUtilityHook;
+}
 
 /* Checks if a directory exists for the given directory name. */
 static bool DirectoryExists(StringInfo directoryName) {
@@ -93,6 +124,27 @@ static void CreateDatabaseDirectory(Oid databaseOid) {
 static bool KVServer(ForeignServer *server) {
     char *fdwName = GetForeignDataWrapper(server->fdwid)->fdwname;
     return strncmp(fdwName, KV_FDW_NAME, NAMEDATALEN) == 0;
+}
+
+/*
+ * Checks if the given table name belongs to a foreign KV table.
+ * If it does, the function returns true. Otherwise, it returns false.
+ */
+static bool KVTable(Oid relationId) {
+    if (relationId == InvalidOid) {
+        return false;
+    }
+
+    char relationKind = get_rel_relkind(relationId);
+    if (relationKind == RELKIND_FOREIGN_TABLE) {
+        ForeignTable *foreignTable = GetForeignTable(relationId);
+        ForeignServer *server = GetForeignServer(foreignTable->serverid);
+        if (KVServer(server)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /*
@@ -165,8 +217,7 @@ static void RemoveDatabaseDirectory(Oid databaseOid) {
 }
 
 /*
- * DeleteTableFiles deletes the files for a kv table
- * whose data filename is given.
+ * Deletes the files for a kv table whose data filename is given.
  */
 static void DeleteTableFiles(char *filename) {
     StringInfo tableFooterFilename = makeStringInfo();
@@ -190,20 +241,46 @@ static void DeleteTableFiles(char *filename) {
 }
 
 /*
- * Extracts and returns the list of kv file names
+ * Walks over foreign table and foreign server options, and
+ * looks for the option with the given name. If found, the function returns the
+ * option's value. This function is unchanged from mongo_fdw.
+ */
+static char *GetOptionValue(Oid foreignTableId, const char *optionName) {
+    ForeignTable *foreignTable = GetForeignTable(foreignTableId);
+    ForeignServer *foreignServer = GetForeignServer(foreignTable->serverid);
+
+    List *optionList = NIL;
+    optionList = list_concat(optionList, foreignTable->options);
+    optionList = list_concat(optionList, foreignServer->options);
+
+    ListCell *optionCell = NULL;
+    foreach(optionCell, optionList) {
+        DefElem *optionDef = (DefElem *) lfirst(optionCell);
+        char *optionDefName = optionDef->defname;
+
+        if (strncmp(optionDefName, optionName, NAMEDATALEN) == 0) {
+            return defGetString(optionDef);
+        }
+    }
+
+    return NULL;
+}
+
+/*
+ * Extracts and returns the list of kv file (directory) names
  * from DROP table statement
  */
 static List *DroppedFilenameList(DropStmt *dropStatement) {
     List *droppedCStoreFileList = NIL;
 
-//    if (dropStatement->removeType == OBJECT_FOREIGN_TABLE) {
-//        ListCell *dropObjectCell = NULL;
-//        foreach(dropObjectCell, dropStatement->objects) {
-//            List *tableNameList = (List *) lfirst(dropObjectCell);
-//            RangeVar *rangeVar = makeRangeVarFromNameList(tableNameList);
-//
-//            Oid relationId = RangeVarGetRelid(rangeVar, AccessShareLock, true);
-//            if (CStoreTable(relationId)) {
+    if (dropStatement->removeType == OBJECT_FOREIGN_TABLE) {
+        ListCell *dropObjectCell = NULL;
+        foreach(dropObjectCell, dropStatement->objects) {
+            List *tableNameList = (List *) lfirst(dropObjectCell);
+            RangeVar *rangeVar = makeRangeVarFromNameList(tableNameList);
+
+            Oid relationId = RangeVarGetRelid(rangeVar, AccessShareLock, true);
+            if (KVTable(relationId)) {
 //                CStoreFdwOptions *cstoreFdwOptions = CStoreGetOptions(relationId);
 //                char *defaultfilename = CStoreDefaultFilePath(relationId);
 //
@@ -218,15 +295,15 @@ static List *DroppedFilenameList(DropStmt *dropStatement) {
 //
 //                droppedCStoreFileList = lappend(droppedCStoreFileList,
 //                                                cstoreFdwOptions->filename);
-//            }
-//        }
-//    }
+            }
+        }
+    }
 
     return droppedCStoreFileList;
 }
 
 /*
- * The hook for handling utility commands. This function
+ * Hook for handling utility commands. This function
  * customizes the behavior of "DROP FOREIGN TABLE " commands.
  * For all other utility statements, the function calls
  * the previous utility hook or the standard utility command via macro
@@ -240,18 +317,18 @@ static void KVProcessUtility(PlannedStmt *plannedStatement,
                            DestReceiver *destReceiver,
                            char *completionTag) {
     Node *parseTree = plannedStatement->utilityStmt;
-
+    printf("\n~~~~~~~~~~~~~~KVProcessUtility~~~~~~~~~~~~~~\n");
     if (nodeTag(parseTree) == T_DropStmt) {
+        printf("\n~~~~~~~~~~~~~~drop statement~~~~~~~~~~~~~~\n");
         DropStmt *dropStmt = (DropStmt *) parseTree;
         if (dropStmt->removeType == OBJECT_EXTENSION) {
+            printf("\n~~~~~~~~~~~~~~drop extension ~~~~~~~~~~~~~~\n");
             bool removeDirectory = false;
             ListCell *objectCell = NULL;
             foreach(objectCell, dropStmt->objects) {
                 Node *object = (Node *) lfirst(objectCell);
-
                 Assert(IsA(object, String));
                 char *objectName = strVal(object);
-
                 if (strncmp(KV_FDW_NAME, objectName, NAMEDATALEN) == 0) {
                     removeDirectory = true;
                 }
@@ -268,6 +345,7 @@ static void KVProcessUtility(PlannedStmt *plannedStatement,
                 RemoveDatabaseDirectory(MyDatabaseId);
             }
         } else {
+            printf("\n~~~~~~~~~~~~~~drop others ~~~~~~~~~~~~~~\n");
             CALL_PREVIOUS_UTILITY(parseTree,
                                   queryString,
                                   context,
@@ -277,13 +355,13 @@ static void KVProcessUtility(PlannedStmt *plannedStatement,
 
             ListCell *fileListCell = NULL;
             List *droppedTables = DroppedFilenameList((DropStmt *) parseTree);
-
             foreach(fileListCell, droppedTables) {
                 char *fileName = lfirst(fileListCell);
                 DeleteTableFiles(fileName);
             }
         }
     } else {
+        printf("\n~~~~~~~~~~~~~~other utilies ~~~~~~~~~~~~~~\n");
         /* handle other utility statements */
         CALL_PREVIOUS_UTILITY(parseTree,
                               queryString,

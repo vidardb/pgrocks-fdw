@@ -2,6 +2,8 @@
 
 sudo service postgresql restart  
 sudo -u postgres psql
+CREATE DATABASE kv;  
+\c kv
 
 CREATE EXTENSION kv_fdw;  
 CREATE SERVER kv_server FOREIGN DATA WRAPPER kv_fdw;  
@@ -13,6 +15,9 @@ SELECT * FROM test;
 DROP FOREIGN TABLE test;  
 DROP SERVER kv_server;  
 DROP EXTENSION kv_fdw;  
+
+\c postgres
+DROP DATABASE kv;
 
 # start PostgreSQL with debug mode
 sudo service postgresql stop  

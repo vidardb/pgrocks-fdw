@@ -10,9 +10,10 @@
 #include "commands/event_trigger.h"
 #include "tcop/utility.h"
 #include "catalog/namespace.h"
-#include "catalog/pg_class.h"
 #include "utils/lsyscache.h"
 #include "commands/defrem.h"
+#include "access/heapam.h"
+#include "utils/rel.h"
 #include "kv.h"
 
 #define KV_FDW_NAME "kv_fdw"
@@ -167,9 +168,14 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
             CreateDatabaseDirectory(MyDatabaseId);
         }
     } else if (nodeTag(parseTree) == T_CreateForeignTableStmt) {
-        CreateForeignTableStmt *createStmt = (CreateForeignTableStmt *) parseTree;
-        ForeignServer *server = GetForeignServerByName(createStmt->servername, false);
+        CreateForeignTableStmt *tableStmt = (CreateForeignTableStmt *) parseTree;
+        ForeignServer *server = GetForeignServerByName(tableStmt->servername, false);
         if (KVServer(server)) {
+            Oid relationId = RangeVarGetRelid(tableStmt->base.relation,
+                                              AccessShareLock,
+                                              false);
+
+            Relation relation = heap_open(relationId, AccessExclusiveLock);
             /*
              * Make sure database directory exists before creating a table.
              * This is necessary when a foreign server is created inside
@@ -179,9 +185,6 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
              */
             CreateDatabaseDirectory(MyDatabaseId);
 
-            Oid relationId = RangeVarGetRelid(createStmt->base.relation,
-                                              AccessShareLock,
-                                              false);
             StringInfo kvPath = makeStringInfo();
             appendStringInfo(kvPath,
                              "%s/%s/%u/%u",
@@ -192,6 +195,8 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
 
             void *kvDB = Open(kvPath->data);
             Close(kvDB);
+
+            heap_close(relation, AccessExclusiveLock);
         }
     }
 
@@ -217,53 +222,24 @@ static void RemoveDatabaseDirectory(Oid databaseOid) {
 }
 
 /*
- * Deletes the files for a kv table whose data filename is given.
+ * Constructs the default file path to use for a kv_fdw table.
+ * The path is of the form $PGDATA/cstore_fdw/{databaseOid}/{relfilenode}.
  */
-static void DeleteTableFiles(char *filename) {
-    StringInfo tableFooterFilename = makeStringInfo();
-    appendStringInfo(tableFooterFilename, "%s", filename);
+static char *DefaultFilePath(Oid foreignTableId) {
+    Relation relation = relation_open(foreignTableId, AccessShareLock);
+    RelFileNode relationFileNode = relation->rd_node;
 
-    /* delete the footer file */
-    int footerFileRemoved = unlink(tableFooterFilename->data);
-    if (footerFileRemoved != 0) {
-        ereport(WARNING, (errcode_for_file_access(),
-                          errmsg("could not delete file \"%s\": %m",
-                                 tableFooterFilename->data)));
-    }
+    StringInfo filePath = makeStringInfo();
+    appendStringInfo(filePath,
+                     "%s/%s/%u/%u",
+                     DataDir,
+                     KV_FDW_NAME,
+                     relationFileNode.dbNode,
+                     relationFileNode.relNode);
 
-    /* delete the data file */
-    int dataFileRemoved = unlink(filename);
-    if (dataFileRemoved != 0) {
-        ereport(WARNING, (errcode_for_file_access(),
-                          errmsg("could not delete file \"%s\": %m",
-                                 filename)));
-    }
-}
+    relation_close(relation, AccessShareLock);
 
-/*
- * Walks over foreign table and foreign server options, and
- * looks for the option with the given name. If found, the function returns the
- * option's value. This function is unchanged from mongo_fdw.
- */
-static char *GetOptionValue(Oid foreignTableId, const char *optionName) {
-    ForeignTable *foreignTable = GetForeignTable(foreignTableId);
-    ForeignServer *foreignServer = GetForeignServer(foreignTable->serverid);
-
-    List *optionList = NIL;
-    optionList = list_concat(optionList, foreignTable->options);
-    optionList = list_concat(optionList, foreignServer->options);
-
-    ListCell *optionCell = NULL;
-    foreach(optionCell, optionList) {
-        DefElem *optionDef = (DefElem *) lfirst(optionCell);
-        char *optionDefName = optionDef->defname;
-
-        if (strncmp(optionDefName, optionName, NAMEDATALEN) == 0) {
-            return defGetString(optionDef);
-        }
-    }
-
-    return NULL;
+    return filePath->data;
 }
 
 /*
@@ -271,35 +247,22 @@ static char *GetOptionValue(Oid foreignTableId, const char *optionName) {
  * from DROP table statement
  */
 static List *DroppedFilenameList(DropStmt *dropStatement) {
-    List *droppedCStoreFileList = NIL;
-
+    List *droppedFileList = NIL;
     if (dropStatement->removeType == OBJECT_FOREIGN_TABLE) {
+
         ListCell *dropObjectCell = NULL;
         foreach(dropObjectCell, dropStatement->objects) {
             List *tableNameList = (List *) lfirst(dropObjectCell);
             RangeVar *rangeVar = makeRangeVarFromNameList(tableNameList);
-
             Oid relationId = RangeVarGetRelid(rangeVar, AccessShareLock, true);
+
             if (KVTable(relationId)) {
-//                CStoreFdwOptions *cstoreFdwOptions = CStoreGetOptions(relationId);
-//                char *defaultfilename = CStoreDefaultFilePath(relationId);
-//
-//                /*
-//                 * Skip files that are placed in default location, they are handled
-//                 * by sql drop trigger. Both paths are generated by code, use
-//                 * of strcmp is safe here.
-//                 */
-//                if (strcmp(defaultfilename, cstoreFdwOptions->filename) == 0) {
-//                    continue;
-//                }
-//
-//                droppedCStoreFileList = lappend(droppedCStoreFileList,
-//                                                cstoreFdwOptions->filename);
+                char *defaultFilename = DefaultFilePath(relationId);
+                droppedFileList = lappend(droppedFileList, defaultFilename);
             }
         }
     }
-
-    return droppedCStoreFileList;
+    return droppedFileList;
 }
 
 /*
@@ -317,12 +280,10 @@ static void KVProcessUtility(PlannedStmt *plannedStatement,
                            DestReceiver *destReceiver,
                            char *completionTag) {
     Node *parseTree = plannedStatement->utilityStmt;
-    printf("\n~~~~~~~~~~~~~~KVProcessUtility~~~~~~~~~~~~~~\n");
     if (nodeTag(parseTree) == T_DropStmt) {
-        printf("\n~~~~~~~~~~~~~~drop statement~~~~~~~~~~~~~~\n");
         DropStmt *dropStmt = (DropStmt *) parseTree;
         if (dropStmt->removeType == OBJECT_EXTENSION) {
-            printf("\n~~~~~~~~~~~~~~drop extension ~~~~~~~~~~~~~~\n");
+
             bool removeDirectory = false;
             ListCell *objectCell = NULL;
             foreach(objectCell, dropStmt->objects) {
@@ -345,7 +306,9 @@ static void KVProcessUtility(PlannedStmt *plannedStatement,
                 RemoveDatabaseDirectory(MyDatabaseId);
             }
         } else {
-            printf("\n~~~~~~~~~~~~~~drop others ~~~~~~~~~~~~~~\n");
+            ListCell *fileListCell = NULL;
+            List *droppedTables = DroppedFilenameList((DropStmt *) parseTree);
+
             CALL_PREVIOUS_UTILITY(parseTree,
                                   queryString,
                                   context,
@@ -353,15 +316,16 @@ static void KVProcessUtility(PlannedStmt *plannedStatement,
                                   destReceiver,
                                   completionTag);
 
-            ListCell *fileListCell = NULL;
-            List *droppedTables = DroppedFilenameList((DropStmt *) parseTree);
             foreach(fileListCell, droppedTables) {
-                char *fileName = lfirst(fileListCell);
-                DeleteTableFiles(fileName);
+                char *path = lfirst(fileListCell);
+                StringInfo tablePath = makeStringInfo();
+                appendStringInfo(tablePath, "%s", path);
+                if (DirectoryExists(tablePath)) {
+                    rmtree(path, true);
+                }
             }
         }
     } else {
-        printf("\n~~~~~~~~~~~~~~other utilies ~~~~~~~~~~~~~~\n");
         /* handle other utility statements */
         CALL_PREVIOUS_UTILITY(parseTree,
                               queryString,

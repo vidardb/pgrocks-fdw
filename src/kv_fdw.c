@@ -1,4 +1,4 @@
-#include "utility.h"
+#include <src/kv_utility.h>
 #include "postgres.h"
 #include "access/reloptions.h"
 #include "foreign/fdwapi.h"

@@ -24,26 +24,8 @@
 
 #define CALL_PREVIOUS_UTILITY(parseTree, queryString, context, paramListInfo, \
                               destReceiver, completionTag) \
-    PREVIOUS_UTILITY(plannedStatement, queryString, context, paramListInfo, \
+    PREVIOUS_UTILITY(plannedStmt, queryString, context, paramListInfo, \
                      queryEnvironment, destReceiver, completionTag)
-
-PG_FUNCTION_INFO_V1(kv_ddl_event_end_trigger);
-
-/* Function declarations for extension loading and unloading */
-extern void _PG_init(void);
-extern void _PG_fini(void);
-
-/* local functions forward declarations */
-static void KVProcessUtility(PlannedStmt *plannedStatement, const char *queryString,
-                                 ProcessUtilityContext context,
-                                 ParamListInfo paramListInfo,
-                                 QueryEnvironment *queryEnvironment,
-                                 DestReceiver *destReceiver, char *completionTag);
-static void KVShmemStartup(void);
-
-/* saved hook value in case of unload */
-static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
-static shmem_startup_hook_type PreviousShmemStartupHook = NULL;
 
 /* Holds the option values to be used when reading or writing files.
  * To resolve these values, we first check foreign table's options,
@@ -52,6 +34,29 @@ static shmem_startup_hook_type PreviousShmemStartupHook = NULL;
 typedef struct {
     char *filename;
 } FdwOptions;
+
+/*
+ * SQL functions
+ */
+PG_FUNCTION_INFO_V1(kv_ddl_event_end_trigger);
+
+/* Function declarations for extension loading and unloading */
+extern void _PG_init(void);
+extern void _PG_fini(void);
+
+/* local functions forward declarations */
+static void KVProcessUtility(PlannedStmt *plannedStmt,
+                             const char *queryString,
+                             ProcessUtilityContext context,
+                             ParamListInfo paramListInfo,
+                             QueryEnvironment *queryEnvironment,
+                             DestReceiver *destReceiver,
+                             char *completionTag);
+static void KVShmemStartup(void);
+
+/* saved hook value in case of unload */
+static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
+static shmem_startup_hook_type PreviousShmemStartupHook = NULL;
 
 
 /*
@@ -157,6 +162,7 @@ static bool KVTable(Oid relationId) {
     if (relationKind == RELKIND_FOREIGN_TABLE) {
         ForeignTable *foreignTable = GetForeignTable(relationId);
         ForeignServer *server = GetForeignServer(foreignTable->serverid);
+
         if (KVServer(server)) {
             return true;
         }
@@ -263,12 +269,13 @@ static char *KVDefaultFilePath(Oid foreignTableId) {
  * Extracts and returns the list of kv file (directory) names
  * from DROP table statement
  */
-static List *KVDroppedFilenameList(DropStmt *dropStatement) {
+static List *KVDroppedFilenameList(DropStmt *dropStmt) {
     List *droppedFileList = NIL;
-    if (dropStatement->removeType == OBJECT_FOREIGN_TABLE) {
+    if (dropStmt->removeType == OBJECT_FOREIGN_TABLE) {
 
         ListCell *dropObjectCell = NULL;
-        foreach(dropObjectCell, dropStatement->objects) {
+        foreach(dropObjectCell, dropStmt->objects) {
+
             List *tableNameList = (List *) lfirst(dropObjectCell);
             RangeVar *rangeVar = makeRangeVarFromNameList(tableNameList);
             Oid relationId = RangeVarGetRelid(rangeVar, AccessShareLock, true);
@@ -289,21 +296,23 @@ static List *KVDroppedFilenameList(DropStmt *dropStatement) {
  * the previous utility hook or the standard utility command via macro
  * CALL_PREVIOUS_UTILITY.
  */
-static void KVProcessUtility(PlannedStmt *plannedStatement,
+static void KVProcessUtility(PlannedStmt *plannedStmt,
                            const char *queryString,
                            ProcessUtilityContext context,
                            ParamListInfo paramListInfo,
                            QueryEnvironment *queryEnvironment,
                            DestReceiver *destReceiver,
                            char *completionTag) {
-    Node *parseTree = plannedStatement->utilityStmt;
+    Node *parseTree = plannedStmt->utilityStmt;
     if (nodeTag(parseTree) == T_DropStmt) {
+
         DropStmt *dropStmt = (DropStmt *) parseTree;
         if (dropStmt->removeType == OBJECT_EXTENSION) {
-
+            /* drop extension */
             bool removeDirectory = false;
             ListCell *objectCell = NULL;
             foreach(objectCell, dropStmt->objects) {
+
                 Node *object = (Node *) lfirst(objectCell);
                 Assert(IsA(object, String));
                 char *objectName = strVal(object);
@@ -323,7 +332,7 @@ static void KVProcessUtility(PlannedStmt *plannedStatement,
                 KVRemoveDatabaseDirectory(MyDatabaseId);
             }
         } else {
-            ListCell *fileListCell = NULL;
+            /* drop table */
             List *droppedTables = KVDroppedFilenameList((DropStmt *) parseTree);
 
             CALL_PREVIOUS_UTILITY(parseTree,
@@ -333,6 +342,7 @@ static void KVProcessUtility(PlannedStmt *plannedStatement,
                                   destReceiver,
                                   completionTag);
 
+            ListCell *fileListCell = NULL;
             foreach(fileListCell, droppedTables) {
                 char *path = lfirst(fileListCell);
                 StringInfo tablePath = makeStringInfo();

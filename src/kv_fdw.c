@@ -32,8 +32,8 @@ typedef struct {
  * The scan state is for maintaining state for a scan, either for a
  * SELECT or UPDATE or DELETE.
  *
- * It is set up in BeginForeignScan and stashed in node->fdw_state
- * and subsequently used in IterateForeignScan, EndForeignScan and ReScanForeignScan.
+ * It is set up in BeginForeignScan and stashed in node->fdw_state and
+ * subsequently used in IterateForeignScan, EndForeignScan and ReScanForeignScan.
  */
 typedef struct {
     void *db;
@@ -80,6 +80,7 @@ static void GetForeignRelSize(PlannerInfo *root,
      * possible. The function may also choose to update baserel->width if it
      * can compute a better estimate of the average result row width.
      */
+
     elog(DEBUG1, "entering function %s", __func__);
 
     TablePlanState *tablePlanState = palloc0(sizeof(TablePlanState));
@@ -149,6 +150,7 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
      * recommended to use make_foreignscan to build the ForeignScan node.
      *
      */
+
     elog(DEBUG1, "entering function %s", __func__);
 
     /*
@@ -245,6 +247,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
      * ExplainForeignScan and EndForeignScan.
      *
      */
+
     elog(DEBUG1, "entering function %s", __func__);
 
     if (executorFlags & EXEC_FLAG_EXPLAIN_ONLY) {
@@ -370,6 +373,7 @@ static void EndForeignScan(ForeignScanState *scanState) {
      * release palloc'd memory, but for example open files and connections to
      * remote servers should be cleaned up.
      */
+
     elog(DEBUG1, "entering function %s", __func__);
 
     TableReadState *tableReadState = (TableReadState *) scanState->fdw_state;
@@ -574,6 +578,7 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
      * into the foreign table will fail with an error message.
      *
      */
+
     elog(DEBUG1, "entering function %s", __func__);
 
     TableWriteState *tableWriteState = (TableWriteState *) relationInfo->ri_FdwState;
@@ -628,6 +633,7 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
      * foreign table will fail with an error message.
      *
      */
+
     elog(DEBUG1, "entering function %s", __func__);
 
     TableWriteState *tableWriteState = (TableWriteState *) relationInfo->ri_FdwState;
@@ -694,6 +700,7 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
      * If the ExecForeignDelete pointer is set to NULL, attempts to delete
      * from the foreign table will fail with an error message.
      */
+
     elog(DEBUG1, "entering function %s", __func__);
 
     TableWriteState *tableWriteState = (TableWriteState *) relationInfo->ri_FdwState;
@@ -723,6 +730,7 @@ static void EndForeignModify(EState *executorState, ResultRelInfo *relationInfo)
      * If the EndForeignModify pointer is set to NULL, no action is taken
      * during executor shutdown.
      */
+
     elog(DEBUG1, "entering function %s", __func__);
 
     TableWriteState *tableWriteState = (TableWriteState *) relationInfo->ri_FdwState;
@@ -809,7 +817,7 @@ static bool AnalyzeForeignTable(Relation relation,
 
 Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
     printf("\n-----------------fdw_handler----------------------\n");
-    FdwRoutine *fdwroutine = makeNode(FdwRoutine);
+    FdwRoutine *fdwRoutine = makeNode(FdwRoutine);
 
     elog(DEBUG1, "entering function %s", __func__);
 
@@ -825,30 +833,30 @@ Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
     /* Required by notations: S=SELECT I=INSERT U=UPDATE D=DELETE */
 
     /* these are required */
-    fdwroutine->GetForeignRelSize = GetForeignRelSize; /* S U D */
-    fdwroutine->GetForeignPaths = GetForeignPaths; /* S U D */
-    fdwroutine->GetForeignPlan = GetForeignPlan; /* S U D */
-    fdwroutine->BeginForeignScan = BeginForeignScan; /* S U D */
-    fdwroutine->IterateForeignScan = IterateForeignScan; /* S */
-    fdwroutine->ReScanForeignScan = ReScanForeignScan; /* S */
-    fdwroutine->EndForeignScan = EndForeignScan; /* S U D */
+    fdwRoutine->GetForeignRelSize = GetForeignRelSize; /* S U D */
+    fdwRoutine->GetForeignPaths = GetForeignPaths; /* S U D */
+    fdwRoutine->GetForeignPlan = GetForeignPlan; /* S U D */
+    fdwRoutine->BeginForeignScan = BeginForeignScan; /* S U D */
+    fdwRoutine->IterateForeignScan = IterateForeignScan; /* S */
+    fdwRoutine->ReScanForeignScan = ReScanForeignScan; /* S */
+    fdwRoutine->EndForeignScan = EndForeignScan; /* S U D */
 
     /* remainder are optional - use NULL if not required */
     /* support for insert / update / delete */
-    fdwroutine->AddForeignUpdateTargets = AddForeignUpdateTargets; /* U D */
-    fdwroutine->PlanForeignModify = PlanForeignModify; /* I U D */
-    fdwroutine->BeginForeignModify = BeginForeignModify; /* I U D */
-    fdwroutine->ExecForeignInsert = ExecForeignInsert; /* I */
-    fdwroutine->ExecForeignUpdate = ExecForeignUpdate; /* U */
-    fdwroutine->ExecForeignDelete = ExecForeignDelete; /* D */
-    fdwroutine->EndForeignModify = EndForeignModify; /* I U D */
+    fdwRoutine->AddForeignUpdateTargets = AddForeignUpdateTargets; /* U D */
+    fdwRoutine->PlanForeignModify = PlanForeignModify; /* I U D */
+    fdwRoutine->BeginForeignModify = BeginForeignModify; /* I U D */
+    fdwRoutine->ExecForeignInsert = ExecForeignInsert; /* I */
+    fdwRoutine->ExecForeignUpdate = ExecForeignUpdate; /* U */
+    fdwRoutine->ExecForeignDelete = ExecForeignDelete; /* D */
+    fdwRoutine->EndForeignModify = EndForeignModify; /* I U D */
 
     /* support for EXPLAIN */
-    fdwroutine->ExplainForeignScan = ExplainForeignScan; /* EXPLAIN S U D */
-    fdwroutine->ExplainForeignModify = ExplainForeignModify; /* EXPLAIN I U D */
+    fdwRoutine->ExplainForeignScan = ExplainForeignScan; /* EXPLAIN S U D */
+    fdwRoutine->ExplainForeignModify = ExplainForeignModify; /* EXPLAIN I U D */
 
     /* support for ANALYSE */
-    fdwroutine->AnalyzeForeignTable = AnalyzeForeignTable; /* ANALYZE only */
+    fdwRoutine->AnalyzeForeignTable = AnalyzeForeignTable; /* ANALYZE only */
 
-    PG_RETURN_POINTER(fdwroutine);
+    PG_RETURN_POINTER(fdwRoutine);
 }

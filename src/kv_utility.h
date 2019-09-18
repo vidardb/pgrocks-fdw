@@ -45,6 +45,15 @@ static void KVShmemStartup(void);
 static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
 static shmem_startup_hook_type PreviousShmemStartupHook = NULL;
 
+/* Holds the option values to be used when reading or writing files.
+ * To resolve these values, we first check foreign table's options,
+ * and if not present, we then fall back to the default values.
+ */
+typedef struct {
+    char *filename;
+} FdwOptions;
+
+
 /*
  * _PG_init is called when the module is loaded. In this function we save the
  * previous utility hook, and then install our hook to pre-intercept calls to
@@ -69,7 +78,7 @@ void _PG_fini(void) {
 }
 
 /* Checks if a directory exists for the given directory name. */
-static bool DirectoryExists(StringInfo directoryName) {
+static bool KVDirectoryExists(StringInfo directoryName) {
     bool directoryExists = true;
     struct stat directoryStat;
     if (stat(directoryName->data, &directoryStat) == 0) {
@@ -95,7 +104,7 @@ static bool DirectoryExists(StringInfo directoryName) {
 }
 
 /* Creates a new directory with the given directory name. */
-static void CreateDirectory(StringInfo directoryName) {
+static void KVCreateDirectory(StringInfo directoryName) {
     if (mkdir(directoryName->data, S_IRWXU) != 0) {
         ereport(ERROR, (errcode_for_file_access(),
                         errmsg("could not create directory \"%s\": %m",
@@ -108,11 +117,11 @@ static void CreateDirectory(StringInfo directoryName) {
  * used to store automatically managed kv_fdw files. The path to
  * the directory is $PGDATA/kv_fdw/{databaseOid}.
  */
-static void CreateDatabaseDirectory(Oid databaseOid) {
+static void KVCreateDatabaseDirectory(Oid databaseOid) {
     StringInfo directoryPath = makeStringInfo();
     appendStringInfo(directoryPath, "%s/%s", DataDir, KV_FDW_NAME);
-    if (!DirectoryExists(directoryPath)) {
-        CreateDirectory(directoryPath);
+    if (!KVDirectoryExists(directoryPath)) {
+        KVCreateDirectory(directoryPath);
     }
 
     StringInfo databaseDirectoryPath = makeStringInfo();
@@ -121,8 +130,8 @@ static void CreateDatabaseDirectory(Oid databaseOid) {
                      DataDir,
                      KV_FDW_NAME,
                      databaseOid);
-    if (!DirectoryExists(databaseDirectoryPath)) {
-        CreateDirectory(databaseDirectoryPath);
+    if (!KVDirectoryExists(databaseDirectoryPath)) {
+        KVCreateDirectory(databaseDirectoryPath);
     }
 }
 
@@ -173,7 +182,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
     if (nodeTag(parseTree) == T_CreateForeignServerStmt) {
         CreateForeignServerStmt *serverStmt = (CreateForeignServerStmt *) parseTree;
         if (strncmp(serverStmt->fdwname, KV_FDW_NAME, NAMEDATALEN) == 0) {
-            CreateDatabaseDirectory(MyDatabaseId);
+            KVCreateDatabaseDirectory(MyDatabaseId);
         }
     } else if (nodeTag(parseTree) == T_CreateForeignTableStmt) {
         CreateForeignTableStmt *tableStmt = (CreateForeignTableStmt *) parseTree;
@@ -191,7 +200,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
              * We have no chance to hook into server creation to create data
              * directory for it during database creation time.
              */
-            CreateDatabaseDirectory(MyDatabaseId);
+            KVCreateDatabaseDirectory(MyDatabaseId);
 
             StringInfo kvPath = makeStringInfo();
             appendStringInfo(kvPath,
@@ -216,7 +225,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
  * However it does not remove 'kv_fdw' directory even if there
  * are no other databases left.
  */
-static void RemoveDatabaseDirectory(Oid databaseOid) {
+static void KVRemoveDatabaseDirectory(Oid databaseOid) {
     StringInfo databaseDirectoryPath = makeStringInfo();
     appendStringInfo(databaseDirectoryPath,
                      "%s/%s/%u",
@@ -224,7 +233,7 @@ static void RemoveDatabaseDirectory(Oid databaseOid) {
                      KV_FDW_NAME,
                      databaseOid);
 
-    if (DirectoryExists(databaseDirectoryPath)) {
+    if (KVDirectoryExists(databaseDirectoryPath)) {
         rmtree(databaseDirectoryPath->data, true);
     }
 }
@@ -233,7 +242,7 @@ static void RemoveDatabaseDirectory(Oid databaseOid) {
  * Constructs the default file path to use for a kv_fdw table.
  * The path is of the form $PGDATA/cstore_fdw/{databaseOid}/{relfilenode}.
  */
-static char *DefaultFilePath(Oid foreignTableId) {
+static char *KVDefaultFilePath(Oid foreignTableId) {
     Relation relation = relation_open(foreignTableId, AccessShareLock);
     RelFileNode relationFileNode = relation->rd_node;
 
@@ -254,7 +263,7 @@ static char *DefaultFilePath(Oid foreignTableId) {
  * Extracts and returns the list of kv file (directory) names
  * from DROP table statement
  */
-static List *DroppedFilenameList(DropStmt *dropStatement) {
+static List *KVDroppedFilenameList(DropStmt *dropStatement) {
     List *droppedFileList = NIL;
     if (dropStatement->removeType == OBJECT_FOREIGN_TABLE) {
 
@@ -265,7 +274,7 @@ static List *DroppedFilenameList(DropStmt *dropStatement) {
             Oid relationId = RangeVarGetRelid(rangeVar, AccessShareLock, true);
 
             if (KVTable(relationId)) {
-                char *defaultFilename = DefaultFilePath(relationId);
+                char *defaultFilename = KVDefaultFilePath(relationId);
                 droppedFileList = lappend(droppedFileList, defaultFilename);
             }
         }
@@ -311,11 +320,11 @@ static void KVProcessUtility(PlannedStmt *plannedStatement,
                                   completionTag);
 
             if (removeDirectory) {
-                RemoveDatabaseDirectory(MyDatabaseId);
+                KVRemoveDatabaseDirectory(MyDatabaseId);
             }
         } else {
             ListCell *fileListCell = NULL;
-            List *droppedTables = DroppedFilenameList((DropStmt *) parseTree);
+            List *droppedTables = KVDroppedFilenameList((DropStmt *) parseTree);
 
             CALL_PREVIOUS_UTILITY(parseTree,
                                   queryString,
@@ -328,7 +337,7 @@ static void KVProcessUtility(PlannedStmt *plannedStatement,
                 char *path = lfirst(fileListCell);
                 StringInfo tablePath = makeStringInfo();
                 appendStringInfo(tablePath, "%s", path);
-                if (DirectoryExists(tablePath)) {
+                if (KVDirectoryExists(tablePath)) {
                     rmtree(path, true);
                 }
             }
@@ -344,6 +353,51 @@ static void KVProcessUtility(PlannedStmt *plannedStatement,
     }
 }
 
+/*
+ * Walks over foreign table and foreign server options, and
+ * looks for the option with the given name. If found, the function returns the
+ * option's value. This function is unchanged from mongo_fdw.
+ */
+static char *KVGetOptionValue(Oid foreignTableId, const char *optionName) {
+    ForeignTable *foreignTable = GetForeignTable(foreignTableId);
+    ForeignServer *foreignServer = GetForeignServer(foreignTable->serverid);
+
+    List *optionList = NIL;
+    optionList = list_concat(optionList, foreignTable->options);
+    optionList = list_concat(optionList, foreignServer->options);
+
+    ListCell *optionCell = NULL;
+    foreach(optionCell, optionList) {
+        DefElem *optionDef = (DefElem *) lfirst(optionCell);
+        char *optionDefName = optionDef->defname;
+
+        if (strncmp(optionDefName, optionName, NAMEDATALEN) == 0) {
+            return defGetString(optionDef);
+        }
+    }
+
+    return NULL;
+}
+
+/*
+ * Returns the option values to be used when reading and writing
+ * the files. To resolve these values, the function checks options for the
+ * foreign table, and if not present, falls back to default values. This function
+ * errors out if given option values are considered invalid.
+ */
+static FdwOptions *KVGetOptions(Oid foreignTableId) {
+    char *filename = KVGetOptionValue(foreignTableId, "filename");
+
+    /* set default filename if it is not provided */
+    if (filename == NULL) {
+        filename = KVDefaultFilePath(foreignTableId);
+    }
+
+    FdwOptions *options = palloc0(sizeof(FdwOptions));
+    options->filename = filename;
+
+    return options;
+}
 
 /*
  * Release memory.

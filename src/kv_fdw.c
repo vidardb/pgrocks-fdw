@@ -21,27 +21,11 @@ PG_FUNCTION_INFO_V1(kv_fdw_handler);
 PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 /*
- * structures used by the FDW
- *
- * These next structures are not actually used, but something like
- * them will be needed by anything more complicated that does actual work.
- */
-
-/*
- * Describes the valid options for objects that use this wrapper.
- */
-struct FdwOption {
-    const char *optname;
-    Oid optcontext; /* Oid of catalog in which option may appear */
-};
-
-/*
  * The plan state is set up in GetForeignRelSize and stashed away in
  * baserel->fdw_private and fetched in GetForeignPaths.
  */
 typedef struct {
-    char *foo;
-    int bar;
+    void *db;
 } FdwPlanState;
 
 /*
@@ -76,12 +60,10 @@ typedef struct {
     AttrNumber key_junk_no;
 } FdwModifyState;
 
-static void *db = NULL;
-
 
 static void GetForeignRelSize(PlannerInfo *root,
                               RelOptInfo *baserel,
-                              Oid foreigntableid) {
+                              Oid foreignTableId) {
     printf("\n-----------------GetForeignRelSize----------------------\n");
     /*
      * Obtain relation size estimates for a foreign table. This is called at
@@ -101,19 +83,19 @@ static void GetForeignRelSize(PlannerInfo *root,
      */
     elog(DEBUG1, "entering function %s", __func__);
 
-    FdwPlanState *plan_state = palloc0(sizeof(FdwPlanState));
-    baserel->fdw_private = (void *) plan_state;
+    FdwPlanState *fdwPlanState = palloc0(sizeof(FdwPlanState));
 
-    /* initialize required state in plan_state */
-    if (!db) {
-        db = Open("");
-    }
-    baserel->rows = Count(db);
+    FdwOptions *fdwOptions = KVGetOptions(foreignTableId);
+    fdwPlanState->db = Open(fdwOptions->filename);
+
+    baserel->fdw_private = (void *) fdwPlanState;
+
+    baserel->rows = Count(fdwPlanState->db);
 }
 
 static void GetForeignPaths(PlannerInfo *root,
                             RelOptInfo *baserel,
-                            Oid foreigntableid) {
+                            Oid foreignTableId) {
     printf("\n-----------------GetForeignPaths----------------------\n");
     /*
      * Create possible access paths for a scan on a foreign table. This is
@@ -130,14 +112,10 @@ static void GetForeignPaths(PlannerInfo *root,
      * that is needed to identify the specific scan method intended.
      */
 
-    /*
-     * FdwPlanState *plan_state = baserel->fdw_private;
-     */
-
     elog(DEBUG1, "entering function %s", __func__);
 
-    Cost startup_cost = 0;
-    Cost total_cost = startup_cost + baserel->rows;
+    Cost startupCost = 0;
+    Cost totalCost = startupCost + baserel->rows;
 
     /* Create a ForeignPath node and add it as only possible path */
     add_path(baserel,
@@ -145,8 +123,8 @@ static void GetForeignPaths(PlannerInfo *root,
                                               baserel,
                                               NULL, /* default pathtarget */
                                               baserel->rows,
-                                              startup_cost,
-                                              total_cost,
+                                              startupCost,
+                                              totalCost,
                                               NIL, /* no pathkeys */
                                               NULL, /* no outer rel either */
                                               NULL, /* no extra plan */
@@ -155,11 +133,11 @@ static void GetForeignPaths(PlannerInfo *root,
 
 static ForeignScan *GetForeignPlan(PlannerInfo *root,
                                    RelOptInfo *baserel,
-                                   Oid foreigntableid,
-                                   ForeignPath *best_path,
-                                   List *tlist,
-                                   List *scan_clauses,
-                                   Plan *outer_plan) {
+                                   Oid foreignTableId,
+                                   ForeignPath *bestPath,
+                                   List *targetList,
+                                   List *scanClauses,
+                                   Plan *outerPlan) {
     printf("\n-----------------GetForeignPlan----------------------\n");
     /*
      * Create a ForeignScan plan node from the selected foreign access path.
@@ -175,12 +153,6 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
     elog(DEBUG1, "entering function %s", __func__);
 
     /*
-     * FdwPlanState *plan_state = baserel->fdw_private;
-     */
-
-    Index scan_relid = baserel->relid;
-
-    /*
      * We have no native ability to evaluate restriction clauses, so we just
      * put all the scan_clauses into the plan node's qual list for the
      * executor to check. So all we have to do here is strip RestrictInfo
@@ -188,17 +160,23 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
      * handled elsewhere).
      */
 
-    scan_clauses = extract_actual_clauses(scan_clauses, false);
+    scanClauses = extract_actual_clauses(scanClauses, false);
+
+    /*
+     * Build the fdw_private list that will be available to the executor.
+     */
+    FdwPlanState *fdwPlanState = (FdwPlanState *) baserel->fdw_private;
+    List *fdwPrivate = list_make1(fdwPlanState->db);
 
     /* Create the ForeignScan node */
-    return make_foreignscan(tlist,
-                            scan_clauses,
-                            scan_relid,
+    return make_foreignscan(targetList,
+                            scanClauses,
+                            baserel->relid,
                             NIL, /* no expressions to evaluate */
-                            NIL, /* no private state either */
+                            fdwPrivate,
                             NIL, /* no custom tlist */
                             NIL, /* no remote quals */
-                            outer_plan);
+                            NULL);
 }
 
 static void GetKeyBasedQual(Node *node,
@@ -248,7 +226,7 @@ static void GetKeyBasedQual(Node *node,
     return;
 }
 
-static void BeginForeignScan(ForeignScanState *node, int eflags) {
+static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     printf("\n-----------------BeginForeignScan----------------------\n");
     /*
      * Begin executing a foreign scan. This is called during executor startup.
@@ -270,46 +248,48 @@ static void BeginForeignScan(ForeignScanState *node, int eflags) {
      */
     elog(DEBUG1, "entering function %s", __func__);
 
-    FdwScanState *scan_state = palloc0(sizeof(FdwScanState));
-    if (!db) {
-        db = Open("");
+    if (executorFlags & EXEC_FLAG_EXPLAIN_ONLY) {
+        return;
     }
-    scan_state->db = db;
-    scan_state->iter = NULL;
-    scan_state->key_based_qual = false;
-    scan_state->key_based_qual_value = NULL;
-    scan_state->key_based_qual_sent = false;
-    scan_state->attinmeta =
-            TupleDescGetAttInMetadata(node->ss.ss_currentRelation->rd_att);
 
-    node->fdw_state = (void *) scan_state;
+    FdwScanState *fdwScanState = palloc0(sizeof(FdwScanState));
 
-    if (eflags & EXEC_FLAG_EXPLAIN_ONLY) return;
+    ForeignScan *foreignScan = (ForeignScan *) scanState->ss.ps.plan;
+    fdwScanState->db = list_nth((List *) foreignScan->fdw_private, 0);
 
-    if (node->ss.ps.plan->qual) {
+    fdwScanState->iter = NULL;
+    fdwScanState->key_based_qual = false;
+    fdwScanState->key_based_qual_value = NULL;
+    fdwScanState->key_based_qual_sent = false;
+    fdwScanState->attinmeta =
+            TupleDescGetAttInMetadata(scanState->ss.ss_currentRelation->rd_att);
+
+    scanState->fdw_state = (void *) fdwScanState;
+
+    if (scanState->ss.ps.plan->qual) {
         printf("\nqual\n");
         ListCell *lc;
-        foreach (lc, node->ss.ps.plan->qual) {
+        foreach (lc, scanState->ss.ps.plan->qual) {
             /* Only the first qual can be pushed down */
             printf("\nOnly the first qual can be pushed down\n");
             Expr *state = lfirst(lc);
             GetKeyBasedQual((Node *) state,
-                            node->ss.ss_currentRelation->rd_att,
-                            &scan_state->key_based_qual_value,
-                            &scan_state->key_based_qual);
-            if (scan_state->key_based_qual) {
+                            scanState->ss.ss_currentRelation->rd_att,
+                            &fdwScanState->key_based_qual_value,
+                            &fdwScanState->key_based_qual);
+            if (fdwScanState->key_based_qual) {
                 printf("\nkey_based_qual\n");
                 break;
             }
         }
     }
 
-    if (!scan_state->key_based_qual) {
-        scan_state->iter = GetIter(scan_state->db);
+    if (!fdwScanState->key_based_qual) {
+        fdwScanState->iter = GetIter(fdwScanState->db);
     }
 }
 
-static TupleTableSlot *IterateForeignScan(ForeignScanState *node) {
+static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
     printf("\n-----------------IterateForeignScan----------------------\n");
     /*
      * Fetch one row from the foreign source, returning it in a tuple table
@@ -335,43 +315,37 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *node) {
      * (just as you would need to do in the case of a data type mismatch).
      */
 
-    /* ----
-     * FdwScanState *scan_state =
-     *	 (FdwScanState *) node->fdw_state;
-     * ----
-     */
-
     elog(DEBUG1, "entering function %s", __func__);
 
 
-    TupleTableSlot *slot = node->ss.ss_ScanTupleSlot;
+    TupleTableSlot *slot = scanState->ss.ss_ScanTupleSlot;
     ExecClearTuple(slot);
 
-    FdwScanState *scan_state = (FdwScanState *) node->fdw_state;
+    FdwScanState *fdwScanState = (FdwScanState *) scanState->fdw_state;
 
     bool found = false;
     char *key;
     char *value;
 
     /* get the next record, if any, and fill in the slot */
-    if (scan_state->key_based_qual) {
-        if (!scan_state->key_based_qual_sent) {
-            scan_state->key_based_qual_sent = true;
-            found = Get(scan_state->db, scan_state->key_based_qual_value, &value);
+    if (fdwScanState->key_based_qual) {
+        if (!fdwScanState->key_based_qual_sent) {
+            fdwScanState->key_based_qual_sent = true;
+            found = Get(fdwScanState->db, fdwScanState->key_based_qual_value, &value);
         }
     } else {
-        found = Next(scan_state->db, scan_state->iter, &key, &value);
+        found = Next(fdwScanState->db, fdwScanState->iter, &key, &value);
     }
 
     if (found) {
         char **values = (char **) palloc(sizeof(char *) * 2);
-        if (scan_state->key_based_qual) {
-            values[0] = scan_state->key_based_qual_value;
+        if (fdwScanState->key_based_qual) {
+            values[0] = fdwScanState->key_based_qual_value;
         } else {
             values[0] = key;
         }
         values[1] = value;
-        HeapTuple tuple = BuildTupleFromCStrings(scan_state->attinmeta, values);
+        HeapTuple tuple = BuildTupleFromCStrings(fdwScanState->attinmeta, values);
         ExecStoreTuple(tuple, slot, InvalidBuffer, false);
     }
 
@@ -379,7 +353,7 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *node) {
     return slot;
 }
 
-static void ReScanForeignScan(ForeignScanState *node) {
+static void ReScanForeignScan(ForeignScanState *scanState) {
     printf("\n-----------------ReScanForeignScan----------------------\n");
     /*
      * Restart the scan from the beginning. Note that any parameters the scan
@@ -387,41 +361,29 @@ static void ReScanForeignScan(ForeignScanState *node) {
      * return exactly the same rows.
      */
 
-    /* ----
-     * FdwScanState *scan_state =
-     *	 (FdwScanState *) node->fdw_state;
-     * ----
-     */
-
     elog(DEBUG1, "entering function %s", __func__);
 }
 
-static void EndForeignScan(ForeignScanState *node) {
+static void EndForeignScan(ForeignScanState *scanState) {
     printf("\n-----------------EndForeignScan----------------------\n");
     /*
      * End the scan and release resources. It is normally not important to
      * release palloc'd memory, but for example open files and connections to
      * remote servers should be cleaned up.
      */
-
-    /* ----
-     * FdwScanState *scan_state =
-     *	 (FdwScanState *) node->fdw_state;
-     * ----
-     */
-
     elog(DEBUG1, "entering function %s", __func__);
 
-    FdwScanState *scan_state = (FdwScanState *) node->fdw_state;
+    FdwScanState *fdwScanState = (FdwScanState *) scanState->fdw_state;
 
-    if (scan_state) {
-        if (scan_state->iter) {
-            DelIter(scan_state->iter);
-            scan_state->iter = NULL;
+    if (fdwScanState) {
+        if (fdwScanState->iter) {
+            DelIter(fdwScanState->iter);
+            fdwScanState->iter = NULL;
         }
 
-        if (scan_state->db) {
-            scan_state->db = NULL;
+        if (fdwScanState->db) {
+            Close(fdwScanState->db);
+            fdwScanState->db = NULL;
         }
     }
 }
@@ -508,35 +470,11 @@ static List *PlanForeignModify(PlannerInfo *root,
     return NULL;
 }
 
-static int IsForeignRelUpdatable(Relation rel) {
-    printf("\n-----------------IsForeignRelUpdatable----------------------\n");
-    /*
-     * Report which update operations the specified foreign table supports.
-     * The return value should be a bit mask of rule event numbers indicating
-     * which operations are supported by the foreign table, using the CmdType
-     * enumeration; that is, (1 << CMD_UPDATE) = 4 for UPDATE, (1 <<
-     * CMD_INSERT) = 8 for INSERT, and (1 << CMD_DELETE) = 16 for DELETE.
-     *
-     * If the IsForeignRelUpdatable pointer is set to NULL, foreign tables are
-     * assumed to be insertable, updatable, or deletable if the FDW provides
-     * ExecForeignInsert, ExecForeignUpdate, or ExecForeignDelete
-     * respectively. This function is only needed if the FDW supports some
-     * tables that are updatable and some that are not. (Even then, it's
-     * permissible to throw an error in the execution routine instead of
-     * checking in this function. However, this function is used to determine
-     * updatability for display in the information_schema views.)
-     */
-
-    elog(DEBUG1, "entering function %s", __func__);
-
-    return (1 << CMD_UPDATE) | (1 << CMD_INSERT) | (1 << CMD_DELETE);
-}
-
-static void BeginForeignModify(ModifyTableState *mtstate,
-                               ResultRelInfo *rinfo,
-                               List *fdw_private,
-                               int subplan_index,
-                               int eflags) {
+static void BeginForeignModify(ModifyTableState *modifyTableState,
+                               ResultRelInfo *relationInfo,
+                               List *fdwPrivate,
+                               int subplanIndex,
+                               int executorFlags) {
     printf("\n-----------------BeginForeignModify----------------------\n");
     /*
      * Begin executing a foreign table modification operation. This routine is
@@ -566,46 +504,49 @@ static void BeginForeignModify(ModifyTableState *mtstate,
 
     elog(DEBUG1, "entering function %s", __func__);
 
-    if (eflags & EXEC_FLAG_EXPLAIN_ONLY) return;
-
-    FdwModifyState *modify_state = palloc0(sizeof(FdwModifyState));
-    if (!db) {
-        db = Open("");
+    if (executorFlags & EXEC_FLAG_EXPLAIN_ONLY) {
+        return;
     }
-    modify_state->db = db;
-    modify_state->rel = rinfo->ri_RelationDesc;
-    modify_state->key_info = palloc0(sizeof(FmgrInfo));
-    modify_state->value_info = palloc0(sizeof(FmgrInfo));
 
-    CmdType operation = mtstate->operation;
+    FdwModifyState *fdwModifyState = palloc0(sizeof(FdwModifyState));
+
+    Oid foreignTableId = RelationGetRelid(relationInfo->ri_RelationDesc);
+    FdwOptions *fdwOptions = KVGetOptions(foreignTableId);
+    fdwModifyState->db = Open(fdwOptions->filename);
+
+    fdwModifyState->rel = relationInfo->ri_RelationDesc;
+    fdwModifyState->key_info = palloc0(sizeof(FmgrInfo));
+    fdwModifyState->value_info = palloc0(sizeof(FmgrInfo));
+
+    CmdType operation = modifyTableState->operation;
     if (operation == CMD_UPDATE || operation == CMD_DELETE) {
         /* Find the ctid resjunk column in the subplan's result */
-        Plan *subplan = mtstate->mt_plans[subplan_index]->plan;
-        modify_state->key_junk_no =
+        Plan *subplan = modifyTableState->mt_plans[subplanIndex]->plan;
+        fdwModifyState->key_junk_no =
                 ExecFindJunkAttributeInTlist(subplan->targetlist, "key_junk");
-        if (!AttributeNumberIsValid(modify_state->key_junk_no)) {
+        if (!AttributeNumberIsValid(fdwModifyState->key_junk_no)) {
             elog(ERROR, "could not find key junk column");
         }
     }
 
-    Form_pg_attribute attr = &RelationGetDescr(modify_state->rel)->attrs[0];
+    Form_pg_attribute attr = &RelationGetDescr(fdwModifyState->rel)->attrs[0];
     Assert(!attr->attisdropped);
     Oid typefnoid;
     bool isvarlena;
     getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena);
-    fmgr_info(typefnoid, modify_state->key_info);
+    fmgr_info(typefnoid, fdwModifyState->key_info);
 
-    attr = &RelationGetDescr(modify_state->rel)->attrs[1];
+    attr = &RelationGetDescr(fdwModifyState->rel)->attrs[1];
     Assert(!attr->attisdropped);
     getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena);
-    fmgr_info(typefnoid, modify_state->value_info);
+    fmgr_info(typefnoid, fdwModifyState->value_info);
 
-    rinfo->ri_FdwState = modify_state;
+    relationInfo->ri_FdwState = fdwModifyState;
 }
 
-static TupleTableSlot *ExecForeignInsert(EState *estate,
-                                         ResultRelInfo *rinfo,
-                                         TupleTableSlot *slot,
+static TupleTableSlot *ExecForeignInsert(EState *executorState,
+                                         ResultRelInfo *relationInfo,
+                                         TupleTableSlot *tupleSlot,
                                          TupleTableSlot *planSlot) {
     printf("\n-----------------ExecForeignInsert----------------------\n");
     /*
@@ -634,39 +575,32 @@ static TupleTableSlot *ExecForeignInsert(EState *estate,
      * into the foreign table will fail with an error message.
      *
      */
-
-    /* ----
-     * FdwModifyState *modify_state =
-     *	 (FdwModifyState *) rinfo->ri_FdwState;
-     * ----
-     */
-
     elog(DEBUG1, "entering function %s", __func__);
 
-    FdwModifyState *modify_state = (FdwModifyState *) rinfo->ri_FdwState;
+    FdwModifyState *fdwModifyState = (FdwModifyState *) relationInfo->ri_FdwState;
 
     bool isnull;
     Datum value = slot_getattr(planSlot, 1, &isnull);
     if (isnull) {
         elog(ERROR, "can't get key value");
     }
-    char *key_value = OutputFunctionCall(modify_state->key_info, value);
+    char *key_value = OutputFunctionCall(fdwModifyState->key_info, value);
 
     value = slot_getattr(planSlot, 2, &isnull);
     if (isnull) {
         elog(ERROR, "can't get value value");
     }
-    char *value_value = OutputFunctionCall(modify_state->value_info, value);
+    char *value_value = OutputFunctionCall(fdwModifyState->value_info, value);
 
-    if (!Put(modify_state->db, key_value, value_value)) {
+    if (!Put(fdwModifyState->db, key_value, value_value)) {
         elog(ERROR, "Error from ExecForeignInsert");
     }
-    return slot;
+    return tupleSlot;
 }
 
-static TupleTableSlot *ExecForeignUpdate(EState *estate,
-                                         ResultRelInfo *rinfo,
-                                         TupleTableSlot *slot,
+static TupleTableSlot *ExecForeignUpdate(EState *executorState,
+                                         ResultRelInfo *relationInfo,
+                                         TupleTableSlot *tupleSlot,
                                          TupleTableSlot *planSlot) {
     printf("\n-----------------ExecForeignUpdate----------------------\n");
     /*
@@ -695,54 +629,47 @@ static TupleTableSlot *ExecForeignUpdate(EState *estate,
      * foreign table will fail with an error message.
      *
      */
-
-    /* ----
-     * FdwModifyState *modify_state =
-     *	 (FdwModifyState *) rinfo->ri_FdwState;
-     * ----
-     */
-
     elog(DEBUG1, "entering function %s", __func__);
 
-    FdwModifyState *modify_state = (FdwModifyState *) rinfo->ri_FdwState;
+    FdwModifyState *fdwModifyState = (FdwModifyState *) relationInfo->ri_FdwState;
 
     bool isnull;
     Datum value = ExecGetJunkAttribute(planSlot,
-                                       modify_state->key_junk_no,
+                                       fdwModifyState->key_junk_no,
                                        &isnull);
     if (isnull) {
         elog(ERROR, "can't get junk key value");
     }
-    char *key_value = OutputFunctionCall(modify_state->key_info, value);
+    char *key_value = OutputFunctionCall(fdwModifyState->key_info, value);
 
     value = slot_getattr(planSlot, 1, &isnull);
     if (isnull) {
         elog(ERROR, "can't get new key value");
     }
-    char *key_value_new = OutputFunctionCall(modify_state->key_info, value);
+    char *key_value_new = OutputFunctionCall(fdwModifyState->key_info, value);
     if (strcmp(key_value, key_value_new) != 0) {
         elog(ERROR,
              "You cannot update key values (original key value was %s)",
              key_value);
-        return slot;
+        return tupleSlot;
     }
 
     value = slot_getattr(planSlot, 2, &isnull);
     if (isnull) {
         elog(ERROR, "can't get value value");
     }
-    char *value_value = OutputFunctionCall(modify_state->value_info, value);
+    char *value_value = OutputFunctionCall(fdwModifyState->value_info, value);
 
-    if (!Put(modify_state->db, key_value, value_value)) {
+    if (!Put(fdwModifyState->db, key_value, value_value)) {
         elog(ERROR, "Error from ExecForeignUpdate");
     }
 
-    return slot;
+    return tupleSlot;
 }
 
-static TupleTableSlot *ExecForeignDelete(EState *estate,
-                                         ResultRelInfo *rinfo,
-                                         TupleTableSlot *slot,
+static TupleTableSlot *ExecForeignDelete(EState *executorState,
+                                         ResultRelInfo *relationInfo,
+                                         TupleTableSlot *tupleSlot,
                                          TupleTableSlot *planSlot) {
     printf("\n-----------------ExecForeignDelete----------------------\n");
     /*
@@ -768,33 +695,26 @@ static TupleTableSlot *ExecForeignDelete(EState *estate,
      * If the ExecForeignDelete pointer is set to NULL, attempts to delete
      * from the foreign table will fail with an error message.
      */
-
-    /* ----
-     * FdwModifyState *modify_state =
-     *	 (FdwModifyState *) rinfo->ri_FdwState;
-     * ----
-     */
-
     elog(DEBUG1, "entering function %s", __func__);
 
-    FdwModifyState *modify_state = (FdwModifyState *) rinfo->ri_FdwState;
+    FdwModifyState *fdwModifyState = (FdwModifyState *) relationInfo->ri_FdwState;
 
     bool isnull;
-    Datum value = ExecGetJunkAttribute(planSlot, modify_state->key_junk_no, &isnull);
+    Datum value = ExecGetJunkAttribute(planSlot, fdwModifyState->key_junk_no, &isnull);
     if (isnull) {
         elog(ERROR, "can't get key value");
     }
 
-    char *key_value = OutputFunctionCall(modify_state->key_info, value);
+    char *key_value = OutputFunctionCall(fdwModifyState->key_info, value);
 
-    if (!Delete(modify_state->db, key_value)) {
+    if (!Delete(fdwModifyState->db, key_value)) {
         elog(ERROR, "Error from ExecForeignDelete");
     }
 
-    return slot;
+    return tupleSlot;
 }
 
-static void EndForeignModify(EState *estate, ResultRelInfo *rinfo) {
+static void EndForeignModify(EState *executorState, ResultRelInfo *relationInfo) {
     printf("\n-----------------EndForeignModify----------------------\n");
     /*
      * End the table update and release resources. It is normally not
@@ -804,24 +724,18 @@ static void EndForeignModify(EState *estate, ResultRelInfo *rinfo) {
      * If the EndForeignModify pointer is set to NULL, no action is taken
      * during executor shutdown.
      */
-
-    /* ----
-     * FdwModifyState *modify_state =
-     *	 (FdwModifyState *) rinfo->ri_FdwState;
-     * ----
-     */
-
     elog(DEBUG1, "entering function %s", __func__);
 
-    FdwModifyState *modify_state = (FdwModifyState *) rinfo->ri_FdwState;
+    FdwModifyState *fdwModifyState = (FdwModifyState *) relationInfo->ri_FdwState;
 
-    if (modify_state && modify_state->db) {
-        modify_state->db = NULL;
+    if (fdwModifyState && fdwModifyState->db) {
+        Close(fdwModifyState->db);
+        fdwModifyState->db = NULL;
     }
 }
 
-static void ExplainForeignScan(ForeignScanState *node,
-                               struct ExplainState * es) {
+static void ExplainForeignScan(ForeignScanState *scanState,
+                               struct ExplainState * explainState) {
     printf("\n-----------------ExplainForeignScan----------------------\n");
     /*
      * Print additional EXPLAIN output for a foreign table scan. This function
@@ -837,11 +751,11 @@ static void ExplainForeignScan(ForeignScanState *node,
     elog(DEBUG1, "entering function %s", __func__);
 }
 
-static void ExplainForeignModify(ModifyTableState *mtstate,
-                                 ResultRelInfo *rinfo,
-                                 List *fdw_private,
-                                 int subplan_index,
-                                 struct ExplainState * es) {
+static void ExplainForeignModify(ModifyTableState *modifyTableState,
+                                 ResultRelInfo *relationInfo,
+                                 List *fdwPrivate,
+                                 int subplanIndex,
+                                 struct ExplainState *explainState) {
     printf("\n-----------------ExplainForeignModify----------------------\n");
     /*
      * Print additional EXPLAIN output for a foreign table update. This
@@ -855,18 +769,12 @@ static void ExplainForeignModify(ModifyTableState *mtstate,
      * information is printed during EXPLAIN.
      */
 
-    /* ----
-     * FdwModifyState *modify_state =
-     *	 (FdwModifyState *) rinfo->ri_FdwState;
-     * ----
-     */
-
     elog(DEBUG1, "entering function %s", __func__);
 }
 
 static bool AnalyzeForeignTable(Relation relation,
-                                AcquireSampleRowsFunc *func,
-                                BlockNumber *totalpages) {
+                                AcquireSampleRowsFunc *acquireSampleRowsFunc,
+                                BlockNumber *totalPageCount) {
     printf("\n-----------------AnalyzeForeignTable----------------------\n");
     /* ----
      * This function is called when ANALYZE is executed on a foreign table. If
@@ -900,111 +808,6 @@ static bool AnalyzeForeignTable(Relation relation,
     return false;
 }
 
-static void GetForeignJoinPaths(PlannerInfo *root,
-                                RelOptInfo *joinrel,
-                                RelOptInfo *outerrel,
-                                RelOptInfo *innerrel,
-                                JoinType jointype,
-                                JoinPathExtraData *extra) {
-    printf("\n-----------------GetForeignJoinPaths----------------------\n");
-    /*
-     * Create possible access paths for a join of two (or more) foreign tables
-     * that all belong to the same foreign server. This optional function is
-     * called during query planning. As with GetForeignPaths, this function
-     * should generate ForeignPath path(s) for the supplied joinrel, and call
-     * add_path to add these paths to the set of paths considered for the
-     * join. But unlike GetForeignPaths, it is not necessary that this
-     * function succeed in creating at least one path, since paths involving
-     * local joining are always possible.
-     *
-     * Note that this function will be invoked repeatedly for the same join
-     * relation, with different combinations of inner and outer relations; it
-     * is the responsibility of the FDW to minimize duplicated work.
-     *
-     * If a ForeignPath path is chosen for the join, it will represent the
-     * entire join process; paths generated for the component tables and
-     * subsidiary joins will not be used. Subsequent processing of the join
-     * path proceeds much as it does for a path scanning a single foreign
-     * table. One difference is that the scanrelid of the resulting
-     * ForeignScan plan node should be set to zero, since there is no single
-     * relation that it represents; instead, the fs_relids field of the
-     * ForeignScan node represents the set of relations that were joined. (The
-     * latter field is set up automatically by the core planner code, and need
-     * not be filled by the FDW.) Another difference is that, because the
-     * column list for a remote join cannot be found from the system catalogs,
-     * the FDW must fill fdw_scan_tlist with an appropriate list of
-     * TargetEntry nodes, representing the set of columns it will supply at
-     * runtime in the tuples it returns.
-     */
-
-    elog(DEBUG1, "entering function %s", __func__);
-}
-
-static RowMarkType GetForeignRowMarkType(RangeTblEntry *rte,
-                                         LockClauseStrength strength) {
-    printf("\n-----------------GetForeignRowMarkType----------------------\n");
-    /*
-     * Report which row-marking option to use for a foreign table. rte is the
-     * RangeTblEntry node for the table and strength describes the lock
-     * strength requested by the relevant FOR UPDATE/SHARE clause, if any. The
-     * result must be a member of the RowMarkType enum type.
-     *
-     * This function is called during query planning for each foreign table
-     * that appears in an UPDATE, DELETE, or SELECT FOR UPDATE/SHARE query and
-     * is not the target of UPDATE or DELETE.
-     *
-     * If the GetForeignRowMarkType pointer is set to NULL, the ROW_MARK_COPY
-     * option is always used. (This implies that RefetchForeignRow will never
-     * be called, so it need not be provided either.)
-     */
-
-    elog(DEBUG1, "entering function %s", __func__);
-
-    return ROW_MARK_COPY;
-}
-
-static HeapTuple RefetchForeignRow(EState *estate,
-                                   ExecRowMark *erm,
-                                   Datum rowid,
-                                   bool *updated) {
-    printf("\n-----------------RefetchForeignRow----------------------\n");
-    /*
-     * Re-fetch one tuple from the foreign table, after locking it if
-     * required. estate is global execution state for the query. erm is the
-     * ExecRowMark struct describing the target foreign table and the row lock
-     * type (if any) to acquire. rowid identifies the tuple to be fetched.
-     * updated is an output parameter.
-     *
-     * This function should return a palloc'ed copy of the fetched tuple, or
-     * NULL if the row lock couldn't be obtained. The row lock type to acquire
-     * is defined by erm->markType, which is the value previously returned by
-     * GetForeignRowMarkType. (ROW_MARK_REFERENCE means to just re-fetch the
-     * tuple without acquiring any lock, and ROW_MARK_COPY will never be seen
-     * by this routine.)
-     *
-     * In addition, *updated should be set to true if what was fetched was an
-     * updated version of the tuple rather than the same version previously
-     * obtained. (If the FDW cannot be sure about this, always returning true
-     * is recommended.)
-     *
-     * Note that by default, failure to acquire a row lock should result in
-     * raising an error; a NULL return is only appropriate if the SKIP LOCKED
-     * option is specified by erm->waitPolicy.
-     *
-     * The rowid is the ctid value previously read for the row to be
-     * re-fetched. Although the rowid value is passed as a Datum, it can
-     * currently only be a tid. The function API is chosen in hopes that it
-     * may be possible to allow other datatypes for row IDs in future.
-     *
-     * If the RefetchForeignRow pointer is set to NULL, attempts to re-fetch
-     * rows will fail with an error message.
-     */
-
-    elog(DEBUG1, "entering function %s", __func__);
-
-    return NULL;
-}
-
 Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
     printf("\n-----------------fdw_handler----------------------\n");
     FdwRoutine *fdwroutine = makeNode(FdwRoutine);
@@ -1035,7 +838,6 @@ Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
     /* support for insert / update / delete */
     fdwroutine->AddForeignUpdateTargets = AddForeignUpdateTargets; /* U D */
     fdwroutine->PlanForeignModify = PlanForeignModify; /* I U D */
-    fdwroutine->IsForeignRelUpdatable = IsForeignRelUpdatable;
     fdwroutine->BeginForeignModify = BeginForeignModify; /* I U D */
     fdwroutine->ExecForeignInsert = ExecForeignInsert; /* I */
     fdwroutine->ExecForeignUpdate = ExecForeignUpdate; /* U */
@@ -1048,13 +850,6 @@ Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
 
     /* support for ANALYSE */
     fdwroutine->AnalyzeForeignTable = AnalyzeForeignTable; /* ANALYZE only */
-
-    /* Support for scanning foreign joins */
-    fdwroutine->GetForeignJoinPaths = GetForeignJoinPaths;
-
-    /* Support for locking foreign rows */
-    fdwroutine->GetForeignRowMarkType = GetForeignRowMarkType;
-    fdwroutine->RefetchForeignRow = RefetchForeignRow;
 
     PG_RETURN_POINTER(fdwroutine);
 }

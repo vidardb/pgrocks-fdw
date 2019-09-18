@@ -14,8 +14,9 @@
 #include "commands/defrem.h"
 #include "access/heapam.h"
 #include "utils/rel.h"
+#include "storage/ipc.h"
 #include "kv.h"
-//
+
 #define KV_FDW_NAME "kv_fdw"
 
 #define PREVIOUS_UTILITY (PreviousProcessUtilityHook != NULL \
@@ -38,9 +39,11 @@ static void KVProcessUtility(PlannedStmt *plannedStatement, const char *queryStr
                                  ParamListInfo paramListInfo,
                                  QueryEnvironment *queryEnvironment,
                                  DestReceiver *destReceiver, char *completionTag);
+static void KVShmemStartup(void);
 
 /* saved hook value in case of unload */
 static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
+static shmem_startup_hook_type PreviousShmemStartupHook = NULL;
 
 /*
  * _PG_init is called when the module is loaded. In this function we save the
@@ -50,6 +53,9 @@ static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
 void _PG_init(void) {
     PreviousProcessUtilityHook = ProcessUtility_hook;
     ProcessUtility_hook = KVProcessUtility;
+
+    PreviousShmemStartupHook = shmem_startup_hook;
+    shmem_startup_hook = KVShmemStartup;
 }
 
 /*
@@ -58,6 +64,8 @@ void _PG_init(void) {
  */
 void _PG_fini(void) {
     ProcessUtility_hook = PreviousProcessUtilityHook;
+
+    shmem_startup_hook = PreviousShmemStartupHook;
 }
 
 /* Checks if a directory exists for the given directory name. */
@@ -333,6 +341,35 @@ static void KVProcessUtility(PlannedStmt *plannedStatement,
                               paramListInfo,
                               destReceiver,
                               completionTag);
+    }
+}
+
+
+/*
+ * Release memory.
+ *
+ * Note: we don't bother with acquiring lock, because there should be no
+ * other processes running when this is called.
+ */
+static void KVShmemShutdown(int code, Datum arg) {
+    printf("\n============KVShmemShutdown=============\n");
+}
+
+/*
+ * Allocate or attach to shared memory while the module is enabled.
+ */
+static void KVShmemStartup(void) {
+    printf("\n============KVShmemStartup=============\n");
+    if (PreviousShmemStartupHook) {
+        PreviousShmemStartupHook();
+    }
+
+    /*
+     * If we're in the postmaster (or a standalone backend...), set up a shmem
+     * exit hook to release memory.
+     */
+    if (!IsUnderPostmaster) {
+        on_shmem_exit(KVShmemShutdown, (Datum) 0);
     }
 }
 

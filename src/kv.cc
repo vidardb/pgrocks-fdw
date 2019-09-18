@@ -10,8 +10,6 @@ extern "C" {
 
 #include "postgres.h"
 
-string kDBPath = "/home/jsc/Desktop/tmp/";
-
 void* Open(char* path) {
     DB* db = nullptr;
     Options options;

@@ -11,6 +11,15 @@ CREATE FOREIGN TABLE test(key TEXT, value TEXT) SERVER kv_server;
 INSERT INTO test VALUES('a', 'a');  
 SELECT * FROM test;  
 
+INSERT INTO test VALUES('b', 'b');  
+SELECT * FROM test;  
+
+DELETE FROM test WHERE key='b';  
+SELECT * FROM test;  
+
+UPDATE test SET value='b';  
+SELECT * FROM test;  
+  
 # delete all the stuff
 DROP FOREIGN TABLE test;  
 DROP SERVER kv_server;  

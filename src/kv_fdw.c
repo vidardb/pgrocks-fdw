@@ -83,14 +83,14 @@ static void GetForeignRelSize(PlannerInfo *root,
 
     elog(DEBUG1, "entering function %s", __func__);
 
-    TablePlanState *tablePlanState = palloc0(sizeof(TablePlanState));
+    TablePlanState *planState = palloc0(sizeof(TablePlanState));
 
     FdwOptions *fdwOptions = KVGetOptions(foreignTableId);
-    tablePlanState->db = Open(fdwOptions->filename);
+    planState->db = Open(fdwOptions->filename);
 
-    baserel->fdw_private = (void *) tablePlanState;
+    baserel->fdw_private = (void *) planState;
 
-    baserel->rows = Count(tablePlanState->db);
+    baserel->rows = Count(planState->db);
 }
 
 static void GetForeignPaths(PlannerInfo *root,
@@ -166,8 +166,8 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
     /*
      * Build the fdw_private list that will be available to the executor.
      */
-    TablePlanState *tablePlanState = (TablePlanState *) baserel->fdw_private;
-    List *fdwPrivate = list_make1(tablePlanState->db);
+    TablePlanState *planState = (TablePlanState *) baserel->fdw_private;
+    List *fdwPrivate = list_make1(planState->db);
 
     /* Create the ForeignScan node */
     return make_foreignscan(targetList,
@@ -254,19 +254,19 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         return;
     }
 
-    TableReadState *tableReadState = palloc0(sizeof(TableReadState));
+    TableReadState *readState = palloc0(sizeof(TableReadState));
 
     ForeignScan *foreignScan = (ForeignScan *) scanState->ss.ps.plan;
-    tableReadState->db = list_nth((List *) foreignScan->fdw_private, 0);
+    readState->db = list_nth((List *) foreignScan->fdw_private, 0);
 
-    tableReadState->iter = NULL;
-    tableReadState->keyBasedQual = false;
-    tableReadState->keyBasedQualValue = NULL;
-    tableReadState->keyBasedQualSent = false;
-    tableReadState->attinmeta =
+    readState->iter = NULL;
+    readState->keyBasedQual = false;
+    readState->keyBasedQualValue = NULL;
+    readState->keyBasedQualSent = false;
+    readState->attinmeta =
             TupleDescGetAttInMetadata(scanState->ss.ss_currentRelation->rd_att);
 
-    scanState->fdw_state = (void *) tableReadState;
+    scanState->fdw_state = (void *) readState;
 
     if (scanState->ss.ps.plan->qual) {
         printf("\nqual\n");
@@ -277,17 +277,17 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
             Expr *state = lfirst(lc);
             GetKeyBasedQual((Node *) state,
                             scanState->ss.ss_currentRelation->rd_att,
-                            &tableReadState->keyBasedQualValue,
-                            &tableReadState->keyBasedQual);
-            if (tableReadState->keyBasedQual) {
+                            &readState->keyBasedQualValue,
+                            &readState->keyBasedQual);
+            if (readState->keyBasedQual) {
                 printf("\nkey_based_qual\n");
                 break;
             }
         }
     }
 
-    if (!tableReadState->keyBasedQual) {
-        tableReadState->iter = GetIter(tableReadState->db);
+    if (!readState->keyBasedQual) {
+        readState->iter = GetIter(readState->db);
     }
 }
 
@@ -323,31 +323,31 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
     TupleTableSlot *slot = scanState->ss.ss_ScanTupleSlot;
     ExecClearTuple(slot);
 
-    TableReadState *tableReadState = (TableReadState *) scanState->fdw_state;
+    TableReadState *readState = (TableReadState *) scanState->fdw_state;
 
     bool found = false;
     char *key;
     char *value;
 
     /* get the next record, if any, and fill in the slot */
-    if (tableReadState->keyBasedQual) {
-        if (!tableReadState->keyBasedQualSent) {
-            tableReadState->keyBasedQualSent = true;
-            found = Get(tableReadState->db, tableReadState->keyBasedQualValue, &value);
+    if (readState->keyBasedQual) {
+        if (!readState->keyBasedQualSent) {
+            readState->keyBasedQualSent = true;
+            found = Get(readState->db, readState->keyBasedQualValue, &value);
         }
     } else {
-        found = Next(tableReadState->db, tableReadState->iter, &key, &value);
+        found = Next(readState->db, readState->iter, &key, &value);
     }
 
     if (found) {
         char **values = (char **) palloc(sizeof(char *) * 2);
-        if (tableReadState->keyBasedQual) {
-            values[0] = tableReadState->keyBasedQualValue;
+        if (readState->keyBasedQual) {
+            values[0] = readState->keyBasedQualValue;
         } else {
             values[0] = key;
         }
         values[1] = value;
-        HeapTuple tuple = BuildTupleFromCStrings(tableReadState->attinmeta, values);
+        HeapTuple tuple = BuildTupleFromCStrings(readState->attinmeta, values);
         ExecStoreTuple(tuple, slot, InvalidBuffer, false);
     }
 
@@ -376,17 +376,17 @@ static void EndForeignScan(ForeignScanState *scanState) {
 
     elog(DEBUG1, "entering function %s", __func__);
 
-    TableReadState *tableReadState = (TableReadState *) scanState->fdw_state;
+    TableReadState *readState = (TableReadState *) scanState->fdw_state;
 
-    if (tableReadState) {
-        if (tableReadState->iter) {
-            DelIter(tableReadState->iter);
-            tableReadState->iter = NULL;
+    if (readState) {
+        if (readState->iter) {
+            DelIter(readState->iter);
+            readState->iter = NULL;
         }
 
-        if (tableReadState->db) {
-            Close(tableReadState->db);
-            tableReadState->db = NULL;
+        if (readState->db) {
+            Close(readState->db);
+            readState->db = NULL;
         }
     }
 }
@@ -511,40 +511,40 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
         return;
     }
 
-    TableWriteState *tableWriteState = palloc0(sizeof(TableWriteState));
+    TableWriteState *writeState = palloc0(sizeof(TableWriteState));
 
     Oid foreignTableId = RelationGetRelid(relationInfo->ri_RelationDesc);
     FdwOptions *fdwOptions = KVGetOptions(foreignTableId);
-    tableWriteState->db = Open(fdwOptions->filename);
+    writeState->db = Open(fdwOptions->filename);
 
-    tableWriteState->rel = relationInfo->ri_RelationDesc;
-    tableWriteState->keyInfo = palloc0(sizeof(FmgrInfo));
-    tableWriteState->valueInfo = palloc0(sizeof(FmgrInfo));
+    writeState->rel = relationInfo->ri_RelationDesc;
+    writeState->keyInfo = palloc0(sizeof(FmgrInfo));
+    writeState->valueInfo = palloc0(sizeof(FmgrInfo));
 
     CmdType operation = modifyTableState->operation;
     if (operation == CMD_UPDATE || operation == CMD_DELETE) {
         /* Find the ctid resjunk column in the subplan's result */
         Plan *subplan = modifyTableState->mt_plans[subplanIndex]->plan;
-        tableWriteState->keyJunkNo =
+        writeState->keyJunkNo =
                 ExecFindJunkAttributeInTlist(subplan->targetlist, "key_junk");
-        if (!AttributeNumberIsValid(tableWriteState->keyJunkNo)) {
+        if (!AttributeNumberIsValid(writeState->keyJunkNo)) {
             elog(ERROR, "could not find key junk column");
         }
     }
 
-    Form_pg_attribute attr = &RelationGetDescr(tableWriteState->rel)->attrs[0];
+    Form_pg_attribute attr = &RelationGetDescr(writeState->rel)->attrs[0];
     Assert(!attr->attisdropped);
     Oid typefnoid;
     bool isvarlena;
     getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena);
-    fmgr_info(typefnoid, tableWriteState->keyInfo);
+    fmgr_info(typefnoid, writeState->keyInfo);
 
-    attr = &RelationGetDescr(tableWriteState->rel)->attrs[1];
+    attr = &RelationGetDescr(writeState->rel)->attrs[1];
     Assert(!attr->attisdropped);
     getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena);
-    fmgr_info(typefnoid, tableWriteState->valueInfo);
+    fmgr_info(typefnoid, writeState->valueInfo);
 
-    relationInfo->ri_FdwState = tableWriteState;
+    relationInfo->ri_FdwState = (void *) writeState;
 }
 
 static TupleTableSlot *ExecForeignInsert(EState *executorState,
@@ -576,27 +576,26 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
      *
      * If the ExecForeignInsert pointer is set to NULL, attempts to insert
      * into the foreign table will fail with an error message.
-     *
      */
 
     elog(DEBUG1, "entering function %s", __func__);
 
-    TableWriteState *tableWriteState = (TableWriteState *) relationInfo->ri_FdwState;
+    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
 
     bool isnull;
     Datum value = slot_getattr(planSlot, 1, &isnull);
     if (isnull) {
         elog(ERROR, "can't get key value");
     }
-    char *keyValue = OutputFunctionCall(tableWriteState->keyInfo, value);
+    char *keyValue = OutputFunctionCall(writeState->keyInfo, value);
 
     value = slot_getattr(planSlot, 2, &isnull);
     if (isnull) {
         elog(ERROR, "can't get value value");
     }
-    char *valueValue = OutputFunctionCall(tableWriteState->valueInfo, value);
+    char *valueValue = OutputFunctionCall(writeState->valueInfo, value);
 
-    if (!Put(tableWriteState->db, keyValue, valueValue)) {
+    if (!Put(writeState->db, keyValue, valueValue)) {
         elog(ERROR, "Error from ExecForeignInsert");
     }
     return tupleSlot;
@@ -636,22 +635,22 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
 
     elog(DEBUG1, "entering function %s", __func__);
 
-    TableWriteState *tableWriteState = (TableWriteState *) relationInfo->ri_FdwState;
+    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
 
     bool isnull;
     Datum value = ExecGetJunkAttribute(planSlot,
-                                       tableWriteState->keyJunkNo,
+                                       writeState->keyJunkNo,
                                        &isnull);
     if (isnull) {
         elog(ERROR, "can't get junk key value");
     }
-    char *keyValue = OutputFunctionCall(tableWriteState->keyInfo, value);
+    char *keyValue = OutputFunctionCall(writeState->keyInfo, value);
 
     value = slot_getattr(planSlot, 1, &isnull);
     if (isnull) {
         elog(ERROR, "can't get new key value");
     }
-    char *keyValueNew = OutputFunctionCall(tableWriteState->keyInfo, value);
+    char *keyValueNew = OutputFunctionCall(writeState->keyInfo, value);
     if (strcmp(keyValue, keyValueNew) != 0) {
         elog(ERROR,
              "You cannot update key values (original key value was %s)",
@@ -663,9 +662,9 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
     if (isnull) {
         elog(ERROR, "can't get value value");
     }
-    char *valueValue = OutputFunctionCall(tableWriteState->valueInfo, value);
+    char *valueValue = OutputFunctionCall(writeState->valueInfo, value);
 
-    if (!Put(tableWriteState->db, keyValue, valueValue)) {
+    if (!Put(writeState->db, keyValue, valueValue)) {
         elog(ERROR, "Error from ExecForeignUpdate");
     }
 
@@ -703,17 +702,17 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
 
     elog(DEBUG1, "entering function %s", __func__);
 
-    TableWriteState *tableWriteState = (TableWriteState *) relationInfo->ri_FdwState;
+    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
 
     bool isnull;
-    Datum value = ExecGetJunkAttribute(planSlot, tableWriteState->keyJunkNo, &isnull);
+    Datum value = ExecGetJunkAttribute(planSlot, writeState->keyJunkNo, &isnull);
     if (isnull) {
         elog(ERROR, "can't get key value");
     }
 
-    char *keyValue = OutputFunctionCall(tableWriteState->keyInfo, value);
+    char *keyValue = OutputFunctionCall(writeState->keyInfo, value);
 
-    if (!Delete(tableWriteState->db, keyValue)) {
+    if (!Delete(writeState->db, keyValue)) {
         elog(ERROR, "Error from ExecForeignDelete");
     }
 
@@ -733,11 +732,11 @@ static void EndForeignModify(EState *executorState, ResultRelInfo *relationInfo)
 
     elog(DEBUG1, "entering function %s", __func__);
 
-    TableWriteState *tableWriteState = (TableWriteState *) relationInfo->ri_FdwState;
+    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
 
-    if (tableWriteState && tableWriteState->db) {
-        Close(tableWriteState->db);
-        tableWriteState->db = NULL;
+    if (writeState && writeState->db) {
+        Close(writeState->db);
+        writeState->db = NULL;
     }
 }
 

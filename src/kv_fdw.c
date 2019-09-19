@@ -19,6 +19,7 @@ PG_MODULE_MAGIC;
 #define PROCID_TEXTEQ 67
 
 PG_FUNCTION_INFO_V1(kv_fdw_handler);
+PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 /*
  * The plan state is set up in GetForeignRelSize and stashed away in
@@ -53,6 +54,7 @@ typedef struct {
  */
 typedef struct {
     void *db;
+    CmdType operation;
     Relation rel;
     FmgrInfo *keyInfo;
     FmgrInfo *valueInfo;
@@ -250,10 +252,6 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
     elog(DEBUG1, "entering function %s", __func__);
 
-    if (executorFlags & EXEC_FLAG_EXPLAIN_ONLY) {
-        return;
-    }
-
     TableReadState *readState = palloc0(sizeof(TableReadState));
 
     ForeignScan *foreignScan = (ForeignScan *) scanState->ss.ps.plan;
@@ -267,6 +265,11 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
             TupleDescGetAttInMetadata(scanState->ss.ss_currentRelation->rd_att);
 
     scanState->fdw_state = (void *) readState;
+
+    /* must after readState is recorded, otherwise explain won't close db */
+    if (executorFlags & EXEC_FLAG_EXPLAIN_ONLY) {
+        return;
+    }
 
     if (scanState->ss.ps.plan->qual) {
         printf("\nqual\n");
@@ -426,11 +429,17 @@ static void AddForeignUpdateTargets(Query *parsetree,
 
     Form_pg_attribute attr = &RelationGetDescr(targetRelation)->attrs[0];
 
+    /*
+     * Code adapted from redis_fdw
+     *
+     * In KV, we need the key name. It's the first column in the table regardless
+     * of the table type. Knowing the key, we can update or delete it.
+     */
     Var *varnode = makeVar(parsetree->resultRelation,
-                           attr->attnum,
+                           1,
                            attr->atttypid,
                            attr->atttypmod,
-                           attr->attcollation,
+                           InvalidOid,
                            0);
     /* Wrap it in a resjunk TLE with the right name ... */
     const char *attrname = "key_junk";
@@ -469,6 +478,13 @@ static List *PlanForeignModify(PlannerInfo *plannerInfo,
      */
 
     elog(DEBUG1, "entering function %s", __func__);
+
+    CmdType operation = plan->operation;
+
+    if (operation == CMD_UPDATE || operation == CMD_DELETE) {
+        RelOptInfo *baserel = plannerInfo->simple_rel_array[resultRelation];
+        return list_make1(baserel->fdw_private);
+    }
 
     return NULL;
 }
@@ -513,15 +529,26 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
 
     TableWriteState *writeState = palloc0(sizeof(TableWriteState));
 
-    Oid foreignTableId = RelationGetRelid(relationInfo->ri_RelationDesc);
-    FdwOptions *fdwOptions = KVGetOptions(foreignTableId);
-    writeState->db = Open(fdwOptions->filename);
+    CmdType operation = modifyTableState->operation;
+    writeState->operation = operation;
+
+    if (operation == CMD_UPDATE || operation == CMD_DELETE) {
+        TablePlanState *planState = (TablePlanState *) list_nth(fdwPrivate, 0);
+        writeState->db = planState->db;
+    } else if (operation == CMD_INSERT) {
+        Oid foreignTableId = RelationGetRelid(relationInfo->ri_RelationDesc);
+        FdwOptions *fdwOptions = KVGetOptions(foreignTableId);
+        writeState->db = Open(fdwOptions->filename);
+    } else {
+        ereport(ERROR,
+                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                 errmsg("not Insert, update, delete, what is the operation?")));
+    }
 
     writeState->rel = relationInfo->ri_RelationDesc;
     writeState->keyInfo = palloc0(sizeof(FmgrInfo));
     writeState->valueInfo = palloc0(sizeof(FmgrInfo));
 
-    CmdType operation = modifyTableState->operation;
     if (operation == CMD_UPDATE || operation == CMD_DELETE) {
         /* Find the ctid resjunk column in the subplan's result */
         Plan *subplan = modifyTableState->mt_plans[subplanIndex]->plan;
@@ -734,8 +761,13 @@ static void EndForeignModify(EState *executorState, ResultRelInfo *relationInfo)
 
     TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
 
-    if (writeState && writeState->db) {
-        Close(writeState->db);
+    if (writeState) {
+        CmdType operation = writeState->operation;
+        if (operation == CMD_INSERT && writeState->db) {
+            Close(writeState->db);
+        }
+
+        /* CMD_UPDATE and CMD_DELETE close will be taken care of by endScan */
         writeState->db = NULL;
     }
 }
@@ -858,4 +890,23 @@ Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
     fdwRoutine->AnalyzeForeignTable = AnalyzeForeignTable; /* ANALYZE only */
 
     PG_RETURN_POINTER(fdwRoutine);
+}
+
+Datum kv_fdw_validator(PG_FUNCTION_ARGS) {
+    printf("\n-----------------fdw_validator----------------------\n");
+    List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
+
+    elog(DEBUG1, "entering function %s", __func__);
+
+    /* make sure the options are valid */
+
+    /* no options are supported */
+
+    if (list_length(options_list) > 0)
+        ereport(ERROR,
+                (errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
+                 errmsg("invalid options"),
+                 errhint("FDW does not support any options")));
+
+    PG_RETURN_VOID();
 }

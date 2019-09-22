@@ -343,12 +343,8 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
     }
 
     if (found) {
-        char **values = (char **) palloc(sizeof(char *) * 2);
-        if (readState->keyBasedQual) {
-            values[0] = readState->keyBasedQualValue;
-        } else {
-            values[0] = key;
-        }
+        char **values = (char **) palloc0(sizeof(char *) * 2);
+        values[0] = readState->keyBasedQual? readState->keyBasedQualValue: key;
         values[1] = value;
         HeapTuple tuple = BuildTupleFromCStrings(readState->attinmeta, values);
         ExecStoreTuple(tuple, slot, InvalidBuffer, false);
@@ -535,10 +531,12 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     if (operation == CMD_UPDATE || operation == CMD_DELETE) {
         TablePlanState *planState = (TablePlanState *) list_nth(fdwPrivate, 0);
         writeState->db = planState->db;
+
     } else if (operation == CMD_INSERT) {
         Oid foreignTableId = RelationGetRelid(relationInfo->ri_RelationDesc);
         FdwOptions *fdwOptions = KVGetOptions(foreignTableId);
         writeState->db = Open(fdwOptions->filename);
+
     } else {
         ereport(ERROR,
                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -610,19 +608,19 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
     TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
 
     bool isnull;
-    Datum value = slot_getattr(planSlot, 1, &isnull);
+    Datum attribute = slot_getattr(planSlot, 1, &isnull);
     if (isnull) {
         elog(ERROR, "can't get key value");
     }
-    char *keyValue = OutputFunctionCall(writeState->keyInfo, value);
+    char *key = OutputFunctionCall(writeState->keyInfo, attribute);
 
-    value = slot_getattr(planSlot, 2, &isnull);
+    attribute = slot_getattr(planSlot, 2, &isnull);
     if (isnull) {
         elog(ERROR, "can't get value value");
     }
-    char *valueValue = OutputFunctionCall(writeState->valueInfo, value);
+    char *value = OutputFunctionCall(writeState->valueInfo, attribute);
 
-    if (!Put(writeState->db, keyValue, valueValue)) {
+    if (!Put(writeState->db, key, value)) {
         elog(ERROR, "Error from ExecForeignInsert");
     }
     return tupleSlot;
@@ -665,33 +663,33 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
     TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
 
     bool isnull;
-    Datum value = ExecGetJunkAttribute(planSlot,
-                                       writeState->keyJunkNo,
-                                       &isnull);
+    Datum attribute = ExecGetJunkAttribute(planSlot,
+                                           writeState->keyJunkNo,
+                                           &isnull);
     if (isnull) {
         elog(ERROR, "can't get junk key value");
     }
-    char *keyValue = OutputFunctionCall(writeState->keyInfo, value);
+    char *key = OutputFunctionCall(writeState->keyInfo, attribute);
 
-    value = slot_getattr(planSlot, 1, &isnull);
+    attribute = slot_getattr(planSlot, 1, &isnull);
     if (isnull) {
         elog(ERROR, "can't get new key value");
     }
-    char *keyValueNew = OutputFunctionCall(writeState->keyInfo, value);
-    if (strcmp(keyValue, keyValueNew) != 0) {
+    char *keyNew = OutputFunctionCall(writeState->keyInfo, attribute);
+    if (strcmp(key, keyNew) != 0) {
         elog(ERROR,
              "You cannot update key values (original key value was %s)",
-             keyValue);
+             key);
         return tupleSlot;
     }
 
-    value = slot_getattr(planSlot, 2, &isnull);
+    attribute = slot_getattr(planSlot, 2, &isnull);
     if (isnull) {
         elog(ERROR, "can't get value value");
     }
-    char *valueValue = OutputFunctionCall(writeState->valueInfo, value);
+    char *value = OutputFunctionCall(writeState->valueInfo, attribute);
 
-    if (!Put(writeState->db, keyValue, valueValue)) {
+    if (!Put(writeState->db, key, value)) {
         elog(ERROR, "Error from ExecForeignUpdate");
     }
 
@@ -732,14 +730,16 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
 
     bool isnull;
-    Datum value = ExecGetJunkAttribute(planSlot, writeState->keyJunkNo, &isnull);
+    Datum attribute = ExecGetJunkAttribute(planSlot,
+                                           writeState->keyJunkNo,
+                                           &isnull);
     if (isnull) {
         elog(ERROR, "can't get key value");
     }
 
-    char *keyValue = OutputFunctionCall(writeState->keyInfo, value);
+    char *key = OutputFunctionCall(writeState->keyInfo, attribute);
 
-    if (!Delete(writeState->db, keyValue)) {
+    if (!Delete(writeState->db, key)) {
         elog(ERROR, "Error from ExecForeignDelete");
     }
 

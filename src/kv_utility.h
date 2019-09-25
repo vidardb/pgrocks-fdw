@@ -108,15 +108,6 @@ static bool KVDirectoryExists(StringInfo directoryName) {
     return directoryExists;
 }
 
-/* Creates a new directory with the given directory name. */
-static void KVCreateDirectory(StringInfo directoryName) {
-    if (mkdir(directoryName->data, S_IRWXU) != 0) {
-        ereport(ERROR, (errcode_for_file_access(),
-                        errmsg("could not create directory \"%s\": %m",
-                               directoryName->data)));
-    }
-}
-
 /*
  * Creates the directory (and parent directories, if needed)
  * used to store automatically managed kv_fdw files. The path to
@@ -126,7 +117,11 @@ static void KVCreateDatabaseDirectory(Oid databaseOid) {
     StringInfo directoryPath = makeStringInfo();
     appendStringInfo(directoryPath, "%s/%s", DataDir, KV_FDW_NAME);
     if (!KVDirectoryExists(directoryPath)) {
-        KVCreateDirectory(directoryPath);
+        if (mkdir(directoryPath->data, S_IRWXU) != 0) {
+            ereport(ERROR, (errcode_for_file_access(),
+                            errmsg("could not create directory \"%s\": %m",
+                                   directoryPath->data)));
+        }
     }
 
     StringInfo databaseDirectoryPath = makeStringInfo();
@@ -136,7 +131,11 @@ static void KVCreateDatabaseDirectory(Oid databaseOid) {
                      KV_FDW_NAME,
                      databaseOid);
     if (!KVDirectoryExists(databaseDirectoryPath)) {
-        KVCreateDirectory(databaseDirectoryPath);
+        if (mkdir(databaseDirectoryPath->data, S_IRWXU) != 0) {
+            ereport(ERROR, (errcode_for_file_access(),
+                            errmsg("could not create directory \"%s\": %m",
+                                   databaseDirectoryPath->data)));
+        }
     }
 }
 
@@ -216,6 +215,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
                              MyDatabaseId,
                              relationId);
 
+            /* Initialize the database */
             void *kvDB = Open(kvPath->data);
             Close(kvDB);
 
@@ -297,12 +297,12 @@ static List *KVDroppedFilenameList(DropStmt *dropStmt) {
  * CALL_PREVIOUS_UTILITY.
  */
 static void KVProcessUtility(PlannedStmt *plannedStmt,
-                           const char *queryString,
-                           ProcessUtilityContext context,
-                           ParamListInfo paramListInfo,
-                           QueryEnvironment *queryEnvironment,
-                           DestReceiver *destReceiver,
-                           char *completionTag) {
+                             const char *queryString,
+                             ProcessUtilityContext context,
+                             ParamListInfo paramListInfo,
+                             QueryEnvironment *queryEnvironment,
+                             DestReceiver *destReceiver,
+                             char *completionTag) {
     Node *parseTree = plannedStmt->utilityStmt;
     if (nodeTag(parseTree) == T_DropStmt) {
 
@@ -332,9 +332,10 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
                 KVRemoveDatabaseDirectory(MyDatabaseId);
             }
         } else {
-            /* drop table */
+            /* drop table & drop server */
             List *droppedTables = KVDroppedFilenameList((DropStmt *) parseTree);
 
+            /* delete metadata */
             CALL_PREVIOUS_UTILITY(parseTree,
                                   queryString,
                                   context,
@@ -342,9 +343,10 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
                                   destReceiver,
                                   completionTag);
 
-            ListCell *fileListCell = NULL;
-            foreach(fileListCell, droppedTables) {
-                char *path = lfirst(fileListCell);
+            /* delete real data */
+            ListCell *fileCell = NULL;
+            foreach(fileCell, droppedTables) {
+                char *path = lfirst(fileCell);
                 StringInfo tablePath = makeStringInfo();
                 appendStringInfo(tablePath, "%s", path);
                 if (KVDirectoryExists(tablePath)) {

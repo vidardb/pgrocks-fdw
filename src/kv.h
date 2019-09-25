@@ -20,11 +20,13 @@ uint64_t Count(void* db);
 
 void* GetIter(void* db);
 void DelIter(void* it);
-bool Next(void* db, void* iter, char** key, char** value);
+bool Next(void* db, void* iter, char** key, unsigned int *keyLen,
+          char** value, unsigned int *valLen);
 
 bool Get(void* db, char* key, char** value);
-bool Put(void* db, char* key, char* value);
-bool Delete(void* db, char* key);
+bool Put(void* db, char* key, unsigned int keyLen,
+         char* value, unsigned int valLen);
+bool Delete(void* db, char* key, unsigned int keyLen);
 
 
 #if defined(__cplusplus)

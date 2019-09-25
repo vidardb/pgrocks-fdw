@@ -44,15 +44,15 @@ void DelIter(void* it) {
     }
 }
 
-bool Next(void* db, void* iter, char** key, char** value) {
+bool Next(void* db, void* iter, char** key, unsigned int *keyLen,
+          char** value, unsigned int *valLen) {
     Iterator* it = static_cast<Iterator*>(iter);
     if (!it->Valid()) return false;
-    size_t keyLen = it->key().size() + 1, valLen = it->value().size() + 1;
-    *key = (char*) palloc0(keyLen);
-    *value = (char*) palloc0(valLen);
-    // assuming key & val in storage engine end without trailing zero
-    strncpy(*key, it->key().data(), keyLen-1);
-    strncpy(*value, it->value().data(), valLen-1);
+    *keyLen = it->key().size(), *valLen = it->value().size();
+    *key = (char*) palloc0(*keyLen);
+    *value = (char*) palloc0(*valLen);
+    strncpy(*key, it->key().data(), *keyLen);
+    strncpy(*value, it->value().data(), *valLen);
     it->Next();
     return true;
 }
@@ -66,13 +66,15 @@ bool Get(void* db, char* key, char** value) {
     return true;
 }
 
-bool Put(void* db, char* key, char* value) {
-    Status s = static_cast<DB*>(db)->Put(WriteOptions(), key, value);
+bool Put(void* db, char* key, unsigned int keyLen,
+         char* value, unsigned int valLen) {
+    Status s = static_cast<DB*>(db)->Put(WriteOptions(), Slice(key, keyLen),
+                                         Slice(value, valLen));
     return s.ok()? true: false;
 }
 
-bool Delete(void* db, char* key) {
-    Status s = static_cast<DB*>(db)->Delete(WriteOptions(), key);
+bool Delete(void* db, char* key, unsigned int keyLen) {
+    Status s = static_cast<DB*>(db)->Delete(WriteOptions(), Slice(key, keyLen));
     return s.ok()? true: false;
 }
 

@@ -12,6 +12,7 @@
 #include "utils/builtins.h"
 #include "nodes/makefuncs.h"
 #include "utils/lsyscache.h"
+#include "access/tuptoaster.h"
 
 PG_MODULE_MAGIC;
 
@@ -271,26 +272,60 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         return;
     }
 
-    if (scanState->ss.ps.plan->qual) {
-        printf("\nqual\n");
-        ListCell *lc;
-        foreach (lc, scanState->ss.ps.plan->qual) {
-            /* Only the first qual can be pushed down */
-            printf("\nOnly the first qual can be pushed down\n");
-            Expr *state = lfirst(lc);
-            GetKeyBasedQual((Node *) state,
-                            scanState->ss.ss_currentRelation->rd_att,
-                            &readState->keyBasedQualValue,
-                            &readState->keyBasedQual);
-            if (readState->keyBasedQual) {
-                printf("\nkey_based_qual\n");
-                break;
-            }
-        }
-    }
+//    if (scanState->ss.ps.plan->qual) {
+//        printf("\nqual\n");
+//        ListCell *lc;
+//        foreach (lc, scanState->ss.ps.plan->qual) {
+//            /* Only the first qual can be pushed down */
+//            printf("\nOnly the first qual can be pushed down\n");
+//            Expr *state = lfirst(lc);
+//            GetKeyBasedQual((Node *) state,
+//                            scanState->ss.ss_currentRelation->rd_att,
+//                            &readState->keyBasedQualValue,
+//                            &readState->keyBasedQual);
+//            if (readState->keyBasedQual) {
+//                printf("\nkey_based_qual\n");
+//                break;
+//            }
+//        }
+//    }
 
     if (!readState->keyBasedQual) {
         readState->iter = GetIter(readState->db);
+    }
+}
+
+static void DeserializeTuple(StringInfo key,
+                             StringInfo value,
+                             TupleTableSlot *tupleSlot) {
+
+    Datum *values = tupleSlot->tts_values;
+    bool *nulls = tupleSlot->tts_isnull;
+
+    TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
+    uint32 count = tupleDescriptor->natts;
+
+    /* initialize all values for this row to null */
+    memset(values, 0, count * sizeof(Datum));
+    memset(nulls, false, count * sizeof(bool));
+
+    uint32 offset = 0;
+    char *current = key->data;
+    for (uint32 index = 0; index < count; index++) {
+
+        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
+        bool byValue = attributeForm->attbyval;
+        int typeLength = attributeForm->attlen;
+        char align = attributeForm->attalign;
+
+        values[index] = fetch_att(current, byValue, typeLength);
+        offset = att_addlength_datum(offset, typeLength, current);
+        offset = att_align_nominal(offset, align);
+
+        if (index == 0) {
+            offset = 0;
+        }
+        current = value->data + offset;
     }
 }
 
@@ -322,36 +357,25 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
 
     elog(DEBUG1, "entering function %s", __func__);
 
-
-    TupleTableSlot *slot = scanState->ss.ss_ScanTupleSlot;
-    ExecClearTuple(slot);
+    TupleTableSlot *tupleSlot = scanState->ss.ss_ScanTupleSlot;
+    ExecClearTuple(tupleSlot);
 
     TableReadState *readState = (TableReadState *) scanState->fdw_state;
-
-    bool found = false;
-    char *key;
-    char *value;
-
-    /* get the next record, if any, and fill in the slot */
-    if (readState->keyBasedQual) {
-        if (!readState->keyBasedQualSent) {
-            readState->keyBasedQualSent = true;
-            found = Get(readState->db, readState->keyBasedQualValue, &value);
-        }
-    } else {
-        found = Next(readState->db, readState->iter, &key, &value);
+    char *k = NULL, *v = NULL;
+    uint32 kLen = 0, vLen = 0;
+    if (!Next(readState->db, readState->iter, &k, &kLen, &v, &vLen)) {
+        return tupleSlot;
     }
 
-    if (found) {
-        char **values = (char **) palloc0(sizeof(char *) * 2);
-        values[0] = readState->keyBasedQual? readState->keyBasedQualValue: key;
-        values[1] = value;
-        HeapTuple tuple = BuildTupleFromCStrings(readState->attinmeta, values);
-        ExecStoreTuple(tuple, slot, InvalidBuffer, false);
-    }
+    StringInfo key = makeStringInfo();
+    appendBinaryStringInfo(key, k, kLen);
+    StringInfo value = makeStringInfo();
+    appendBinaryStringInfo(value, v, vLen);
 
-    /* then return the slot */
-    return slot;
+    DeserializeTuple(key, value, tupleSlot);
+
+    ExecStoreVirtualTuple(tupleSlot);
+    return tupleSlot;
 }
 
 static void ReScanForeignScan(ForeignScanState *scanState) {
@@ -572,6 +596,53 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     relationInfo->ri_FdwState = (void *) writeState;
 }
 
+static void SerializeTuple(StringInfo key,
+                           StringInfo value,
+                           TupleTableSlot *tupleSlot) {
+
+    TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
+    uint32 count = tupleDescriptor->natts;
+    char *current = key->data;
+
+    for (uint32 index = 0; index < count; index++) {
+
+        if (tupleSlot->tts_isnull[index]) {
+            continue;
+        }
+
+        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
+        bool byValue = attributeForm->attbyval;
+        int typeLength = attributeForm->attlen;
+        char align = attributeForm->attalign;
+
+        Datum datum = tupleSlot->tts_values[index];
+        uint32 datumLength = att_addlength_datum(value->len, typeLength, datum);
+        uint32 datumLengthAligned = att_align_nominal(datumLength, align);
+
+        enlargeStringInfo(index==0? key: value,
+                          (index==0? 0: value->len) + datumLengthAligned);
+        memset(current, 0, datumLengthAligned);
+
+        if (typeLength > 0) {
+            if (byValue) {
+                store_att_byval(current, datum, typeLength);
+            } else {
+                memcpy(current, DatumGetPointer(datum), typeLength);
+            }
+        } else {
+            memcpy(current, DatumGetPointer(datum), datumLength);
+        }
+
+        if (index == 0) {
+            key->len += datumLengthAligned;
+            current = value->data;
+        } else {
+            value->len += datumLengthAligned;
+            current = value->data + value->len;
+        }
+    }
+}
+
 static TupleTableSlot *ExecForeignInsert(EState *executorState,
                                          ResultRelInfo *relationInfo,
                                          TupleTableSlot *tupleSlot,
@@ -605,22 +676,21 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
 
     elog(DEBUG1, "entering function %s", __func__);
 
+    TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
+    if (HeapTupleHasExternal(tupleSlot->tts_tuple)) {
+        /* detoast any toasted attributes */
+        tupleSlot->tts_tuple = toast_flatten_tuple(tupleSlot->tts_tuple,
+                                                   tupleDescriptor);
+    }
+    slot_getallattrs(tupleSlot);
+
+    StringInfo key = makeStringInfo();
+    StringInfo value = makeStringInfo();
+
+    SerializeTuple(key, value, tupleSlot);
+
     TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
-
-    bool isnull;
-    Datum attribute = slot_getattr(planSlot, 1, &isnull);
-    if (isnull) {
-        elog(ERROR, "can't get key value");
-    }
-    char *key = OutputFunctionCall(writeState->keyInfo, attribute);
-
-    attribute = slot_getattr(planSlot, 2, &isnull);
-    if (isnull) {
-        elog(ERROR, "can't get value value");
-    }
-    char *value = OutputFunctionCall(writeState->valueInfo, attribute);
-
-    if (!Put(writeState->db, key, value)) {
+    if (!Put(writeState->db, key->data, key->len, value->data, value->len)) {
         elog(ERROR, "Error from ExecForeignInsert");
     }
     return tupleSlot;
@@ -669,27 +739,34 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
     if (isnull) {
         elog(ERROR, "can't get junk key value");
     }
-    char *key = OutputFunctionCall(writeState->keyInfo, attribute);
+    char *keyOld = OutputFunctionCall(writeState->keyInfo, attribute);
 
     attribute = slot_getattr(planSlot, 1, &isnull);
     if (isnull) {
         elog(ERROR, "can't get new key value");
     }
     char *keyNew = OutputFunctionCall(writeState->keyInfo, attribute);
-    if (strcmp(key, keyNew) != 0) {
+    if (strcmp(keyOld, keyNew) != 0) {
         elog(ERROR,
              "You cannot update key values (original key value was %s)",
-             key);
+             keyOld);
         return tupleSlot;
     }
 
-    attribute = slot_getattr(planSlot, 2, &isnull);
-    if (isnull) {
-        elog(ERROR, "can't get value value");
+    TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
+    if (HeapTupleHasExternal(tupleSlot->tts_tuple)) {
+        /* detoast any toasted attributes */
+        tupleSlot->tts_tuple = toast_flatten_tuple(tupleSlot->tts_tuple,
+                                                   tupleDescriptor);
     }
-    char *value = OutputFunctionCall(writeState->valueInfo, attribute);
+    slot_getallattrs(tupleSlot);
 
-    if (!Put(writeState->db, key, value)) {
+    StringInfo key = makeStringInfo();
+    StringInfo value = makeStringInfo();
+
+    SerializeTuple(key, value, tupleSlot);
+
+    if (!Put(writeState->db, key->data, key->len, value->data, value->len)) {
         elog(ERROR, "Error from ExecForeignUpdate");
     }
 
@@ -730,16 +807,25 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
 
     bool isnull;
-    Datum attribute = ExecGetJunkAttribute(planSlot,
-                                           writeState->keyJunkNo,
-                                           &isnull);
+    ExecGetJunkAttribute(planSlot, writeState->keyJunkNo, &isnull);
     if (isnull) {
-        elog(ERROR, "can't get key value");
+        elog(ERROR, "can't get junk key value");
     }
 
-    char *key = OutputFunctionCall(writeState->keyInfo, attribute);
+    TupleDesc tupleDescriptor = planSlot->tts_tupleDescriptor;
+//    if (HeapTupleHasExternal(planSlot->tts_tuple)) {
+//        /* detoast any toasted attributes */
+//        planSlot->tts_tuple = toast_flatten_tuple(planSlot->tts_tuple,
+//                                                  tupleDescriptor);
+//    }
+    slot_getallattrs(planSlot);
 
-    if (!Delete(writeState->db, key)) {
+    StringInfo key = makeStringInfo();
+    StringInfo value = makeStringInfo();
+
+    SerializeTuple(key, value, planSlot);
+
+    if (!Delete(writeState->db, key->data, key->len)) {
         elog(ERROR, "Error from ExecForeignDelete");
     }
 

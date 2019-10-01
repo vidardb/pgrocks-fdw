@@ -1,0 +1,11 @@
+--
+--Create the extension and server for tests
+--
+CREATE DATABASE kvtest;
+CREATE DATABASE
+\c kvtest
+You are now connected to database "kvtest" as user "postgres".
+CREATE EXTENSION kv_fdw;
+CREATE EXTENSION
+CREATE SERVER kv_server FOREIGN DATA WRAPPER kv_fdw;
+CREATE SERVER

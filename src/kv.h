@@ -24,7 +24,7 @@ void DelIter(void* it);
 bool Next(void* db, void* iter, char** key, uint32* keyLen,
           char** value, uint32* valLen);
 
-bool Get(void* db, char* key, char** value, uint32* valLen);
+bool Get(void* db, char* key, uint32 keyLen, char** value, uint32* valLen);
 bool Put(void* db, char* key, uint32 keyLen, char* value, uint32 valLen);
 bool Delete(void* db, char* key, uint32 keyLen);
 

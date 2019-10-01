@@ -9,10 +9,11 @@
 #include "optimizer/restrictinfo.h"
 #include "funcapi.h"
 #include "utils/rel.h"
-#include "utils/builtins.h"
 #include "nodes/makefuncs.h"
-#include "utils/lsyscache.h"
 #include "access/tuptoaster.h"
+#include "catalog/pg_operator.h"
+#include "utils/syscache.h"
+#include "utils/typcache.h"
 
 PG_MODULE_MAGIC;
 
@@ -40,10 +41,9 @@ typedef struct {
 typedef struct {
     void *db;
     void *iter;
-    bool keyBasedQual;
-    char *keyBasedQualValue;
-    bool keyBasedQualSent;
-    AttInMetadata *attinmeta;
+    bool isKeyBased;
+    bool getDone;
+    StringInfo key;
 } TableReadState;
 
 /*
@@ -58,7 +58,6 @@ typedef struct {
     CmdType operation;
     Relation rel;
     FmgrInfo *keyInfo;
-    FmgrInfo *valueInfo;
     AttrNumber keyJunkNo;
 } TableWriteState;
 
@@ -183,49 +182,105 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
                             NULL);
 }
 
-static void GetKeyBasedQual(Node *node,
-                            TupleDesc tupdesc,
-                            char **value,
-                            bool *keyBasedQual) {
-    char *key = NULL;
-    *value = NULL;
-    *keyBasedQual = false;
+static void SerializeAttribute(TupleDesc tupleDescriptor,
+                               Index index,
+                               Datum datum,
+                               StringInfo buffer) {
+    Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
+    bool byValue = attributeForm->attbyval;
+    int typeLength = attributeForm->attlen;
+    char align = attributeForm->attalign;
 
-    if (!node) {
+    uint32 offset = buffer->len;
+    uint32 datumLength = att_addlength_datum(offset, typeLength, datum);
+    uint32 datumLengthAligned = att_align_nominal(datumLength, align);
+
+    enlargeStringInfo(buffer, offset + datumLengthAligned);
+
+    char *current = buffer->data + buffer->len;
+    memset(current, 0, datumLengthAligned);
+
+    if (typeLength > 0) {
+        if (byValue) {
+            store_att_byval(current, datum, typeLength);
+        } else {
+            memcpy(current, DatumGetPointer(datum), typeLength);
+        }
+    } else {
+        memcpy(current, DatumGetPointer(datum), datumLength);
+    }
+
+    buffer->len += datumLengthAligned;
+}
+
+static void GetKeyBasedQual(Node *node,
+                            TupleDesc tupleDescriptor,
+                            TableReadState *readState) {
+    if (!node || !IsA(node, OpExpr)) {
         return;
     }
 
-    if (IsA(node, OpExpr)) {
-        OpExpr *op = (OpExpr *) node;
-        if (list_length(op->args) != 2) {
-            return;
-        }
-
-        Node *left = list_nth(op->args, 0);
-        if (!IsA(left, Var)) {
-            return;
-        }
-        Index varattno = ((Var *) left)->varattno;
-
-        Node *right = list_nth(op->args, 1);
-        if (IsA(right, Const)) {
-            StringInfoData buf;
-            initStringInfo(&buf);
-
-            /* And get the column and value... */
-            key = NameStr(tupdesc->attrs[varattno - 1].attname);
-            *value = TextDatumGetCString(((Const *) right)->constvalue);
-            /*
-             * We can push down this qual if: - The operatory is TEXTEQ - The
-             * qual is on the key column
-             */
-            printf("PROCID_TEXTEQ");
-            if (op->opfuncid == PROCID_TEXTEQ && strcmp(key, "key") == 0) {
-                *keyBasedQual = true;
-            }
-            return;
-        }
+    OpExpr *op = (OpExpr *) node;
+    if (list_length(op->args) != 2) {
+        return;
     }
+
+    Node *left = list_nth(op->args, 0);
+    if (!IsA(left, Var)) {
+        return;
+    }
+
+    Node *right = list_nth(op->args, 1);
+    if (!IsA(right, Const)) {
+        return;
+    }
+
+    Index varattno = ((Var *) left)->varattno;
+    if (varattno != 1) {
+        return;
+    }
+
+    /* get the name of the operator according to PG_OPERATOR OID */
+    HeapTuple opertup = SearchSysCache1(OPEROID, ObjectIdGetDatum(op->opno));
+    if (!HeapTupleIsValid(opertup)) {
+        elog(ERROR, "cache lookup failed for operator %u", op->opno);
+    }
+    Form_pg_operator operform = (Form_pg_operator) GETSTRUCT(opertup);
+    char *oprname = NameStr(operform->oprname);
+    if (strncmp(oprname, "=", NAMEDATALEN)) {
+        ReleaseSysCache(opertup);
+        return;
+    }
+    ReleaseSysCache(opertup);
+
+    Const *constNode = ((Const *) right);
+    Datum datum = constNode->constvalue;
+
+    TypeCacheEntry *typeEntry = lookup_type_cache(constNode->consttype, 0);
+    /* Make sure item to be inserted is not toasted */
+    if (typeEntry->typlen == -1) {
+        datum = PointerGetDatum(PG_DETOAST_DATUM_PACKED(datum));
+    }
+
+    if (typeEntry->typlen == -1 && typeEntry->typstorage != 'p' &&
+        VARATT_CAN_MAKE_SHORT(datum)) {
+        /* convert to short varlena -- no alignment */
+        Pointer val = DatumGetPointer(datum);
+        uint32 shortSize = VARATT_CONVERTED_SHORT_SIZE(val);
+        Pointer temp = palloc0(shortSize);
+        SET_VARSIZE_SHORT(temp, shortSize);
+        memcpy(temp + 1, VARDATA(val), shortSize - 1);
+        datum = PointerGetDatum(temp);
+    }
+
+    /*
+     * We can push down this qual if:
+     * - The operatory is =
+     * - The qual is on the key column
+     */
+    readState->isKeyBased = true;
+    readState->key = makeStringInfo();
+    SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key);
 
     return;
 }
@@ -259,11 +314,9 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     readState->db = list_nth((List *) foreignScan->fdw_private, 0);
 
     readState->iter = NULL;
-    readState->keyBasedQual = false;
-    readState->keyBasedQualValue = NULL;
-    readState->keyBasedQualSent = false;
-    readState->attinmeta =
-            TupleDescGetAttInMetadata(scanState->ss.ss_currentRelation->rd_att);
+    readState->isKeyBased = false;
+    readState->getDone = false;
+    readState->key = NULL;
 
     scanState->fdw_state = (void *) readState;
 
@@ -272,25 +325,20 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         return;
     }
 
-//    if (scanState->ss.ps.plan->qual) {
-//        printf("\nqual\n");
-//        ListCell *lc;
-//        foreach (lc, scanState->ss.ps.plan->qual) {
-//            /* Only the first qual can be pushed down */
-//            printf("\nOnly the first qual can be pushed down\n");
-//            Expr *state = lfirst(lc);
-//            GetKeyBasedQual((Node *) state,
-//                            scanState->ss.ss_currentRelation->rd_att,
-//                            &readState->keyBasedQualValue,
-//                            &readState->keyBasedQual);
-//            if (readState->keyBasedQual) {
-//                printf("\nkey_based_qual\n");
-//                break;
-//            }
-//        }
-//    }
+    ListCell *lc;
+    foreach (lc, scanState->ss.ps.plan->qual) {
+        /* Only the first qual can be pushed down */
+        Expr *state = lfirst(lc);
+        GetKeyBasedQual((Node *) state,
+                        scanState->ss.ss_currentRelation->rd_att,
+                        readState);
+        if (readState->isKeyBased) {
+            printf("\nkey_based_qual\n");
+            break;
+        }
+    }
 
-    if (!readState->keyBasedQual) {
+    if (!readState->isKeyBased) {
         readState->iter = GetIter(readState->db);
     }
 }
@@ -363,18 +411,30 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
     TableReadState *readState = (TableReadState *) scanState->fdw_state;
     char *k = NULL, *v = NULL;
     uint32 kLen = 0, vLen = 0;
-    if (!Next(readState->db, readState->iter, &k, &kLen, &v, &vLen)) {
-        return tupleSlot;
+
+    bool found = false;
+    if (readState->isKeyBased) {
+        if (!readState->getDone) {
+            k = readState->key->data;
+            kLen = readState->key->len;
+            found = Get(readState->db, k, kLen, &v, &vLen);
+            readState->getDone = true;
+        }
+    } else {
+        found = Next(readState->db, readState->iter, &k, &kLen, &v, &vLen);
     }
 
-    StringInfo key = makeStringInfo();
-    appendBinaryStringInfo(key, k, kLen);
-    StringInfo value = makeStringInfo();
-    appendBinaryStringInfo(value, v, vLen);
+    if (found) {
+        StringInfo key = makeStringInfo();
+        appendBinaryStringInfo(key, k, kLen);
+        StringInfo value = makeStringInfo();
+        appendBinaryStringInfo(value, v, vLen);
 
-    DeserializeTuple(key, value, tupleSlot);
+        DeserializeTuple(key, value, tupleSlot);
 
-    ExecStoreVirtualTuple(tupleSlot);
+        ExecStoreVirtualTuple(tupleSlot);
+    }
+
     return tupleSlot;
 }
 
@@ -569,7 +629,6 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
 
     writeState->rel = relationInfo->ri_RelationDesc;
     writeState->keyInfo = palloc0(sizeof(FmgrInfo));
-    writeState->valueInfo = palloc0(sizeof(FmgrInfo));
 
     if (operation == CMD_UPDATE || operation == CMD_DELETE) {
         /* Find the ctid resjunk column in the subplan's result */
@@ -588,11 +647,6 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena);
     fmgr_info(typefnoid, writeState->keyInfo);
 
-    attr = &RelationGetDescr(writeState->rel)->attrs[1];
-    Assert(!attr->attisdropped);
-    getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena);
-    fmgr_info(typefnoid, writeState->valueInfo);
-
     relationInfo->ri_FdwState = (void *) writeState;
 }
 
@@ -602,7 +656,6 @@ static void SerializeTuple(StringInfo key,
 
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
     uint32 count = tupleDescriptor->natts;
-    char *current = key->data;
 
     for (uint32 index = 0; index < count; index++) {
 
@@ -610,36 +663,8 @@ static void SerializeTuple(StringInfo key,
             continue;
         }
 
-        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
-        bool byValue = attributeForm->attbyval;
-        int typeLength = attributeForm->attlen;
-        char align = attributeForm->attalign;
-
         Datum datum = tupleSlot->tts_values[index];
-        uint32 datumLength = att_addlength_datum(value->len, typeLength, datum);
-        uint32 datumLengthAligned = att_align_nominal(datumLength, align);
-
-        enlargeStringInfo(index==0? key: value,
-                          (index==0? 0: value->len) + datumLengthAligned);
-        memset(current, 0, datumLengthAligned);
-
-        if (typeLength > 0) {
-            if (byValue) {
-                store_att_byval(current, datum, typeLength);
-            } else {
-                memcpy(current, DatumGetPointer(datum), typeLength);
-            }
-        } else {
-            memcpy(current, DatumGetPointer(datum), datumLength);
-        }
-
-        if (index == 0) {
-            key->len += datumLengthAligned;
-            current = value->data;
-        } else {
-            value->len += datumLengthAligned;
-            current = value->data + value->len;
-        }
+        SerializeAttribute(tupleDescriptor, index, datum, index==0? key: value);
     }
 }
 
@@ -812,12 +837,6 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
         elog(ERROR, "can't get junk key value");
     }
 
-    TupleDesc tupleDescriptor = planSlot->tts_tupleDescriptor;
-//    if (HeapTupleHasExternal(planSlot->tts_tuple)) {
-//        /* detoast any toasted attributes */
-//        planSlot->tts_tuple = toast_flatten_tuple(planSlot->tts_tuple,
-//                                                  tupleDescriptor);
-//    }
     slot_getallattrs(planSlot);
 
     StringInfo key = makeStringInfo();

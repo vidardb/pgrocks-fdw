@@ -55,9 +55,9 @@ bool Next(void* db, void* iter, char** key, uint32* keyLen,
     return true;
 }
 
-bool Get(void* db, char* key, char** value, uint32* valLen) {
+bool Get(void* db, char* key, uint32 keyLen, char** value, uint32* valLen) {
     string sval;
-    Status s = static_cast<DB*>(db)->Get(ReadOptions(), key, &sval);
+    Status s = static_cast<DB*>(db)->Get(ReadOptions(), Slice(key, keyLen), &sval);
     if (!s.ok()) return false;
     *valLen = sval.length();
     *value = (char*) palloc0(*valLen);

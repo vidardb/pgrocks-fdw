@@ -6,13 +6,13 @@ This PostgreSQL extension implements a Foreign Data Wrapper (FDW) for RocksDB: h
 
 We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 and RocksDB-4.9.
 
-1) Install PostgreSQL and the dev library:
+* Install PostgreSQL and the dev library:
 
 sudo apt-get install postgresql-11
 
 sudo apt-get install postgresql-server-dev-11
 
-2) Install RocksDB from source code:
+* Install RocksDB from source code:
 
 cd rocksdb
 
@@ -20,7 +20,7 @@ sudo DEBUG_LEVEL=0 make shared_lib install-shared
 
 If necessary, add /usr/local/lib to LD_LIBRARY_PATH.
 
-3) Build this foreign data wrapper
+* Build this foreign data wrapper
 
 cd PostgresForeignDataWrapper 
 
@@ -33,6 +33,8 @@ sudo make install
 From a sudo user:
 
 sudo service postgresql restart  
+
+cd path_to_fdw
 
 sudo -u postgres psql -U postgres -a -f test/sql/create.sql 
 

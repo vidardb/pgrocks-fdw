@@ -22,7 +22,7 @@ cd rocksdb
 sudo DEBUG_LEVEL=0 make shared_lib install-shared
 ```
 
-> If necessary, add /usr/local/lib to LD_LIBRARY_PATH.
+  If necessary, add /usr/local/lib to LD_LIBRARY_PATH.
 
 * Build this foreign data wrapper
 

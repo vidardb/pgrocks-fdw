@@ -16,6 +16,8 @@ sudo apt-get install postgresql-server-dev-11
 
 - Install RocksDB from source code:
 
+  If necessary, add /usr/local/lib to your LD_LIBRARY_PATH.
+
 ```
 cd rocksdb
 
@@ -23,9 +25,6 @@ sudo DEBUG_LEVEL=0 make shared_lib install-shared
 ```
 
 - Redis cursors have some significant limitations. The Redis docs say:
-
-  The FDW makes no attempt to detect this situation. Users should be aware of
-  the possibility.
 
   If necessary, add /usr/local/lib to your LD_LIBRARY_PATH.
   

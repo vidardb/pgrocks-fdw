@@ -8,25 +8,25 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 and
 
 * Install PostgreSQL and the dev library:
 
-sudo apt-get install postgresql-11
+...sudo apt-get install postgresql-11
 
-sudo apt-get install postgresql-server-dev-11
+...sudo apt-get install postgresql-server-dev-11
 
 * Install RocksDB from source code:
 
-cd rocksdb
+...cd rocksdb
 
-sudo DEBUG_LEVEL=0 make shared_lib install-shared
+...sudo DEBUG_LEVEL=0 make shared_lib install-shared
 
-If necessary, add /usr/local/lib to LD_LIBRARY_PATH.
+...If necessary, add /usr/local/lib to LD_LIBRARY_PATH.
 
 * Build this foreign data wrapper
 
-cd PostgresForeignDataWrapper 
+...cd PostgresForeignDataWrapper 
 
-make
+...make
 
-sudo make install
+...sudo make install
 
 # Test
 

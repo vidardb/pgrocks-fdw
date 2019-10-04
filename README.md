@@ -26,11 +26,6 @@ sudo DEBUG_LEVEL=0 make shared_lib install-shared
 
 - Redis cursors have some significant limitations. The Redis docs say:
 
-    A given element may be returned multiple times. It is up to the
-    application to handle the case of duplicated elements, for example only
-    using the returned elements in order to perform operations that are safe
-    when re-applied multiple times.
-
   The FDW makes no attempt to detect this situation. Users should be aware of
   the possibility.
 

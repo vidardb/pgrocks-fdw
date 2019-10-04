@@ -22,7 +22,7 @@ cd rocksdb
 sudo DEBUG_LEVEL=0 make shared_lib install-shared
 ```
 
-  - Redis cursors have some significant limitations. The Redis docs say:
+- Redis cursors have some significant limitations. The Redis docs say:
 
   The FDW makes no attempt to detect this situation. Users should be aware of
   the possibility.

@@ -10,7 +10,7 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 and
 
   sudo apt-get install postgresql-11
 
-  sudo apt-get install postgresql-server-dev-11
+  sudo apt-get install postgresql-server-dev-11 (required by using extensions)
 
 
 - Install RocksDB from source code:

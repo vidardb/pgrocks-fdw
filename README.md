@@ -22,12 +22,9 @@ cd rocksdb
 sudo DEBUG_LEVEL=0 make shared_lib install-shared
 ```
 
-  If necessary, add /usr/local/lib to LD_LIBRARY_PATH.
 
-- Redis cursors have some significant limitations. The Redis docs say:
-
-  The FDW makes no attempt to detect this situation. Users should be aware of
-  the possibility.
+  If necessary, add /usr/local/lib to your LD_LIBRARY_PATH.The 
+  
 
 
 - Build this foreign data wrapper

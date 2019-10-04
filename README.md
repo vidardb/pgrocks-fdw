@@ -16,33 +16,39 @@ sudo apt-get install postgresql-server-dev-11
 
 * Install RocksDB from source code:
 
-...cd rocksdb
+```
+cd rocksdb
 
-...sudo DEBUG_LEVEL=0 make shared_lib install-shared
+sudo DEBUG_LEVEL=0 make shared_lib install-shared
+```
 
-...If necessary, add /usr/local/lib to LD_LIBRARY_PATH.
+   If necessary, add /usr/local/lib to LD_LIBRARY_PATH.
 
 * Build this foreign data wrapper
 
-...cd PostgresForeignDataWrapper 
+```
+cd PostgresForeignDataWrapper 
 
-...make
+make
 
-...sudo make install
+sudo make install
+```
 
 # Test
 
 From a sudo user:
 
+```
 sudo service postgresql restart  
 
-cd path_to_fdw
+cd PostgresForeignDataWrapper
 
 sudo -u postgres psql -U postgres -a -f test/sql/create.sql 
 
 sudo -u postgres psql -U postgres -d kvtest -a -f test/sql/basic.sql 
 
 sudo -u postgres psql -U postgres -d kvtest -a -f test/sql/clear.sql  
+```
 
 # Start PostgreSQL with debug mode
 

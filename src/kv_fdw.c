@@ -15,13 +15,15 @@
 #include "utils/syscache.h"
 #include "utils/typcache.h"
 
-PG_MODULE_MAGIC;
 
-//taken from redis_fdw
-#define PROCID_TEXTEQ 67
+PG_MODULE_MAGIC;
 
 PG_FUNCTION_INFO_V1(kv_fdw_handler);
 PG_FUNCTION_INFO_V1(kv_fdw_validator);
+
+
+#define KVKEYJUNK "__key_junk"
+
 
 /*
  * The plan state is set up in GetForeignRelSize and stashed away in
@@ -42,7 +44,7 @@ typedef struct {
     void *db;
     void *iter;
     bool isKeyBased;
-    bool getDone;
+    bool done;
     StringInfo key;
 } TableReadState;
 
@@ -56,8 +58,6 @@ typedef struct {
 typedef struct {
     void *db;
     CmdType operation;
-    Relation rel;
-    FmgrInfo *keyInfo;
     AttrNumber keyJunkNo;
 } TableWriteState;
 
@@ -83,7 +83,7 @@ static void GetForeignRelSize(PlannerInfo *root,
      * can compute a better estimate of the average result row width.
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     TablePlanState *planState = palloc0(sizeof(TablePlanState));
 
@@ -92,6 +92,7 @@ static void GetForeignRelSize(PlannerInfo *root,
 
     baserel->fdw_private = (void *) planState;
 
+    /* TODO better estimation */
     baserel->rows = Count(planState->db);
 }
 
@@ -114,7 +115,7 @@ static void GetForeignPaths(PlannerInfo *root,
      * that is needed to identify the specific scan method intended.
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     Cost startupCost = 0;
     Cost totalCost = startupCost + baserel->rows;
@@ -123,13 +124,13 @@ static void GetForeignPaths(PlannerInfo *root,
     add_path(baserel,
              (Path *) create_foreignscan_path(root,
                                               baserel,
-                                              NULL, /* default pathtarget */
+                                              NULL,  /* default pathtarget */
                                               baserel->rows,
                                               startupCost,
                                               totalCost,
-                                              NIL, /* no pathkeys */
-                                              NULL, /* no outer rel either */
-                                              NULL, /* no extra plan */
+                                              NIL,   /* no pathkeys */
+                                              NULL,  /* no outer rel either */
+                                              NULL,  /* no extra plan */
                                               NIL)); /* no fdw_private data */
 }
 
@@ -153,7 +154,7 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
      *
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     /*
      * We have no native ability to evaluate restriction clauses, so we just
@@ -243,7 +244,7 @@ static void GetKeyBasedQual(Node *node,
     /* get the name of the operator according to PG_OPERATOR OID */
     HeapTuple opertup = SearchSysCache1(OPEROID, ObjectIdGetDatum(op->opno));
     if (!HeapTupleIsValid(opertup)) {
-        elog(ERROR, "cache lookup failed for operator %u", op->opno);
+        ereport(ERROR, (errmsg("cache lookup failed for operator %u", op->opno)));
     }
     Form_pg_operator operform = (Form_pg_operator) GETSTRUCT(opertup);
     char *oprname = NameStr(operform->oprname);
@@ -306,7 +307,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
      *
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     TableReadState *readState = palloc0(sizeof(TableReadState));
 
@@ -315,7 +316,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
     readState->iter = NULL;
     readState->isKeyBased = false;
-    readState->getDone = false;
+    readState->done = false;
     readState->key = NULL;
 
     scanState->fdw_state = (void *) readState;
@@ -327,7 +328,6 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
     ListCell *lc;
     foreach (lc, scanState->ss.ps.plan->qual) {
-        /* Only the first qual can be pushed down */
         Expr *state = lfirst(lc);
         GetKeyBasedQual((Node *) state,
                         scanState->ss.ss_currentRelation->rd_att,
@@ -403,7 +403,7 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
      * (just as you would need to do in the case of a data type mismatch).
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     TupleTableSlot *tupleSlot = scanState->ss.ss_ScanTupleSlot;
     ExecClearTuple(tupleSlot);
@@ -414,11 +414,11 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
 
     bool found = false;
     if (readState->isKeyBased) {
-        if (!readState->getDone) {
+        if (!readState->done) {
             k = readState->key->data;
             kLen = readState->key->len;
             found = Get(readState->db, k, kLen, &v, &vLen);
-            readState->getDone = true;
+            readState->done = true;
         }
     } else {
         found = Next(readState->db, readState->iter, &k, &kLen, &v, &vLen);
@@ -446,7 +446,7 @@ static void ReScanForeignScan(ForeignScanState *scanState) {
      * return exactly the same rows.
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 }
 
 static void EndForeignScan(ForeignScanState *scanState) {
@@ -457,7 +457,7 @@ static void EndForeignScan(ForeignScanState *scanState) {
      * remote servers should be cleaned up.
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     TableReadState *readState = (TableReadState *) scanState->fdw_state;
 
@@ -505,29 +505,31 @@ static void AddForeignUpdateTargets(Query *parsetree,
      * relies on an unchanging primary key to identify rows.)
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     Form_pg_attribute attr = &RelationGetDescr(targetRelation)->attrs[0];
 
     /*
      * Code adapted from redis_fdw
      *
-     * In KV, we need the key name. It's the first column in the table regardless
-     * of the table type. Knowing the key, we can update or delete it.
+     * In KV, we need the key name. It's the first column in the table
+     * regardless of the table type. Knowing the key, we can delete it.
      */
-    Var *varnode = makeVar(parsetree->resultRelation,
-                           1,
-                           attr->atttypid,
-                           attr->atttypmod,
-                           InvalidOid,
-                           0);
+    Var *var = makeVar(parsetree->resultRelation,
+                       1,
+                       attr->atttypid,
+                       attr->atttypmod,
+                       InvalidOid,
+                       0);
     /* Wrap it in a resjunk TLE with the right name ... */
-    const char *attrname = "key_junk";
-    TargetEntry *entry = makeTargetEntry((Expr *) varnode,
-                                         list_length(parsetree->targetList) + 1,
+    const char *attrname = KVKEYJUNK;
+    AttrNumber resno = list_length(parsetree->targetList) + 1;
+    /* is this true? */
+    Assert(resno == 1);
+    TargetEntry *entry = makeTargetEntry((Expr *) var,
+                                         resno,
                                          pstrdup(attrname),
                                          true);
-
     /* ... and add it to the query's targetlist */
     parsetree->targetList = lappend(parsetree->targetList, entry);
 }
@@ -557,7 +559,7 @@ static List *PlanForeignModify(PlannerInfo *plannerInfo,
      * BeginForeignModify will be NIL.
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     CmdType operation = plan->operation;
 
@@ -601,7 +603,7 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
      * during executor startup.
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     if (executorFlags & EXEC_FLAG_EXPLAIN_ONLY) {
         return;
@@ -612,40 +614,31 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     CmdType operation = modifyTableState->operation;
     writeState->operation = operation;
 
+    Relation relation = relationInfo->ri_RelationDesc;
+
     if (operation == CMD_UPDATE || operation == CMD_DELETE) {
         TablePlanState *planState = (TablePlanState *) list_nth(fdwPrivate, 0);
         writeState->db = planState->db;
 
     } else if (operation == CMD_INSERT) {
-        Oid foreignTableId = RelationGetRelid(relationInfo->ri_RelationDesc);
+        Oid foreignTableId = RelationGetRelid(relation);
         FdwOptions *fdwOptions = KVGetOptions(foreignTableId);
         writeState->db = Open(fdwOptions->filename);
 
     } else {
-        ereport(ERROR,
-                (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                 errmsg("not Insert, update, delete, what is the operation?")));
+        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                        errmsg("not insert, update & delete")));
     }
 
-    writeState->rel = relationInfo->ri_RelationDesc;
-    writeState->keyInfo = palloc0(sizeof(FmgrInfo));
-
-    if (operation == CMD_UPDATE || operation == CMD_DELETE) {
+    if (operation == CMD_DELETE) {
         /* Find the ctid resjunk column in the subplan's result */
         Plan *subplan = modifyTableState->mt_plans[subplanIndex]->plan;
         writeState->keyJunkNo =
-                ExecFindJunkAttributeInTlist(subplan->targetlist, "key_junk");
+                ExecFindJunkAttributeInTlist(subplan->targetlist, KVKEYJUNK);
         if (!AttributeNumberIsValid(writeState->keyJunkNo)) {
-            elog(ERROR, "could not find key junk column");
+            ereport(ERROR, (errmsg("could not find key junk column")));
         }
     }
-
-    Form_pg_attribute attr = &RelationGetDescr(writeState->rel)->attrs[0];
-    Assert(!attr->attisdropped);
-    Oid typefnoid;
-    bool isvarlena;
-    getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena);
-    fmgr_info(typefnoid, writeState->keyInfo);
 
     relationInfo->ri_FdwState = (void *) writeState;
 }
@@ -699,7 +692,7 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
      * into the foreign table will fail with an error message.
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
     if (HeapTupleHasExternal(tupleSlot->tts_tuple)) {
@@ -716,7 +709,7 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
 
     TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
     if (!Put(writeState->db, key->data, key->len, value->data, value->len)) {
-        elog(ERROR, "Error from ExecForeignInsert");
+        ereport(ERROR, (errmsg("error from ExecForeignInsert")));
     }
     return tupleSlot;
 }
@@ -753,30 +746,7 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
      *
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
-
-    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
-
-    bool isnull;
-    Datum attribute = ExecGetJunkAttribute(planSlot,
-                                           writeState->keyJunkNo,
-                                           &isnull);
-    if (isnull) {
-        elog(ERROR, "can't get junk key value");
-    }
-    char *keyOld = OutputFunctionCall(writeState->keyInfo, attribute);
-
-    attribute = slot_getattr(planSlot, 1, &isnull);
-    if (isnull) {
-        elog(ERROR, "can't get new key value");
-    }
-    char *keyNew = OutputFunctionCall(writeState->keyInfo, attribute);
-    if (strcmp(keyOld, keyNew) != 0) {
-        elog(ERROR,
-             "You cannot update key values (original key value was %s)",
-             keyOld);
-        return tupleSlot;
-    }
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
     if (HeapTupleHasExternal(tupleSlot->tts_tuple)) {
@@ -791,8 +761,9 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
 
     SerializeTuple(key, value, tupleSlot);
 
+    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
     if (!Put(writeState->db, key->data, key->len, value->data, value->len)) {
-        elog(ERROR, "Error from ExecForeignUpdate");
+        ereport(ERROR, (errmsg("error from ExecForeignUpdate")));
     }
 
     return tupleSlot;
@@ -827,14 +798,14 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
      * from the foreign table will fail with an error message.
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
 
-    bool isnull;
+    bool isnull = true;
     ExecGetJunkAttribute(planSlot, writeState->keyJunkNo, &isnull);
     if (isnull) {
-        elog(ERROR, "can't get junk key value");
+        ereport(ERROR, (errmsg("can't get junk key value")));
     }
 
     slot_getallattrs(planSlot);
@@ -845,7 +816,7 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     SerializeTuple(key, value, planSlot);
 
     if (!Delete(writeState->db, key->data, key->len)) {
-        elog(ERROR, "Error from ExecForeignDelete");
+        ereport(ERROR, (errmsg("error from ExecForeignDelete")));
     }
 
     return tupleSlot;
@@ -862,7 +833,7 @@ static void EndForeignModify(EState *executorState, ResultRelInfo *relationInfo)
      * during executor shutdown.
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
 
@@ -891,7 +862,7 @@ static void ExplainForeignScan(ForeignScanState *scanState,
      * information is printed during EXPLAIN.
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 }
 
 static void ExplainForeignModify(ModifyTableState *modifyTableState,
@@ -912,7 +883,7 @@ static void ExplainForeignModify(ModifyTableState *modifyTableState,
      * information is printed during EXPLAIN.
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 }
 
 static bool AnalyzeForeignTable(Relation relation,
@@ -946,7 +917,7 @@ static bool AnalyzeForeignTable(Relation relation,
      * ----
      */
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     return false;
 }
@@ -955,7 +926,7 @@ Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
     printf("\n-----------------fdw_handler----------------------\n");
     FdwRoutine *fdwRoutine = makeNode(FdwRoutine);
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     /*
      * assign the handlers for the FDW
@@ -1001,17 +972,17 @@ Datum kv_fdw_validator(PG_FUNCTION_ARGS) {
     printf("\n-----------------fdw_validator----------------------\n");
     List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
 
-    elog(DEBUG1, "entering function %s", __func__);
+    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     /* make sure the options are valid */
 
     /* no options are supported */
 
-    if (list_length(options_list) > 0)
-        ereport(ERROR,
-                (errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
-                 errmsg("invalid options"),
-                 errhint("FDW does not support any options")));
+    if (list_length(options_list) > 0) {
+        ereport(ERROR, (errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
+                        errmsg("invalid options"),
+                        errhint("FDW does not support any options")));
+    }
 
     PG_RETURN_VOID();
 }

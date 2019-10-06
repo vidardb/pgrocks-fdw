@@ -88,7 +88,7 @@ DROP DATABASE kvtest;
 
 # Testing
 
-The test scripts are in the test/sql folder. The corresponding results can be found in the test/expected folder. You can run the tests in the following way:
+We have tested certain typical SQL statements and will add more test cases later. The test scripts are in the test/sql folder. The corresponding results can be found in the test/expected folder. You can run the tests in the following way:
 
 
 ```sh

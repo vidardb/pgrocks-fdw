@@ -1,12 +1,12 @@
 # PostgresForeignDataWrapper
 
-This PostgreSQL extension implements a Foreign Data Wrapper (FDW) for RocksDB: https://rocksdb.org/
+This PostgreSQL extension implements a Foreign Data Wrapper (FDW) for [RocksDB](https://rocksdb.org/)
 
 RocksDB is a high performance key-value store based on a log-structured merge-tree (LSM tree). RocksDB can efficiently use many CPU cores and fast storage. This is the first foreign data wrapper that connects a LSM-tree-based storage engine to PostgreSQL. Because RocksDB is an embeddable key-value store, you do not need to run another server to use this extension.
 
 This extension can also be used for other systems that have RocksDB-like APIs, but please check the compatibility before you use this extension for other systems.
 
-This extension is developed and maintained by the VidarDB team. Please join the [google group] (https://groups.google.com/forum/#!forum/postgresql-foreign-data-wrapper-for-rocksdb) to report bugs or issues.
+This extension is developed and maintained by the VidarDB team. Please join the [google group](https://groups.google.com/forum/#!forum/postgresql-foreign-data-wrapper-for-rocksdb) to report bugs or issues.
 
 # Building
 

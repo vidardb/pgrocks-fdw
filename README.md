@@ -43,6 +43,20 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
   sudo make install
   ```
 
+- Restart the PostgreSQL
+
+  ```sh
+  sudo service postgresql restart
+  ```
+
+- Uninstall this extension
+
+  ```sh
+  cd PostgresForeignDataWrapper
+  
+  sudo make uninstall
+  ```
+  
 # Usage
 
 This extension does not have any parameter. After creating the extension and corresponding server, you can use RocksDB as a foreign storage engine for your PostgreSQL.

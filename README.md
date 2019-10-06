@@ -43,7 +43,7 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
   sudo make install
   ```
 
-- Restart the PostgreSQL
+- Restart the PostgreSQL server to enable this extension
 
   ```sh
   sudo service postgresql restart

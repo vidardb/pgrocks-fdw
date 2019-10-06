@@ -196,10 +196,10 @@ static void SerializeAttribute(TupleDesc tupleDescriptor,
     uint32 datumLength = att_addlength_datum(offset, typeLength, datum);
     uint32 datumLengthAligned = att_align_nominal(datumLength, align);
 
-    enlargeStringInfo(buffer, offset + datumLengthAligned);
+    enlargeStringInfo(buffer, datumLengthAligned);
 
     char *current = buffer->data + buffer->len;
-    memset(current, 0, datumLengthAligned);
+    memset(current, 0, datumLengthAligned - offset);
 
     if (typeLength > 0) {
         if (byValue) {
@@ -208,10 +208,10 @@ static void SerializeAttribute(TupleDesc tupleDescriptor,
             memcpy(current, DatumGetPointer(datum), typeLength);
         }
     } else {
-        memcpy(current, DatumGetPointer(datum), datumLength);
+        memcpy(current, DatumGetPointer(datum), datumLength - offset);
     }
 
-    buffer->len += datumLengthAligned;
+    buffer->len = datumLengthAligned;
 }
 
 static void GetKeyBasedQual(Node *node,
@@ -357,9 +357,32 @@ static void DeserializeTuple(StringInfo key,
     memset(values, 0, count * sizeof(Datum));
     memset(nulls, false, count * sizeof(bool));
 
+    uint32 bufLen = (count - 1 + 7) / 8;
+
+    StringInfo buffer = makeStringInfo();
+    enlargeStringInfo(buffer, bufLen);
+    buffer->len = bufLen;
+
+    memcpy(buffer->data, value->data, bufLen);
+
+    for (uint32 index = 1; index < count; index++) {
+
+        uint32 byteIndex = (index - 1) / 8;
+        uint32 bitIndex = (index - 1) % 8;
+        uint8 bitmask = (1 << bitIndex);
+        nulls[index] = (buffer->data[byteIndex] & bitmask)? false: true;
+    }
+
     uint32 offset = 0;
     char *current = key->data;
     for (uint32 index = 0; index < count; index++) {
+
+        if (nulls[index]) {
+            if (index == 0) {
+                ereport(ERROR, (errmsg("first column cannot be null!")));
+            }
+            continue;
+        }
 
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
         bool byValue = attributeForm->attbyval;
@@ -371,7 +394,7 @@ static void DeserializeTuple(StringInfo key,
         offset = att_align_nominal(offset, align);
 
         if (index == 0) {
-            offset = 0;
+            offset = bufLen;
         }
         current = value->data + offset;
     }
@@ -650,15 +673,37 @@ static void SerializeTuple(StringInfo key,
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
     uint32 count = tupleDescriptor->natts;
 
+    uint32 nullsLen = (count - 1 + 7) / 8;
+
+    /*
+     * contrary to isnull array, store exists array
+     * to accommodate bug from storage engine
+     */
+    StringInfo nulls = makeStringInfo();
+    enlargeStringInfo(nulls, nullsLen);
+    nulls->len = nullsLen;
+    memset(nulls->data, 0xFF, nullsLen);
+
+    value->len += nullsLen;
+
     for (uint32 index = 0; index < count; index++) {
 
         if (tupleSlot->tts_isnull[index]) {
+            if (index == 0) {
+                ereport(ERROR, (errmsg("first column cannot be null!")));
+            }
+            uint32 byteIndex = (index - 1) / 8;
+            uint32 bitIndex = (index - 1) % 8;
+            uint8 bitmask = (1 << bitIndex);
+            nulls->data[byteIndex] &= ~bitmask;
             continue;
         }
 
         Datum datum = tupleSlot->tts_values[index];
         SerializeAttribute(tupleDescriptor, index, datum, index==0? key: value);
     }
+
+    memcpy(value->data, nulls->data, nullsLen);
 }
 
 static TupleTableSlot *ExecForeignInsert(EState *executorState,

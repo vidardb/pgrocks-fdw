@@ -190,16 +190,14 @@ static void SerializeAttribute(TupleDesc tupleDescriptor,
     Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
     bool byValue = attributeForm->attbyval;
     int typeLength = attributeForm->attlen;
-    char align = attributeForm->attalign;
 
     uint32 offset = buffer->len;
     uint32 datumLength = att_addlength_datum(offset, typeLength, datum);
-    uint32 datumLengthAligned = att_align_nominal(datumLength, align);
 
-    enlargeStringInfo(buffer, datumLengthAligned);
+    enlargeStringInfo(buffer, datumLength);
 
     char *current = buffer->data + buffer->len;
-    memset(current, 0, datumLengthAligned - offset);
+    memset(current, 0, datumLength - offset);
 
     if (typeLength > 0) {
         if (byValue) {
@@ -211,7 +209,7 @@ static void SerializeAttribute(TupleDesc tupleDescriptor,
         memcpy(current, DatumGetPointer(datum), datumLength - offset);
     }
 
-    buffer->len = datumLengthAligned;
+    buffer->len = datumLength;
 }
 
 static void GetKeyBasedQual(Node *node,
@@ -387,11 +385,9 @@ static void DeserializeTuple(StringInfo key,
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
-        char align = attributeForm->attalign;
 
         values[index] = fetch_att(current, byValue, typeLength);
         offset = att_addlength_datum(offset, typeLength, current);
-        offset = att_align_nominal(offset, align);
 
         if (index == 0) {
             offset = bufLen;
@@ -745,6 +741,7 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
         tupleSlot->tts_tuple = toast_flatten_tuple(tupleSlot->tts_tuple,
                                                    tupleDescriptor);
     }
+
     slot_getallattrs(tupleSlot);
 
     StringInfo key = makeStringInfo();
@@ -753,9 +750,31 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
     SerializeTuple(key, value, tupleSlot);
 
     TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
+
+    /* copy command may directly call insert without open db */
+    bool CMD_COPY = false;
+    if (!writeState) {
+        CMD_COPY = true;
+        writeState = palloc0(sizeof(TableWriteState));
+
+        Oid foreignTableId = RelationGetRelid(relationInfo->ri_RelationDesc);
+        FdwOptions *fdwOptions = KVGetOptions(foreignTableId);
+        writeState->db = Open(fdwOptions->filename);
+    }
+
     if (!Put(writeState->db, key->data, key->len, value->data, value->len)) {
         ereport(ERROR, (errmsg("error from ExecForeignInsert")));
     }
+
+    /*
+     * immediately release resource to prevent conflicts,
+     * suffer performance penalty due to close and open.
+     */
+    if (CMD_COPY) {
+        Close(writeState->db);
+        pfree(writeState);
+    }
+
     return tupleSlot;
 }
 

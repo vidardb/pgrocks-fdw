@@ -59,6 +59,7 @@ typedef struct {
     void *db;
     CmdType operation;
     AttrNumber keyJunkNo;
+    Relation relation;
 } TableWriteState;
 
 
@@ -246,6 +247,7 @@ static void GetKeyBasedQual(Node *node,
     }
     Form_pg_operator operform = (Form_pg_operator) GETSTRUCT(opertup);
     char *oprname = NameStr(operform->oprname);
+    /* TODO support more operators */
     if (strncmp(oprname, "=", NAMEDATALEN)) {
         ReleaseSysCache(opertup);
         return;
@@ -490,6 +492,8 @@ static void EndForeignScan(ForeignScanState *scanState) {
             Close(readState->db);
             readState->db = NULL;
         }
+
+        pfree(readState);
     }
 }
 
@@ -635,12 +639,14 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
 
     Relation relation = relationInfo->ri_RelationDesc;
 
+    Oid foreignTableId = RelationGetRelid(relation);
+    writeState->relation = heap_open(foreignTableId, ShareUpdateExclusiveLock);
+
     if (operation == CMD_UPDATE || operation == CMD_DELETE) {
         TablePlanState *planState = (TablePlanState *) list_nth(fdwPrivate, 0);
         writeState->db = planState->db;
 
     } else if (operation == CMD_INSERT) {
-        Oid foreignTableId = RelationGetRelid(relation);
         FdwOptions *fdwOptions = KVGetOptions(foreignTableId);
         writeState->db = Open(fdwOptions->filename);
 
@@ -909,6 +915,10 @@ static void EndForeignModify(EState *executorState, ResultRelInfo *relationInfo)
 
         /* CMD_UPDATE and CMD_DELETE close will be taken care of by endScan */
         writeState->db = NULL;
+
+        heap_close(writeState->relation, ShareUpdateExclusiveLock);
+
+        pfree(writeState);
     }
 }
 

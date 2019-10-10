@@ -10,7 +10,7 @@ This extension is developed and maintained by the VidarDB team. Please join the 
 
 # Building
 
-We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 together with RocksDB-4.9 (with GCC-6.5.0) and RocksDB-6.2.4 (with GCC-8).
+We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 together with RocksDB-6.2.4 ( built with GCC-8.3.0). Please note that if you want to build an older version of RocksDB, you may need to use an older version of gcc. We also test RocksDB-4.9 with GCC-6.5.0. 
 
 - Install PostgreSQL and the dev library which is required by extensions:
 
@@ -26,7 +26,7 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
   ```sh
   cd rocksdb
 
-  sudo DEBUG_LEVEL=0 make shared_lib install-shared
+  sudo make shared_lib install-shared
   
   sudo sh -c "echo /usr/local/lib >> /etc/ld.so.conf"  
  

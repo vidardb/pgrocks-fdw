@@ -370,7 +370,7 @@ static void DeserializeTuple(StringInfo key,
         uint32 byteIndex = (index - 1) / 8;
         uint32 bitIndex = (index - 1) % 8;
         uint8 bitmask = (1 << bitIndex);
-        nulls[index] = (buffer->data[byteIndex] & bitmask)? false: true;
+        nulls[index] = (buffer->data[byteIndex] & bitmask)? true: false;
     }
 
     uint32 offset = 0;
@@ -678,14 +678,10 @@ static void SerializeTuple(StringInfo key,
     /* first column must exist */
     uint32 nullsLen = (count - 1 + 7) / 8;
 
-    /*
-     * contrary to isnull array, store exists array
-     * to accommodate bug from storage engine
-     */
     StringInfo nulls = makeStringInfo();
     enlargeStringInfo(nulls, nullsLen);
     nulls->len = nullsLen;
-    memset(nulls->data, 0xFF, nullsLen);
+    memset(nulls->data, 0, nullsLen);
 
     value->len += nullsLen;
 
@@ -698,7 +694,7 @@ static void SerializeTuple(StringInfo key,
             uint32 byteIndex = (index - 1) / 8;
             uint32 bitIndex = (index - 1) % 8;
             uint8 bitmask = (1 << bitIndex);
-            nulls->data[byteIndex] &= ~bitmask;
+            nulls->data[byteIndex] |= bitmask;
             continue;
         }
 

@@ -49,8 +49,8 @@ bool Next(void* db, void* iter, char** key, uint32* keyLen,
     *keyLen = it->key().size(), *valLen = it->value().size();
     *key = (char*) palloc0(*keyLen);
     *value = (char*) palloc0(*valLen);
-    strncpy(*key, it->key().data(), *keyLen);
-    strncpy(*value, it->value().data(), *valLen);
+    memcpy(*key, it->key().data(), *keyLen);
+    memcpy(*value, it->value().data(), *valLen);
     it->Next();
     return true;
 }
@@ -61,7 +61,7 @@ bool Get(void* db, char* key, uint32 keyLen, char** value, uint32* valLen) {
     if (!s.ok()) return false;
     *valLen = sval.length();
     *value = (char*) palloc0(*valLen);
-    strncpy(*value, sval.c_str(), *valLen);
+    memcpy(*value, sval.c_str(), *valLen);
     return true;
 }
 

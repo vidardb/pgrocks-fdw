@@ -68,12 +68,12 @@ bool Get(void* db, char* key, uint32 keyLen, char** value, uint32* valLen) {
 bool Put(void* db, char* key, uint32 keyLen, char* value, uint32 valLen) {
     Status s = static_cast<DB*>(db)->Put(WriteOptions(), Slice(key, keyLen),
                                          Slice(value, valLen));
-    return s.ok()? true: false;
+    return s.ok();
 }
 
 bool Delete(void* db, char* key, uint32 keyLen) {
     Status s = static_cast<DB*>(db)->Delete(WriteOptions(), Slice(key, keyLen));
-    return s.ok()? true: false;
+    return s.ok();
 }
 
 }

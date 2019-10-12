@@ -675,6 +675,7 @@ static void SerializeTuple(StringInfo key,
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
     uint32 count = tupleDescriptor->natts;
 
+    /* first column must exist */
     uint32 nullsLen = (count - 1 + 7) / 8;
 
     /*

@@ -88,7 +88,7 @@ static void GetForeignRelSize(PlannerInfo *root,
 
     TablePlanState *planState = palloc0(sizeof(TablePlanState));
 
-    FdwOptions *fdwOptions = KVGetOptions(foreignTableId);
+    KVFdwOptions *fdwOptions = KVGetOptions(foreignTableId);
     planState->db = Open(fdwOptions->filename);
 
     baserel->fdw_private = (void *) planState;
@@ -184,35 +184,6 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
                             NULL);
 }
 
-static void SerializeAttribute(TupleDesc tupleDescriptor,
-                               Index index,
-                               Datum datum,
-                               StringInfo buffer) {
-    Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
-    bool byValue = attributeForm->attbyval;
-    int typeLength = attributeForm->attlen;
-
-    uint32 offset = buffer->len;
-    uint32 datumLength = att_addlength_datum(offset, typeLength, datum);
-
-    enlargeStringInfo(buffer, datumLength);
-
-    char *current = buffer->data + buffer->len;
-    memset(current, 0, datumLength - offset);
-
-    if (typeLength > 0) {
-        if (byValue) {
-            store_att_byval(current, datum, typeLength);
-        } else {
-            memcpy(current, DatumGetPointer(datum), typeLength);
-        }
-    } else {
-        memcpy(current, DatumGetPointer(datum), datumLength - offset);
-    }
-
-    buffer->len = datumLength;
-}
-
 static void GetKeyBasedQual(Node *node,
                             TupleDesc tupleDescriptor,
                             TableReadState *readState) {
@@ -258,21 +229,9 @@ static void GetKeyBasedQual(Node *node,
     Datum datum = constNode->constvalue;
 
     TypeCacheEntry *typeEntry = lookup_type_cache(constNode->consttype, 0);
-    /* Make sure item to be inserted is not toasted */
-    if (typeEntry->typlen == -1) {
-        datum = PointerGetDatum(PG_DETOAST_DATUM_PACKED(datum));
-    }
 
-    if (typeEntry->typlen == -1 && typeEntry->typstorage != 'p' &&
-        VARATT_CAN_MAKE_SHORT(datum)) {
-        /* convert to short varlena -- no alignment */
-        Pointer val = DatumGetPointer(datum);
-        uint32 shortSize = VARATT_CONVERTED_SHORT_SIZE(val);
-        Pointer temp = palloc0(shortSize);
-        SET_VARSIZE_SHORT(temp, shortSize);
-        memcpy(temp + 1, VARDATA(val), shortSize - 1);
-        datum = PointerGetDatum(temp);
-    }
+    /* constant gets varlena with 4B header, same with copy uility */
+    datum = ShortVarlena(datum, typeEntry->typlen, typeEntry->typstorage);
 
     /*
      * We can push down this qual if:
@@ -647,7 +606,7 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
         writeState->db = planState->db;
 
     } else if (operation == CMD_INSERT) {
-        FdwOptions *fdwOptions = KVGetOptions(foreignTableId);
+        KVFdwOptions *fdwOptions = KVGetOptions(foreignTableId);
         writeState->db = Open(fdwOptions->filename);
 
     } else {
@@ -754,28 +713,8 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
 
     TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
 
-    /* copy command may directly call insert without open db */
-    bool CMD_COPY = false;
-    if (!writeState) {
-        CMD_COPY = true;
-        writeState = palloc0(sizeof(TableWriteState));
-
-        Oid foreignTableId = RelationGetRelid(relationInfo->ri_RelationDesc);
-        FdwOptions *fdwOptions = KVGetOptions(foreignTableId);
-        writeState->db = Open(fdwOptions->filename);
-    }
-
     if (!Put(writeState->db, key->data, key->len, value->data, value->len)) {
         ereport(ERROR, (errmsg("error from ExecForeignInsert")));
-    }
-
-    /*
-     * immediately release resource to prevent conflicts,
-     * suffer performance penalty due to close and open.
-     */
-    if (CMD_COPY) {
-        Close(writeState->db);
-        pfree(writeState);
     }
 
     return tupleSlot;

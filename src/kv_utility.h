@@ -19,6 +19,8 @@
 #include "utils/memutils.h"
 #include "parser/parser.h"
 #include "utils/builtins.h"
+#include "parser/parse_coerce.h"
+#include "parser/parse_type.h"
 #include "kv.h"
 
 #define KV_FDW_NAME "kv_fdw"
@@ -494,7 +496,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     enlargeStringInfo(buffer, bufLen);
     buffer->len = bufLen;
 
-    uint64 processedRow = 0;
+    uint64 rowCount = 0;
     bool found = true;
     while (found) {
         /* read the next row in tupleContext */
@@ -527,7 +529,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
             if (!Put(db, key->data, key->len, value->data, value->len)) {
                 ereport(ERROR, (errmsg("error from Copy")));
             }
-            processedRow++;
+            rowCount++;
         }
 
         MemoryContextSwitchTo(oldContext);
@@ -540,7 +542,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     Close(db);
     heap_close(relation, ShareUpdateExclusiveLock);
 
-    return processedRow;
+    return rowCount;
 }
 
 /*
@@ -583,13 +585,71 @@ static uint64 KVCopyOutTable(CopyStmt* copyStmt, const char* queryString) {
     pstate->p_sourcetext = newQuerySubstring->data;
     copyStmt->query = rawStmt->stmt;
 
-    uint64 processedCount = 0;
-    DoCopy(pstate, copyStmt, -1, -1, &processedCount);
+    uint64 count = 0;
+    DoCopy(pstate, copyStmt, -1, -1, &count);
     free_parsestate(pstate);
 
-    return processedCount;
+    return count;
 }
 
+/*
+ * Checks alter column type compatible. The function errors out if current
+ * column type can not be safely converted to requested column type.
+ * This check is more restrictive than PostgreSQL's because we can not
+ * change existing data. However, it is not strict enough to prevent cast like
+ * float <--> integer, which does not deserialize successfully in our case.
+ */
+static void KVCheckAlterTable(AlterTableStmt *alterStmt) {
+    ObjectType objectType = alterStmt->relkind;
+    /* we are only interested in foreign table changes */
+    if (objectType != OBJECT_TABLE && objectType != OBJECT_FOREIGN_TABLE) {
+        return;
+    }
+
+    RangeVar *rangeVar = alterStmt->relation;
+    Oid relationId = RangeVarGetRelid(rangeVar, AccessShareLock, true);
+    if (!KVTable(relationId)) {
+        return;
+    }
+
+    ListCell *cmdCell = NULL;
+    List *cmdList = alterStmt->cmds;
+    foreach (cmdCell, cmdList) {
+
+        AlterTableCmd *alterCmd = (AlterTableCmd *) lfirst(cmdCell);
+        if (alterCmd->subtype == AT_AlterColumnType) {
+
+            char *columnName = alterCmd->name;
+            AttrNumber attributeNumber = get_attnum(relationId, columnName);
+            if (attributeNumber <= 0) {
+                /* let standard utility handle this */
+                continue;
+            }
+
+            Oid currentTypeId = get_atttype(relationId, attributeNumber);
+
+            /*
+             * We are only interested in implicit coersion type compatibility.
+             * Erroring out here to prevent further processing.
+             */
+            ColumnDef *columnDef = (ColumnDef *) alterCmd->def;
+            Oid targetTypeId = typenameTypeId(NULL, columnDef->typeName);
+            if (!can_coerce_type(1,
+                                 &currentTypeId,
+                                 &targetTypeId,
+                                 COERCION_IMPLICIT)) {
+                char *typeName = TypeNameToString(columnDef->typeName);
+                ereport(ERROR, (errmsg("Column %s cannot be cast automatically "
+                                       "to type %s", columnName, typeName)));
+            }
+        }
+
+        if (alterCmd->subtype == AT_AddColumn) {
+            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                            errmsg("No support for adding column currently")));
+        }
+    }
+}
 
 /*
  * Hook for handling utility commands. This function customizes the behavior of
@@ -610,18 +670,18 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
         CopyStmt *copyStmt = (CopyStmt *) parseTree;
         if (KVCopyTableStatement(copyStmt)) {
 
-            uint64 processedCount = 0;
+            uint64 rowCount = 0;
             if (copyStmt->is_from) {
-                processedCount = KVCopyIntoTable(copyStmt, queryString);
+                rowCount = KVCopyIntoTable(copyStmt, queryString);
             } else {
-                processedCount = KVCopyOutTable(copyStmt, queryString);
+                rowCount = KVCopyOutTable(copyStmt, queryString);
             }
 
             if (completionTag != NULL) {
                 snprintf(completionTag,
                          COMPLETION_TAG_BUFSIZE,
                          "COPY " UINT64_FORMAT,
-                          processedCount);
+                          rowCount);
             }
         } else {
             CALL_PREVIOUS_UTILITY(parseTree,
@@ -681,6 +741,16 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
                 }
             }
         }
+    } else if (nodeTag(parseTree) == T_AlterTableStmt) {
+        AlterTableStmt *alterStmt = (AlterTableStmt *) parseTree;
+        printf("\nalter\n");
+        KVCheckAlterTable(alterStmt);
+        CALL_PREVIOUS_UTILITY(parseTree,
+                              queryString,
+                              context,
+                              paramListInfo,
+                              destReceiver,
+                              completionTag);
     } else {
         /* handle other utility statements */
         CALL_PREVIOUS_UTILITY(parseTree,

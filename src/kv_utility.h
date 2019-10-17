@@ -743,7 +743,6 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
         }
     } else if (nodeTag(parseTree) == T_AlterTableStmt) {
         AlterTableStmt *alterStmt = (AlterTableStmt *) parseTree;
-        printf("\nalter\n");
         KVCheckAlterTable(alterStmt);
         CALL_PREVIOUS_UTILITY(parseTree,
                               queryString,

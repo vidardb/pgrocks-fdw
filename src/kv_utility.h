@@ -393,7 +393,7 @@ static Datum ShortVarlena(Datum datum, int typeLength, char storage) {
         datum = PointerGetDatum(temp);
     }
 
-    return datum;
+    PG_RETURN_DATUM(datum);
 }
 
 static void SerializeAttribute(TupleDesc tupleDescriptor,

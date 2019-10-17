@@ -26,7 +26,7 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
   ```sh
   cd rocksdb
 
-  sudo make shared_lib install-shared
+  sudo DEBUG_LEVEL=0 make shared_lib install-shared
   
   sudo sh -c "echo /usr/local/lib >> /etc/ld.so.conf"  
  

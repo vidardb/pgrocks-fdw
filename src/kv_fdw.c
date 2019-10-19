@@ -86,15 +86,17 @@ static void GetForeignRelSize(PlannerInfo *root,
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
-    TablePlanState *planState = palloc0(sizeof(TablePlanState));
-
+    /*
+     * min & max will call GetForeignRelSize & GetForeignPaths multiple times,
+     * we should open & close db multiple times.
+     */
     KVFdwOptions *fdwOptions = KVGetOptions(foreignTableId);
-    planState->db = Open(fdwOptions->filename);
-
-    baserel->fdw_private = (void *) planState;
+    void *db = Open(fdwOptions->filename);
 
     /* TODO better estimation */
-    baserel->rows = Count(planState->db);
+    baserel->rows = Count(db);
+
+    Close(db);
 }
 
 static void GetForeignPaths(PlannerInfo *root,
@@ -167,10 +169,16 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
 
     scanClauses = extract_actual_clauses(scanClauses, false);
 
+    /* To accommodate min & max, we add planState here */
+    TablePlanState *planState = palloc0(sizeof(TablePlanState));
+
+    KVFdwOptions *fdwOptions = KVGetOptions(foreignTableId);
+    planState->db = Open(fdwOptions->filename);
+    baserel->fdw_private = (void *) planState;
+
     /*
      * Build the fdw_private list that will be available to the executor.
      */
-    TablePlanState *planState = (TablePlanState *) baserel->fdw_private;
     List *fdwPrivate = list_make1(planState->db);
 
     /* Create the ForeignScan node */

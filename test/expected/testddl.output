@@ -1,0 +1,100 @@
+--
+-- Test create, alter, and drop a table
+--
+\c kvtest
+You are now connected to database "kvtest" as user "postgres".
+CREATE FOREIGN TABLE testddl(id SERIAL, name VARCHAR(20), price NUMERIC(10,2), inventory INT, stime TIMESTAMP, flag BOOLEAN) SERVER kv_server;
+CREATE FOREIGN TABLE
+INSERT INTO testddl VALUES (DEFAULT, 'Name1', 10.00, 50, current_timestamp(2), false);
+INSERT 0 1
+INSERT INTO testddl VALUES (DEFAULT, 'Name2', 20.00, 50, current_timestamp(2), false);
+INSERT 0 1
+INSERT INTO testddl VALUES (DEFAULT, 'Name3', 30.00, 50, current_timestamp(2), false);
+INSERT 0 1
+\d testddl
+                                           Foreign table "public.testddl"
+  Column   |            Type             | Collation | Nullable |               Default               | FDW options 
+-----------+-----------------------------+-----------+----------+-------------------------------------+-------------
+ id        | integer                     |           | not null | nextval('testddl_id_seq'::regclass) | 
+ name      | character varying(20)       |           |          |                                     | 
+ price     | numeric(10,2)               |           |          |                                     | 
+ inventory | integer                     |           |          |                                     | 
+ stime     | timestamp without time zone |           |          |                                     | 
+ flag      | boolean                     |           |          |                                     | 
+Server: kv_server
+
+SELECT * FROM testddl;
+ id | name  | price | inventory |         stime          | flag 
+----+-------+-------+-----------+------------------------+------
+  1 | Name1 | 10.00 |        50 | 2019-10-20 01:08:52.04 | f
+  2 | Name2 | 20.00 |        50 | 2019-10-20 01:08:52.08 | f
+  3 | Name3 | 30.00 |        50 | 2019-10-20 01:08:52.12 | f
+(3 rows)
+
+ALTER FOREIGN TABLE testddl RENAME TO item;
+ALTER FOREIGN TABLE
+\d testddl
+psql:test/sql/testddl.sql:19: Did not find any relation named "testddl".
+\d item
+                                            Foreign table "public.item"
+  Column   |            Type             | Collation | Nullable |               Default               | FDW options 
+-----------+-----------------------------+-----------+----------+-------------------------------------+-------------
+ id        | integer                     |           | not null | nextval('testddl_id_seq'::regclass) | 
+ name      | character varying(20)       |           |          |                                     | 
+ price     | numeric(10,2)               |           |          |                                     | 
+ inventory | integer                     |           |          |                                     | 
+ stime     | timestamp without time zone |           |          |                                     | 
+ flag      | boolean                     |           |          |                                     | 
+Server: kv_server
+
+ALTER FOREIGN TABLE item RENAME COLUMN stime TO stamp;
+ALTER TABLE
+\d item
+                                            Foreign table "public.item"
+  Column   |            Type             | Collation | Nullable |               Default               | FDW options 
+-----------+-----------------------------+-----------+----------+-------------------------------------+-------------
+ id        | integer                     |           | not null | nextval('testddl_id_seq'::regclass) | 
+ name      | character varying(20)       |           |          |                                     | 
+ price     | numeric(10,2)               |           |          |                                     | 
+ inventory | integer                     |           |          |                                     | 
+ stamp     | timestamp without time zone |           |          |                                     | 
+ flag      | boolean                     |           |          |                                     | 
+Server: kv_server
+
+ALTER FOREIGN TABLE item ALTER COLUMN name TYPE TEXT;
+ALTER FOREIGN TABLE
+\d item
+                                            Foreign table "public.item"
+  Column   |            Type             | Collation | Nullable |               Default               | FDW options 
+-----------+-----------------------------+-----------+----------+-------------------------------------+-------------
+ id        | integer                     |           | not null | nextval('testddl_id_seq'::regclass) | 
+ name      | text                        |           |          |                                     | 
+ price     | numeric(10,2)               |           |          |                                     | 
+ inventory | integer                     |           |          |                                     | 
+ stamp     | timestamp without time zone |           |          |                                     | 
+ flag      | boolean                     |           |          |                                     | 
+Server: kv_server
+
+SELECT * FROM item;
+ id | name  | price | inventory |         stamp          | flag 
+----+-------+-------+-----------+------------------------+------
+  1 | Name1 | 10.00 |        50 | 2019-10-20 01:08:52.04 | f
+  2 | Name2 | 20.00 |        50 | 2019-10-20 01:08:52.08 | f
+  3 | Name3 | 30.00 |        50 | 2019-10-20 01:08:52.12 | f
+(3 rows)
+
+ALTER FOREIGN TABLE item DROP COLUMN flag;
+ALTER FOREIGN TABLE
+\d item
+                                            Foreign table "public.item"
+  Column   |            Type             | Collation | Nullable |               Default               | FDW options 
+-----------+-----------------------------+-----------+----------+-------------------------------------+-------------
+ id        | integer                     |           | not null | nextval('testddl_id_seq'::regclass) | 
+ name      | text                        |           |          |                                     | 
+ price     | numeric(10,2)               |           |          |                                     | 
+ inventory | integer                     |           |          |                                     | 
+ stamp     | timestamp without time zone |           |          |                                     | 
+Server: kv_server
+
+DROP FOREIGN TABLE item;
+DROP FOREIGN TABLE

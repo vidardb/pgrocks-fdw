@@ -1,0 +1,42 @@
+--
+-- Test basic select, insert, delete, update operations
+--
+\c kvtest
+You are now connected to database "kvtest" as user "postgres".
+CREATE FOREIGN TABLE test(key TEXT, value TEXT) SERVER kv_server;  
+CREATE FOREIGN TABLE
+INSERT INTO test VALUES('YC', 'VidarDB');  
+INSERT 0 1
+SELECT * FROM test;  
+ key |  value  
+-----+---------
+ YC  | VidarDB
+(1 row)
+
+INSERT INTO test VALUES('California', 'Waterloo');  
+INSERT 0 1
+SELECT * FROM test;  
+    key     |  value   
+------------+----------
+ YC         | VidarDB
+ California | Waterloo
+(2 rows)
+
+DELETE FROM test WHERE key='California';  
+DELETE 1
+SELECT * FROM test;  
+ key |  value  
+-----+---------
+ YC  | VidarDB
+(1 row)
+
+UPDATE test SET value='VidarSQL';  
+UPDATE 1
+SELECT * FROM test;  
+ key |  value   
+-----+----------
+ YC  | VidarSQL
+(1 row)
+
+DROP FOREIGN TABLE test;  
+DROP FOREIGN TABLE

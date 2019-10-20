@@ -2,6 +2,8 @@
 -- Delete the extension and server 
 --
 
+\c kvtest
+
 DROP SERVER kv_server;  
 DROP EXTENSION kv_fdw;  
   

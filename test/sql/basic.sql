@@ -2,6 +2,8 @@
 -- Test basic select, insert, delete, update operations
 --
 
+\c kvtest
+
 CREATE FOREIGN TABLE test(key TEXT, value TEXT) SERVER kv_server;  
 
 INSERT INTO test VALUES('YC', 'VidarDB');  

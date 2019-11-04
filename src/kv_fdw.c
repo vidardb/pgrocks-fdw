@@ -1,9 +1,11 @@
 
-#include <src/kv_utility.h>
-#include "postgres.h"
+#include "kv_fdw.h"
+#include "kv_storage.h"
+
+#include <pthread.h>
+
 #include "access/reloptions.h"
 #include "foreign/fdwapi.h"
-#include "foreign/foreign.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/planmain.h"
 #include "optimizer/restrictinfo.h"
@@ -22,51 +24,13 @@ PG_FUNCTION_INFO_V1(kv_fdw_handler);
 PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 
-#define KVKEYJUNK "__key_junk"
-
-
-/*
- * The plan state is set up in GetForeignRelSize and stashed away in
- * baserel->fdw_private and fetched in GetForeignPaths.
- */
-typedef struct {
-    void *db;
-} TablePlanState;
-
-/*
- * The scan state is for maintaining state for a scan, either for a
- * SELECT or UPDATE or DELETE.
- *
- * It is set up in BeginForeignScan and stashed in node->fdw_state and
- * subsequently used in IterateForeignScan, EndForeignScan and ReScanForeignScan.
- */
-typedef struct {
-    void *db;
-    void *iter;
-    bool isKeyBased;
-    bool done;
-    StringInfo key;
-} TableReadState;
-
-/*
- * The modify state is for maintaining state of modify operations.
- *
- * It is set up in BeginForeignModify and stashed in
- * rinfo->ri_FdwState and subsequently used in ExecForeignInsert,
- * ExecForeignUpdate, ExecForeignDelete and EndForeignModify.
- */
-typedef struct {
-    void *db;
-    CmdType operation;
-    AttrNumber keyJunkNo;
-    Relation relation;
-} TableWriteState;
+static SharedMem *ptr = NULL;  // in client process
 
 
 static void GetForeignRelSize(PlannerInfo *root,
                               RelOptInfo *baserel,
                               Oid foreignTableId) {
-    printf("\n-----------------GetForeignRelSize----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Obtain relation size estimates for a foreign table. This is called at
      * the beginning of planning for a query that scans a foreign table. root
@@ -90,19 +54,18 @@ static void GetForeignRelSize(PlannerInfo *root,
      * min & max will call GetForeignRelSize & GetForeignPaths multiple times,
      * we should open & close db multiple times.
      */
-    KVFdwOptions *fdwOptions = KVGetOptions(foreignTableId);
-    void *db = Open(fdwOptions->filename);
+    ptr = OpenRequest(foreignTableId, ptr);
 
     /* TODO better estimation */
-    baserel->rows = Count(db);
+    baserel->rows = CountRequest(foreignTableId, ptr);
 
-    Close(db);
+    CloseRequest(foreignTableId, ptr);
 }
 
 static void GetForeignPaths(PlannerInfo *root,
                             RelOptInfo *baserel,
                             Oid foreignTableId) {
-    printf("\n-----------------GetForeignPaths----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Create possible access paths for a scan on a foreign table. This is
      * called during query planning. The parameters are the same as for
@@ -144,7 +107,7 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
                                    List *targetList,
                                    List *scanClauses,
                                    Plan *outerPlan) {
-    printf("\n-----------------GetForeignPlan----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Create a ForeignScan plan node from the selected foreign access path.
      * This is called at the end of query planning. The parameters are as for
@@ -169,24 +132,15 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
 
     scanClauses = extract_actual_clauses(scanClauses, false);
 
-    /* To accommodate min & max, we add planState here */
-    TablePlanState *planState = palloc0(sizeof(TablePlanState));
-
-    KVFdwOptions *fdwOptions = KVGetOptions(foreignTableId);
-    planState->db = Open(fdwOptions->filename);
-    baserel->fdw_private = (void *) planState;
-
-    /*
-     * Build the fdw_private list that will be available to the executor.
-     */
-    List *fdwPrivate = list_make1(planState->db);
+    /* To accommodate min & max, we open file here */
+    ptr = OpenRequest(foreignTableId, ptr);
 
     /* Create the ForeignScan node */
     return make_foreignscan(targetList,
                             scanClauses,
                             baserel->relid,
                             NIL, /* no expressions to evaluate */
-                            fdwPrivate,
+                            NIL,
                             NIL, /* no custom tlist */
                             NIL, /* no remote quals */
                             NULL);
@@ -254,7 +208,7 @@ static void GetKeyBasedQual(Node *node,
 }
 
 static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
-    printf("\n-----------------BeginForeignScan----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Begin executing a foreign scan. This is called during executor startup.
      * It should perform any initialization needed before the scan can start,
@@ -277,11 +231,6 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     TableReadState *readState = palloc0(sizeof(TableReadState));
-
-    ForeignScan *foreignScan = (ForeignScan *) scanState->ss.ps.plan;
-    readState->db = list_nth((List *) foreignScan->fdw_private, 0);
-
-    readState->iter = NULL;
     readState->isKeyBased = false;
     readState->done = false;
     readState->key = NULL;
@@ -306,7 +255,8 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     }
 
     if (!readState->isKeyBased) {
-        readState->iter = GetIter(readState->db);
+        Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
+        GetIterRequest(relationId, ptr);
     }
 }
 
@@ -366,7 +316,7 @@ static void DeserializeTuple(StringInfo key,
 }
 
 static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
-    printf("\n-----------------IterateForeignScan----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Fetch one row from the foreign source, returning it in a tuple table
      * slot (the node's ScanTupleSlot should be used for this purpose). Return
@@ -400,16 +350,17 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
     char *k = NULL, *v = NULL;
     uint32 kLen = 0, vLen = 0;
 
+    Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
     bool found = false;
     if (readState->isKeyBased) {
         if (!readState->done) {
             k = readState->key->data;
             kLen = readState->key->len;
-            found = Get(readState->db, k, kLen, &v, &vLen);
+            found = GetRequest(relationId, ptr, k, kLen, &v, &vLen);
             readState->done = true;
         }
     } else {
-        found = Next(readState->db, readState->iter, &k, &kLen, &v, &vLen);
+        found = NextRequest(relationId, ptr, &k, &kLen, &v, &vLen);
     }
 
     if (found) {
@@ -427,7 +378,7 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
 }
 
 static void ReScanForeignScan(ForeignScanState *scanState) {
-    printf("\n-----------------ReScanForeignScan----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Restart the scan from the beginning. Note that any parameters the scan
      * depends on may have changed value, so the new scan does not necessarily
@@ -438,7 +389,7 @@ static void ReScanForeignScan(ForeignScanState *scanState) {
 }
 
 static void EndForeignScan(ForeignScanState *scanState) {
-    printf("\n-----------------EndForeignScan----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * End the scan and release resources. It is normally not important to
      * release palloc'd memory, but for example open files and connections to
@@ -450,15 +401,10 @@ static void EndForeignScan(ForeignScanState *scanState) {
     TableReadState *readState = (TableReadState *) scanState->fdw_state;
 
     if (readState) {
-        if (readState->iter) {
-            DelIter(readState->iter);
-            readState->iter = NULL;
-        }
+        Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
 
-        if (readState->db) {
-            Close(readState->db);
-            readState->db = NULL;
-        }
+        DelIterRequest(relationId, ptr);
+        CloseRequest(relationId, ptr);
 
         pfree(readState);
     }
@@ -467,7 +413,7 @@ static void EndForeignScan(ForeignScanState *scanState) {
 static void AddForeignUpdateTargets(Query *parsetree,
                                     RangeTblEntry *tableEntry,
                                     Relation targetRelation) {
-    printf("\n-----------------AddForeignUpdateTargets----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * UPDATE and DELETE operations are performed against rows previously
      * fetched by the table-scanning functions. The FDW may need extra
@@ -528,7 +474,7 @@ static List *PlanForeignModify(PlannerInfo *plannerInfo,
                                ModifyTable *plan,
                                Index resultRelation,
                                int subplanIndex) {
-    printf("\n-----------------PlanForeignModify----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Perform any additional planning actions needed for an insert, update,
      * or delete on a foreign table. This function generates the FDW-private
@@ -551,13 +497,6 @@ static List *PlanForeignModify(PlannerInfo *plannerInfo,
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
-    CmdType operation = plan->operation;
-
-    if (operation == CMD_UPDATE || operation == CMD_DELETE) {
-        RelOptInfo *baserel = plannerInfo->simple_rel_array[resultRelation];
-        return list_make1(baserel->fdw_private);
-    }
-
     return NULL;
 }
 
@@ -566,7 +505,7 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
                                List *fdwPrivate,
                                int subplanIndex,
                                int executorFlags) {
-    printf("\n-----------------BeginForeignModify----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Begin executing a foreign table modification operation. This routine is
      * called during executor startup. It should perform any initialization
@@ -607,19 +546,10 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     Relation relation = relationInfo->ri_RelationDesc;
 
     Oid foreignTableId = RelationGetRelid(relation);
-    writeState->relation = heap_open(foreignTableId, ShareUpdateExclusiveLock);
+    heap_open(foreignTableId, ShareUpdateExclusiveLock);
 
-    if (operation == CMD_UPDATE || operation == CMD_DELETE) {
-        TablePlanState *planState = (TablePlanState *) list_nth(fdwPrivate, 0);
-        writeState->db = planState->db;
-
-    } else if (operation == CMD_INSERT) {
-        KVFdwOptions *fdwOptions = KVGetOptions(foreignTableId);
-        writeState->db = Open(fdwOptions->filename);
-
-    } else {
-        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                        errmsg("not insert, update & delete")));
+    if (operation == CMD_INSERT) {
+        ptr = OpenRequest(foreignTableId, ptr);
     }
 
     if (operation == CMD_DELETE) {
@@ -676,7 +606,7 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
                                          ResultRelInfo *relationInfo,
                                          TupleTableSlot *tupleSlot,
                                          TupleTableSlot *planSlot) {
-    printf("\n-----------------ExecForeignInsert----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Insert one tuple into the foreign table. estate is global execution
      * state for the query. rinfo is the ResultRelInfo struct describing the
@@ -719,11 +649,9 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
 
     SerializeTuple(key, value, tupleSlot);
 
-    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
-
-    if (!Put(writeState->db, key->data, key->len, value->data, value->len)) {
-        ereport(ERROR, (errmsg("error from ExecForeignInsert")));
-    }
+    Relation relation = relationInfo->ri_RelationDesc;
+    Oid foreignTableId = RelationGetRelid(relation);
+    PutRequest(foreignTableId, ptr, key->data, key->len, value->data, value->len);
 
     return tupleSlot;
 }
@@ -732,7 +660,7 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
                                          ResultRelInfo *relationInfo,
                                          TupleTableSlot *tupleSlot,
                                          TupleTableSlot *planSlot) {
-    printf("\n-----------------ExecForeignUpdate----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Update one tuple in the foreign table. estate is global execution state
      * for the query. rinfo is the ResultRelInfo struct describing the target
@@ -775,10 +703,9 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
 
     SerializeTuple(key, value, tupleSlot);
 
-    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
-    if (!Put(writeState->db, key->data, key->len, value->data, value->len)) {
-        ereport(ERROR, (errmsg("error from ExecForeignUpdate")));
-    }
+    Relation relation = relationInfo->ri_RelationDesc;
+    Oid foreignTableId = RelationGetRelid(relation);
+    PutRequest(foreignTableId, ptr, key->data, key->len, value->data, value->len);
 
     return tupleSlot;
 }
@@ -787,7 +714,7 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
                                          ResultRelInfo *relationInfo,
                                          TupleTableSlot *tupleSlot,
                                          TupleTableSlot *planSlot) {
-    printf("\n-----------------ExecForeignDelete----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Delete one tuple from the foreign table. estate is global execution
      * state for the query. rinfo is the ResultRelInfo struct describing the
@@ -829,15 +756,15 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
 
     SerializeTuple(key, value, planSlot);
 
-    if (!Delete(writeState->db, key->data, key->len)) {
-        ereport(ERROR, (errmsg("error from ExecForeignDelete")));
-    }
+    Relation relation = relationInfo->ri_RelationDesc;
+    Oid foreignTableId = RelationGetRelid(relation);
+    DeleteRequest(foreignTableId, ptr, key->data, key->len);
 
     return tupleSlot;
 }
 
 static void EndForeignModify(EState *executorState, ResultRelInfo *relationInfo) {
-    printf("\n-----------------EndForeignModify----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * End the table update and release resources. It is normally not
      * important to release palloc'd memory, but for example open files and
@@ -852,15 +779,16 @@ static void EndForeignModify(EState *executorState, ResultRelInfo *relationInfo)
     TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
 
     if (writeState) {
+        Relation relation = relationInfo->ri_RelationDesc;
+        Oid foreignTableId = RelationGetRelid(relation);
+
         CmdType operation = writeState->operation;
-        if (operation == CMD_INSERT && writeState->db) {
-            Close(writeState->db);
+        if (operation == CMD_INSERT) {
+            CloseRequest(foreignTableId, ptr);
         }
 
         /* CMD_UPDATE and CMD_DELETE close will be taken care of by endScan */
-        writeState->db = NULL;
-
-        heap_close(writeState->relation, ShareUpdateExclusiveLock);
+        heap_close(relation, ShareUpdateExclusiveLock);
 
         pfree(writeState);
     }
@@ -868,7 +796,7 @@ static void EndForeignModify(EState *executorState, ResultRelInfo *relationInfo)
 
 static void ExplainForeignScan(ForeignScanState *scanState,
                                struct ExplainState * explainState) {
-    printf("\n-----------------ExplainForeignScan----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Print additional EXPLAIN output for a foreign table scan. This function
      * can call ExplainPropertyText and related functions to add fields to the
@@ -888,7 +816,7 @@ static void ExplainForeignModify(ModifyTableState *modifyTableState,
                                  List *fdwPrivate,
                                  int subplanIndex,
                                  struct ExplainState *explainState) {
-    printf("\n-----------------ExplainForeignModify----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Print additional EXPLAIN output for a foreign table update. This
      * function can call ExplainPropertyText and related functions to add
@@ -907,7 +835,7 @@ static void ExplainForeignModify(ModifyTableState *modifyTableState,
 static bool AnalyzeForeignTable(Relation relation,
                                 AcquireSampleRowsFunc *acquireSampleRowsFunc,
                                 BlockNumber *totalPageCount) {
-    printf("\n-----------------AnalyzeForeignTable----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     /* ----
      * This function is called when ANALYZE is executed on a foreign table. If
      * the FDW can collect statistics for this foreign table, it should return
@@ -941,7 +869,7 @@ static bool AnalyzeForeignTable(Relation relation,
 }
 
 Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
-    printf("\n-----------------fdw_handler----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     FdwRoutine *fdwRoutine = makeNode(FdwRoutine);
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
@@ -987,7 +915,7 @@ Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
 }
 
 Datum kv_fdw_validator(PG_FUNCTION_ARGS) {
-    printf("\n-----------------fdw_validator----------------------\n");
+    printf("\n-----------------%s----------------------\n", __func__);
     List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));

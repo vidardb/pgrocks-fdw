@@ -1,10 +1,10 @@
 
-#ifndef _UTILITY_H_
-#define _UTILITY_H_
+#include "kv_fdw.h"
+#include "kv_storage.h"
+#include "kv_posix.h"
 
 #include <sys/stat.h>
-#include <unistd.h>
-#include "postgres.h"
+
 #include "foreign/foreign.h"
 #include "miscadmin.h"
 #include "commands/event_trigger.h"
@@ -12,7 +12,6 @@
 #include "catalog/namespace.h"
 #include "utils/lsyscache.h"
 #include "commands/defrem.h"
-#include "access/heapam.h"
 #include "utils/rel.h"
 #include "storage/ipc.h"
 #include "commands/copy.h"
@@ -21,34 +20,27 @@
 #include "utils/builtins.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_type.h"
-#include "kv.h"
 
-#define KV_FDW_NAME "kv_fdw"
 
-#define PREVIOUS_UTILITY (PreviousProcessUtilityHook != NULL \
-                          ? PreviousProcessUtilityHook : standard_ProcessUtility)
+#define PREVIOUS_UTILITY (PreviousProcessUtilityHook != NULL ? \
+                          PreviousProcessUtilityHook : standard_ProcessUtility)
 
 #define CALL_PREVIOUS_UTILITY(parseTree, queryString, context, paramListInfo, \
                               destReceiver, completionTag) \
-    PREVIOUS_UTILITY(plannedStmt, queryString, context, paramListInfo, \
-                     queryEnvironment, destReceiver, completionTag)
+        PREVIOUS_UTILITY(plannedStmt, queryString, context, paramListInfo, \
+                         queryEnvironment, destReceiver, completionTag)
 
-/* Holds the option values to be used when reading or writing files.
- * To resolve these values, we first check foreign table's options,
- * and if not present, we then fall back to the default values.
- */
-typedef struct {
-    char *filename;
-} KVFdwOptions;
 
 /*
  * SQL functions
  */
 PG_FUNCTION_INFO_V1(kv_ddl_event_end_trigger);
 
-/* Function declarations for extension loading and unloading */
-extern void _PG_init(void);
-extern void _PG_fini(void);
+
+/* saved hook value in case of unload */
+static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
+static shmem_startup_hook_type PreviousShmemStartupHook = NULL;
+
 
 /* local functions forward declarations */
 static void KVProcessUtility(PlannedStmt *plannedStmt,
@@ -59,10 +51,6 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
                              DestReceiver *destReceiver,
                              char *completionTag);
 static void KVShmemStartup(void);
-
-/* saved hook value in case of unload */
-static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
-static shmem_startup_hook_type PreviousShmemStartupHook = NULL;
 
 
 /*
@@ -121,7 +109,7 @@ static bool KVDirectoryExists(StringInfo directoryName) {
  */
 static void KVCreateDatabaseDirectory(Oid databaseOid) {
     StringInfo directoryPath = makeStringInfo();
-    appendStringInfo(directoryPath, "%s/%s", DataDir, KV_FDW_NAME);
+    appendStringInfo(directoryPath, "%s/%s", DataDir, KVFDWNAME);
     if (!KVDirectoryExists(directoryPath)) {
         if (mkdir(directoryPath->data, S_IRWXU) != 0) {
             ereport(ERROR, (errcode_for_file_access(),
@@ -134,7 +122,7 @@ static void KVCreateDatabaseDirectory(Oid databaseOid) {
     appendStringInfo(databaseDirectoryPath,
                      "%s/%s/%u",
                      DataDir,
-                     KV_FDW_NAME,
+                     KVFDWNAME,
                      databaseOid);
     if (!KVDirectoryExists(databaseDirectoryPath)) {
         if (mkdir(databaseDirectoryPath->data, S_IRWXU) != 0) {
@@ -151,7 +139,7 @@ static void KVCreateDatabaseDirectory(Oid databaseOid) {
  */
 static bool KVServer(ForeignServer *server) {
     char *fdwName = GetForeignDataWrapper(server->fdwid)->fdwname;
-    return strncmp(fdwName, KV_FDW_NAME, NAMEDATALEN) == 0;
+    return strncmp(fdwName, KVFDWNAME, NAMEDATALEN) == 0;
 }
 
 /*
@@ -192,7 +180,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
 
     if (nodeTag(parseTree) == T_CreateForeignServerStmt) {
         CreateForeignServerStmt *serverStmt = (CreateForeignServerStmt *) parseTree;
-        if (strncmp(serverStmt->fdwname, KV_FDW_NAME, NAMEDATALEN) == 0) {
+        if (strncmp(serverStmt->fdwname, KVFDWNAME, NAMEDATALEN) == 0) {
             KVCreateDatabaseDirectory(MyDatabaseId);
         }
     } else if (nodeTag(parseTree) == T_CreateForeignTableStmt) {
@@ -217,7 +205,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
             appendStringInfo(kvPath,
                              "%s/%s/%u/%u",
                              DataDir,
-                             KV_FDW_NAME,
+                             KVFDWNAME,
                              MyDatabaseId,
                              relationId);
 
@@ -242,7 +230,7 @@ static void KVRemoveDatabaseDirectory(Oid databaseOid) {
     appendStringInfo(databaseDirectoryPath,
                      "%s/%s/%u",
                      DataDir,
-                     KV_FDW_NAME,
+                     KVFDWNAME,
                      databaseOid);
 
     if (KVDirectoryExists(databaseDirectoryPath)) {
@@ -262,7 +250,7 @@ static char *KVDefaultFilePath(Oid foreignTableId) {
     appendStringInfo(filePath,
                      "%s/%s/%u/%u",
                      DataDir,
-                     KV_FDW_NAME,
+                     KVFDWNAME,
                      relationFileNode.dbNode,
                      relationFileNode.relNode);
 
@@ -303,7 +291,7 @@ static char *KVGetOptionValue(Oid foreignTableId, const char *optionName) {
  * foreign table, and if not present, falls back to default values. This function
  * errors out if given option values are considered invalid.
  */
-static KVFdwOptions *KVGetOptions(Oid foreignTableId) {
+KVFdwOptions *KVGetOptions(Oid foreignTableId) {
     char *filename = KVGetOptionValue(foreignTableId, "filename");
 
     /* set default filename if it is not provided */
@@ -379,7 +367,7 @@ static void KVCheckSuperuserPrivilegesForCopy(const CopyStmt* copyStmt) {
     }
 }
 
-static Datum ShortVarlena(Datum datum, int typeLength, char storage) {
+Datum ShortVarlena(Datum datum, int typeLength, char storage) {
     /* Make sure item to be inserted is not toasted */
     if (typeLength == -1) {
         datum = PointerGetDatum(PG_DETOAST_DATUM_PACKED(datum));
@@ -398,10 +386,10 @@ static Datum ShortVarlena(Datum datum, int typeLength, char storage) {
     PG_RETURN_DATUM(datum);
 }
 
-static void SerializeAttribute(TupleDesc tupleDescriptor,
-                               Index index,
-                               Datum datum,
-                               StringInfo buffer) {
+void SerializeAttribute(TupleDesc tupleDescriptor,
+                        Index index,
+                        Datum datum,
+                        StringInfo buffer) {
     Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
     bool byValue = attributeForm->attbyval;
     int typeLength = attributeForm->attlen;
@@ -703,7 +691,7 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
                 Node *object = (Node *) lfirst(objectCell);
                 Assert(IsA(object, String));
                 char *objectName = strVal(object);
-                if (strncmp(KV_FDW_NAME, objectName, NAMEDATALEN) == 0) {
+                if (strncmp(KVFDWNAME, objectName, NAMEDATALEN) == 0) {
                     removeDirectory = true;
                 }
             }
@@ -768,25 +756,34 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
  * other processes running when this is called.
  */
 static void KVShmemShutdown(int code, Datum arg) {
-    printf("\n============KVShmemShutdown=============\n");
+    printf("\n============%s=============\n", __func__);
+    PthreadCancel(kvStorageThread, __func__);
+
+    void *retVal;
+    PthreadJoin(kvStorageThread, &retVal, __func__);
+    if (retVal == PTHREAD_CANCELED) {
+        printf("\nkvStorageThread cancelled!\n");
+    } else {
+        printf("\nkvStorageThread is not cancelled!\n");
+    }
 }
 
 /*
  * Allocate or attach to shared memory while the module is enabled.
  */
 static void KVShmemStartup(void) {
-    printf("\n============KVShmemStartup=============\n");
+    printf("\n============%s=============\n", __func__);
     if (PreviousShmemStartupHook) {
         PreviousShmemStartupHook();
     }
 
     /*
      * If we're in the postmaster (or a standalone backend...), set up a shmem
-     * exit hook to release memory.
+     * exit hook to release memory. I wonder what else we can in?
      */
     if (!IsUnderPostmaster) {
-        on_shmem_exit(KVShmemShutdown, (Datum) 0);
+        before_shmem_exit(KVShmemShutdown, (Datum) 0);
     }
-}
 
-#endif /* _UTILITY_H_ */
+    PthreadCreate(&kvStorageThread, NULL, KVStorageThreadFun, NULL, __func__);
+}

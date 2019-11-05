@@ -4,14 +4,13 @@
 using namespace rocksdb;
 using namespace std;
 
-#include "kv.h"
+#include "kv_storage.h"
 
 extern "C" {
 
 void* Open(char* path) {
     DB* db = nullptr;
     Options options;
-    options.IncreaseParallelism();
     options.create_if_missing = true;
     Status s = DB::Open(options, string(path), &db);
     assert(s.ok());
@@ -43,31 +42,31 @@ void DelIter(void* it) {
 }
 
 bool Next(void* db, void* iter, char** key, uint32* keyLen,
-          char** value, uint32* valLen) {
+          char** val, uint32* valLen) {
     Iterator* it = static_cast<Iterator*>(iter);
     if (!it->Valid()) return false;
     *keyLen = it->key().size(), *valLen = it->value().size();
     *key = (char*) palloc0(*keyLen);
-    *value = (char*) palloc0(*valLen);
+    *val = (char*) palloc0(*valLen);
     memcpy(*key, it->key().data(), *keyLen);
-    memcpy(*value, it->value().data(), *valLen);
+    memcpy(*val, it->value().data(), *valLen);
     it->Next();
     return true;
 }
 
-bool Get(void* db, char* key, uint32 keyLen, char** value, uint32* valLen) {
+bool Get(void* db, char* key, uint32 keyLen, char** val, uint32* valLen) {
     string sval;
     Status s = static_cast<DB*>(db)->Get(ReadOptions(), Slice(key, keyLen), &sval);
     if (!s.ok()) return false;
     *valLen = sval.length();
-    *value = (char*) palloc0(*valLen);
-    memcpy(*value, sval.c_str(), *valLen);
+    *val = (char*) palloc0(*valLen);
+    memcpy(*val, sval.c_str(), *valLen);
     return true;
 }
 
-bool Put(void* db, char* key, uint32 keyLen, char* value, uint32 valLen) {
+bool Put(void* db, char* key, uint32 keyLen, char* val, uint32 valLen) {
     Status s = static_cast<DB*>(db)->Put(WriteOptions(), Slice(key, keyLen),
-                                         Slice(value, valLen));
+                                         Slice(val, valLen));
     return s.ok();
 }
 

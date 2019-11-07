@@ -1,0 +1,266 @@
+--
+-- Test Insert, Select, Update, Delete, Data Types 
+--
+\c kvtest
+You are now connected to database "kvtest" as user "postgres".
+CREATE FOREIGN TABLE item (id SERIAL, name VARCHAR(20), price NUMERIC(10,2), inventory INT, stime TIMESTAMP, flag BOOLEAN) SERVER kv_server;
+CREATE FOREIGN TABLE
+INSERT INTO item VALUES (DEFAULT, 'Name1', 10.00, 50, current_timestamp(2), false);
+INSERT 0 1
+INSERT INTO item VALUES (DEFAULT, 'Name2', 20.00, 50, current_timestamp(2), false);
+INSERT 0 1
+INSERT INTO item VALUES (DEFAULT, 'Name3', 30.00, 50, current_timestamp(2), false);
+INSERT 0 1
+INSERT INTO item VALUES (DEFAULT, 'Name1', 40.00, 10,  '2016-06-22 19:10:25', false);
+INSERT 0 1
+SELECT * FROM item;
+ id | name  | price | inventory |         stime          | flag 
+----+-------+-------+-----------+------------------------+------
+  1 | Name1 | 10.00 |        50 | 2019-10-20 01:13:03.33 | f
+  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
+  3 | Name3 | 30.00 |        50 | 2019-10-20 01:13:03.46 | f
+  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25    | f
+(4 rows)
+
+SELECT COUNT(*) FROM item WHERE name='Name1';
+ count 
+-------
+     2
+(1 row)
+
+SELECT COUNT(*) FROM item WHERE name='Name1' AND inventory=10;
+ count 
+-------
+     1
+(1 row)
+
+SELECT * FROM item WHERE name='Name2' OR inventory=10;
+ id | name  | price | inventory |         stime          | flag 
+----+-------+-------+-----------+------------------------+------
+  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
+  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25    | f
+(2 rows)
+
+SELECT * FROM item WHERE stime > timestamp '2019-01-01 00:00:00';
+ id | name  | price | inventory |         stime          | flag 
+----+-------+-------+-----------+------------------------+------
+  1 | Name1 | 10.00 |        50 | 2019-10-20 01:13:03.33 | f
+  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
+  3 | Name3 | 30.00 |        50 | 2019-10-20 01:13:03.46 | f
+(3 rows)
+
+SELECT * FROM item WHERE name LIKE '%2';
+ id | name  | price | inventory |         stime          | flag 
+----+-------+-------+-----------+------------------------+------
+  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
+(1 row)
+
+SELECT * FROM item WHERE id IN (2,3);
+ id | name  | price | inventory |         stime          | flag 
+----+-------+-------+-----------+------------------------+------
+  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
+  3 | Name3 | 30.00 |        50 | 2019-10-20 01:13:03.46 | f
+(2 rows)
+
+SELECT * FROM item LIMIT 1;
+ id | name  | price | inventory |         stime          | flag 
+----+-------+-------+-----------+------------------------+------
+  1 | Name1 | 10.00 |        50 | 2019-10-20 01:13:03.33 | f
+(1 row)
+
+SELECT * FROM item LIMIT 1 OFFSET 1;
+ id | name  | price | inventory |         stime          | flag 
+----+-------+-------+-----------+------------------------+------
+  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
+(1 row)
+
+SELECT DISTINCT inventory FROM item;
+ inventory 
+-----------
+        10
+        50
+(2 rows)
+
+SELECT MIN(price) FROM item;
+  min  
+-------
+ 10.00
+(1 row)
+
+SELECT MAX(price) FROM item;
+  max  
+-------
+ 40.00
+(1 row)
+
+SELECT name, SUM(inventory) FROM item GROUP BY name;
+ name  | sum 
+-------+-----
+ Name2 |  50
+ Name1 |  60
+ Name3 |  50
+(3 rows)
+
+SELECT name, AVG(price) FROM item GROUP BY name;
+ name  |         avg         
+-------+---------------------
+ Name2 | 20.0000000000000000
+ Name1 | 25.0000000000000000
+ Name3 | 30.0000000000000000
+(3 rows)
+
+SELECT name, AVG(price) FROM item GROUP BY name HAVING AVG(price) > 20;
+ name  |         avg         
+-------+---------------------
+ Name1 | 25.0000000000000000
+ Name3 | 30.0000000000000000
+(2 rows)
+
+SELECT id, name, price FROM item WHERE price > 10.00 ORDER BY price;
+ id | name  | price 
+----+-------+-------
+  2 | Name2 | 20.00
+  3 | Name3 | 30.00
+  4 | Name1 | 40.00
+(3 rows)
+
+SELECT id, name, price FROM item WHERE price > 10.00 ORDER BY price ASC;
+ id | name  | price 
+----+-------+-------
+  2 | Name2 | 20.00
+  3 | Name3 | 30.00
+  4 | Name1 | 40.00
+(3 rows)
+
+SELECT id, name, price FROM item WHERE price > 10.00 ORDER BY price DESC;
+ id | name  | price 
+----+-------+-------
+  4 | Name1 | 40.00
+  3 | Name3 | 30.00
+  2 | Name2 | 20.00
+(3 rows)
+
+INSERT INTO item VALUES (DEFAULT, 'Name2', 20.00, 50, current_timestamp(2), NULL);
+INSERT 0 1
+SELECT * FROM item;
+ id | name  | price | inventory |         stime          | flag 
+----+-------+-------+-----------+------------------------+------
+  1 | Name1 | 10.00 |        50 | 2019-10-20 01:13:03.33 | f
+  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
+  3 | Name3 | 30.00 |        50 | 2019-10-20 01:13:03.46 | f
+  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25    | f
+  5 | Name2 | 20.00 |        50 | 2019-10-20 01:13:04.83 | 
+(5 rows)
+
+SELECT id, name FROM item WHERE flag IS NULL;
+ id | name  
+----+-------
+  5 | Name2
+(1 row)
+
+UPDATE item SET inventory=40 WHERE id=5;
+UPDATE 1
+UPDATE item SET inventory=NULL WHERE id=5;
+UPDATE 1
+SELECT * FROM item;
+ id | name  | price | inventory |         stime          | flag 
+----+-------+-------+-----------+------------------------+------
+  1 | Name1 | 10.00 |        50 | 2019-10-20 01:13:03.33 | f
+  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
+  3 | Name3 | 30.00 |        50 | 2019-10-20 01:13:03.46 | f
+  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25    | f
+  5 | Name2 | 20.00 |           | 2019-10-20 01:13:04.83 | 
+(5 rows)
+
+DELETE FROM item WHERE id=5;
+DELETE 1
+SELECT * FROM item;
+ id | name  | price | inventory |         stime          | flag 
+----+-------+-------+-----------+------------------------+------
+  1 | Name1 | 10.00 |        50 | 2019-10-20 01:13:03.33 | f
+  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
+  3 | Name3 | 30.00 |        50 | 2019-10-20 01:13:03.46 | f
+  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25    | f
+(4 rows)
+
+CREATE FOREIGN TABLE product(name VARCHAR(20), make CHAR(50), product_id UUID) SERVER kv_server;
+CREATE FOREIGN TABLE
+INSERT INTO product VALUES ('Name1', 'ComA', '40e6215d-b5c6-4896-987c-f30f3678f608');
+INSERT 0 1
+INSERT INTO product VALUES ('Name2', 'ComB', 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11');
+INSERT 0 1
+INSERT INTO product VALUES ('Name3', 'ComC', 'b0eebc88-4501-4ef8-bb6d-6bb9bd380a22');
+INSERT 0 1
+SELECT * FROM product;
+ name  |                        make                        |              product_id              
+-------+----------------------------------------------------+--------------------------------------
+ Name1 | ComA                                               | 40e6215d-b5c6-4896-987c-f30f3678f608
+ Name2 | ComB                                               | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name3 | ComC                                               | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
+(3 rows)
+
+SELECT item.name,item.inventory,product.product_id FROM item INNER JOIN product ON item.name=product.name;
+ name  | inventory |              product_id              
+-------+-----------+--------------------------------------
+ Name1 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
+ Name2 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name3 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
+ Name1 |        10 | 40e6215d-b5c6-4896-987c-f30f3678f608
+(4 rows)
+
+SELECT item.name,item.inventory,product.product_id FROM item CROSS JOIN product;
+ name  | inventory |              product_id              
+-------+-----------+--------------------------------------
+ Name1 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
+ Name1 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name1 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
+ Name2 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
+ Name2 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name2 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
+ Name3 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
+ Name3 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name3 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
+ Name1 |        10 | 40e6215d-b5c6-4896-987c-f30f3678f608
+ Name1 |        10 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name1 |        10 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
+(12 rows)
+
+INSERT INTO product VALUES ('Name4', 'ComD', 'b532bc88-4502-1ef8-bc6c-6cb9bd300a23');
+INSERT 0 1
+INSERT INTO item VALUES (DEFAULT, 'Name5', 30.00, 50, current_timestamp(2), false);
+INSERT 0 1
+SELECT item.name,item.inventory,product.product_id FROM item LEFT OUTER JOIN product ON item.name=product.name;
+ name  | inventory |              product_id              
+-------+-----------+--------------------------------------
+ Name1 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
+ Name2 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name3 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
+ Name1 |        10 | 40e6215d-b5c6-4896-987c-f30f3678f608
+ Name5 |        50 | 
+(5 rows)
+
+SELECT item.name,item.inventory,product.product_id FROM item RIGHT OUTER JOIN product ON item.name=product.name;
+ name  | inventory |              product_id              
+-------+-----------+--------------------------------------
+ Name1 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
+ Name2 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name3 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
+ Name1 |        10 | 40e6215d-b5c6-4896-987c-f30f3678f608
+       |           | b532bc88-4502-1ef8-bc6c-6cb9bd300a23
+(5 rows)
+
+SELECT item.name,item.inventory,product.product_id FROM item FULL OUTER JOIN product ON item.name=product.name;
+ name  | inventory |              product_id              
+-------+-----------+--------------------------------------
+ Name1 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
+ Name2 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name3 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
+ Name1 |        10 | 40e6215d-b5c6-4896-987c-f30f3678f608
+ Name5 |        50 | 
+       |           | b532bc88-4502-1ef8-bc6c-6cb9bd300a23
+(6 rows)
+
+DROP FOREIGN TABLE item;
+DROP FOREIGN TABLE
+DROP FOREIGN TABLE product;
+DROP FOREIGN TABLE

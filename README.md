@@ -56,7 +56,13 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
   
   sudo make uninstall
   ```
-  
+
+# Limitations
+
+- The first attribute in the table definition must be the primary key.
+
+- Composite primary key is not supported for now.  
+
 # Usage
 
 Before using this foreign data wrapper, you need to add it to ```shared_preload_libraries``` in your ```postgresql.conf``` 

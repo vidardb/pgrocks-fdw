@@ -12,10 +12,35 @@
 #include "access/attnum.h"
 #include "utils/relcache.h"
 
+/* Defines */
+#define KVKEYJUNK "__key_junk"
 
+#define KVFDWNAME "kv_fdw"
+
+#define BACKFILE "/KVSharedMem"
+
+#define PERMISSION 0777
+
+#define PATHMAXLENGTH 4096
+
+//#define RESPONSEMUTEXFILE "/KVResponseMutexes"
+
+#define RESPONSEFILE "/KVSharedResponse"
+
+#define RESPONSEQUEUELENGTH 1
+
+//#define RESPONSEMUTEXSIZE sizeof(sem_t)*RESPONSEQUEUELENGTH
+
+#define DATAAREASIZE sizeof(char)*65536
+
+
+/* Shared memory for function requests */
 typedef struct SharedMem {
+    sem_t mutex;
+    sem_t full;
     sem_t agent[2];
     sem_t worker[2];
+    sem_t response_mutexes[RESPONSEQUEUELENGTH];
     bool workerProcessCreated;
     char area[65536];  // assume ~64K for a tuple is enough
 } SharedMem;
@@ -65,18 +90,6 @@ typedef enum FuncName {
     DELETE,
     TERMINATE
 } FuncName;
-
-
-/* Defines */
-#define KVKEYJUNK "__key_junk"
-
-#define KVFDWNAME "kv_fdw"
-
-#define BACKFILE "/KVSharedMem"
-
-#define PERMISSION 0777
-
-#define PATHMAXLENGTH 4096
 
 
 /* Function declarations for extension loading and unloading */

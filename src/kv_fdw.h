@@ -23,15 +23,15 @@
 
 #define PATHMAXLENGTH 4096
 
-//#define RESPONSEMUTEXFILE "/KVResponseMutexes"
+#define BUFSIZE 65536
+
+#define FILENAMELENGTH 20
 
 #define RESPONSEFILE "/KVSharedResponse"
 
-#define RESPONSEQUEUELENGTH 1
+#define RESPONSEQUEUELENGTH 2
 
-//#define RESPONSEMUTEXSIZE sizeof(sem_t)*RESPONSEQUEUELENGTH
-
-#define DATAAREASIZE sizeof(char)*65536
+#define DATAAREASIZE sizeof(char)*BUFSIZE
 
 
 /* Shared memory for function requests */
@@ -40,9 +40,9 @@ typedef struct SharedMem {
     sem_t full;
     sem_t agent[2];
     sem_t worker[2];
-    sem_t response_mutexes[RESPONSEQUEUELENGTH];
+    sem_t responseMutexes[RESPONSEQUEUELENGTH];
     bool workerProcessCreated;
-    char area[65536];  // assume ~64K for a tuple is enough
+    char area[BUFSIZE];  // assume ~64K for a tuple is enough
 } SharedMem;
 
 /* Holds the option values to be used when reading or writing files.

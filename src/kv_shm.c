@@ -67,8 +67,7 @@ static void cleanup_handler(void *arg) {
 
     // release the response area first
     char filename[20];
-    for (int i = 0; i < RESPONSEQUEUELENGTH; i++)
-    {
+    for (int i = 0; i < RESPONSEQUEUELENGTH; i++) {
         SemWait(&ptr->responseMutexes[i], __func__);
         Munmap(ResponseQueue[i], DATAAREASIZE, __func__);
         snprintf(filename, 20, "%s%d", RESPONSEFILE, i);
@@ -82,8 +81,7 @@ static void cleanup_handler(void *arg) {
     SemDestroy(&ptr->worker[0], __func__);
     SemDestroy(&ptr->worker[1], __func__);
 
-    for (int i = 0; i < RESPONSEQUEUELENGTH; i++)
-    {
+    for (int i = 0; i < RESPONSEQUEUELENGTH; i++) {
         SemDestroy(&ptr->responseMutexes[i], __func__);
     }
     
@@ -97,8 +95,7 @@ static void cleanup_handler(void *arg) {
  */
 void InitResponseArea(){
     char filename[FILENAMELENGTH];
-    for (int i = 0; i < RESPONSEQUEUELENGTH; i++)
-    {
+    for (int i = 0; i < RESPONSEQUEUELENGTH; i++) {
         snprintf(filename, FILENAMELENGTH, "%s%d", RESPONSEFILE, i);
         ShmUnlink(filename, __func__);
         int fd = ShmOpen(filename, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
@@ -119,10 +116,8 @@ void InitResponseArea(){
  */
 void OpenResponseArea() {
     char filename[FILENAMELENGTH];
-    for (int i = 0; i < RESPONSEQUEUELENGTH; i++)
-    {
-        if (ResponseQueue[i] == NULL)
-        {
+    for (int i = 0; i < RESPONSEQUEUELENGTH; i++) {
+        if (ResponseQueue[i] == NULL) {
             snprintf(filename, FILENAMELENGTH, "%s%d", RESPONSEFILE, i);
             int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
             ResponseQueue[i] = Mmap(NULL,
@@ -159,8 +154,7 @@ void *KVStorageThreadFun(void *arg) {
     SemInit(&ptr->agent[1], 1, 0, __func__);
     SemInit(&ptr->worker[0], 1, 0, __func__);
     SemInit(&ptr->worker[1], 1, 0, __func__);
-    for (int i = 0; i < RESPONSEQUEUELENGTH; i++)
-    {
+    for (int i = 0; i < RESPONSEQUEUELENGTH; i++) {
         SemInit(&ptr->responseMutexes[i], 1, 1, __func__);
     }
     

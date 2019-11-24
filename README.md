@@ -84,33 +84,33 @@ A simple example is as follows.
 
 
 ```
-CREATE DATABASE kvtest;  
-\c kvtest  
+    CREATE DATABASE kvtest;  
+    \c kvtest  
 
-CREATE EXTENSION kv_fdw;  
-CREATE SERVER kv_server FOREIGN DATA WRAPPER kv_fdw;  
+    CREATE EXTENSION kv_fdw;  
+    CREATE SERVER kv_server FOREIGN DATA WRAPPER kv_fdw;  
 
-CREATE FOREIGN TABLE test(key TEXT, value TEXT) SERVER kv_server;  
+    CREATE FOREIGN TABLE test(key TEXT, value TEXT) SERVER kv_server;  
 
-INSERT INTO test VALUES('YC', 'VidarDB');  
-SELECT * FROM test;  
+    INSERT INTO test VALUES('YC', 'VidarDB');  
+    SELECT * FROM test;  
 
-INSERT INTO test VALUES('California', 'Waterloo');  
-SELECT * FROM test;  
+    INSERT INTO test VALUES('California', 'Waterloo');  
+    SELECT * FROM test;  
 
-DELETE FROM test WHERE key='California';  
-SELECT * FROM test;  
+    DELETE FROM test WHERE key='California';  
+    SELECT * FROM test;  
 
-UPDATE test SET value='VidarSQL';  
-SELECT * FROM test;  
+    UPDATE test SET value='VidarSQL';  
+    SELECT * FROM test;  
 
-DROP FOREIGN TABLE test;  
+    DROP FOREIGN TABLE test;  
 
-DROP SERVER kv_server;  
-DROP EXTENSION kv_fdw;  
+    DROP SERVER kv_server;  
+    DROP EXTENSION kv_fdw;  
   
-\c postgres  
-DROP DATABASE kvtest;  
+    \c postgres  
+    DROP DATABASE kvtest;  
 
 ``` 
 
@@ -120,15 +120,15 @@ We have tested certain typical SQL statements and will add more test cases later
 
 
 ```sh
-sudo service postgresql restart  
+    sudo service postgresql restart  
 
-cd PostgresForeignDataWrapper
+    cd PostgresForeignDataWrapper
 
-sudo -u postgres psql -U postgres -a -f test/sql/create.sql 
+    sudo -u postgres psql -U postgres -a -f test/sql/create.sql 
 
-sudo -u postgres psql -U postgres -d kvtest -a -f test/sql/test.sql 
+    sudo -u postgres psql -U postgres -d kvtest -a -f test/sql/test.sql 
 
-sudo -u postgres psql -U postgres -d kvtest -a -f test/sql/clear.sql  
+    sudo -u postgres psql -U postgres -d kvtest -a -f test/sql/clear.sql  
 ```
 
 # Debug 
@@ -137,7 +137,7 @@ If you want to debug the source code, you may need to start PostgreSQL in the de
 
 
 ```sh
-sudo service postgresql stop  
+    sudo service postgresql stop  
 
-sudo -u postgres /usr/lib/postgresql/11/bin/postgres -d 0 -D /var/lib/postgresql/11/main -c config_file=/etc/postgresql/11/main/postgresql.conf
+    sudo -u postgres /usr/lib/postgresql/11/bin/postgres -d 0 -D /var/lib/postgresql/11/main -c config_file=/etc/postgresql/11/main/postgresql.conf
 ```  

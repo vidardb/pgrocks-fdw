@@ -45,13 +45,11 @@ bool Next(void* db, void* iter, char** key, uint32* keyLen,
           char** val, uint32* valLen) {
     Iterator* it = static_cast<Iterator*>(iter);
     if(it == NULL) {
-        printf("\n============%s p1============\n", __func__);
         return false;
     }
     if (!it->Valid()) return false;
  
     *keyLen = it->key().size(), *valLen = it->value().size();
-    printf("\n============%s %d %d============\n", __func__, *keyLen, *valLen);
     *key = (char*) palloc0(*keyLen);
     *val = (char*) palloc0(*valLen);
  

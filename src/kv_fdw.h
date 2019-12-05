@@ -39,8 +39,9 @@ typedef struct SharedMem {
     sem_t mutex;
     sem_t full;
     sem_t agent[2];
-    sem_t worker[2];
+    sem_t worker;
     sem_t responseMutexes[RESPONSEQUEUELENGTH];
+    sem_t responseSync[RESPONSEQUEUELENGTH];
     bool workerProcessCreated;
     char area[BUFSIZE];  // assume ~64K for a tuple is enough
 } SharedMem;

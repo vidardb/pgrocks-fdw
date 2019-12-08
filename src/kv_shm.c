@@ -168,9 +168,9 @@ void OpenResponseArea() {
 /*
  * Compare function for KVIterHash
  */
-/* int CompareKVIterHashKey(const void *key1, const void *key2, Size keysize) {
-    KVIterHashKey *k1 = (const KVIterHashKey *)key1;
-    KVIterHashKey *k2 = (const KVIterHashKey *)key2;
+int CompareKVIterHashKey(const void *key1, const void *key2, Size keysize) {
+    const KVIterHashKey *k1 = (const KVIterHashKey *)key1;
+    const KVIterHashKey *k2 = (const KVIterHashKey *)key2;
 
     if(k1 == NULL || k2 == NULL) {
         return -1;
@@ -181,7 +181,7 @@ void OpenResponseArea() {
     }
 
     return -1;
-}*/
+}
 
 void *KVStorageThreadFun(void *arg) {
     PthreadSetCancelState(PTHREAD_CANCEL_ENABLE, NULL, __func__);
@@ -259,13 +259,13 @@ static void KVWorkerMain(int argc, char *argv[]) {
     memset(&iterhash_ctl, 0, sizeof(iterhash_ctl));
     iterhash_ctl.keysize = sizeof(KVIterHashKey);
     iterhash_ctl.entrysize = sizeof(KVIterHashEntry);
-    //iterhash_ctl.match = CompareKVIterHashKey;
+    iterhash_ctl.match = CompareKVIterHashKey;
     kvIterHash = hash_create("kvIterHash",
                              HASHSIZE,
                              &iterhash_ctl,
-                             HASH_ELEM | HASH_BLOBS);
+                             HASH_ELEM | HASH_COMPARE);
 
-    char buff[DATAAREASIZE];
+    char buff[BUFSIZE];
     do {
         SemWait(&ptr->worker, __func__);
 

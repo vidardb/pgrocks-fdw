@@ -34,7 +34,14 @@
 #define DATAAREASIZE sizeof(char)*BUFSIZE
 
 
-/* Shared memory for function requests */
+/* Shared memory for function requests: 
+ * mutex is used for the mutual exclusion of the request buffer;
+ * full is used to tell whether the request buffer is full;
+ * agent[2] are used to synchronize the creation of the worker process;
+ * worker is used to notify the worker process after a request is submitted;
+ * responseMutexes[RESPONSEQUEUELENGTH] are used for the mutual exclusion of the response buffer;
+ * responseSync[RESPONSEQUEUELENGTH] are used to notify child processes after the response is ready.
+ */
 typedef struct SharedMem {
     sem_t mutex;
     sem_t full;

@@ -4,5 +4,6 @@
 *.bc
 .cproject
 .project
+.vscode
 .*.swp
 .*.swo

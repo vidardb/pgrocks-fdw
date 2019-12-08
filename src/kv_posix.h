@@ -73,5 +73,6 @@ extern void SemPost(sem_t *__sem, const char *fun);
 
 extern void SemWait(sem_t *__sem, const char *fun);
 
+extern int SemTryWait(sem_t *__sem, const char *fun);
 
 #endif

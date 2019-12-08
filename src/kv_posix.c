@@ -113,3 +113,11 @@ void SemWait(sem_t *__sem, const char *fun) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }
 }
+
+int SemTryWait(sem_t *__sem, const char *fun) {
+    int ret = sem_trywait(__sem);
+    if (ret == -1 && errno != EAGAIN) {
+        ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
+    }
+    return ret;
+}

@@ -12,12 +12,45 @@
 #include "access/attnum.h"
 #include "utils/relcache.h"
 
+/* Defines */
+#define KVKEYJUNK "__key_junk"
 
+#define KVFDWNAME "kv_fdw"
+
+#define BACKFILE "/KVSharedMem"
+
+#define PERMISSION 0777
+
+#define PATHMAXLENGTH 4096
+
+#define BUFSIZE 65536
+
+#define FILENAMELENGTH 20
+
+#define RESPONSEFILE "/KVSharedResponse"
+
+#define RESPONSEQUEUELENGTH 2
+
+#define DATAAREASIZE sizeof(char)*BUFSIZE
+
+
+/* Shared memory for function requests: 
+ * mutex is used for the mutual exclusion of the request buffer;
+ * full is used to tell whether the request buffer is full;
+ * agent[2] are used to synchronize the creation of the worker process;
+ * worker is used to notify the worker process after a request is submitted;
+ * responseMutexes[RESPONSEQUEUELENGTH] are used for the mutual exclusion of the response buffer;
+ * responseSync[RESPONSEQUEUELENGTH] are used to notify child processes after the response is ready.
+ */
 typedef struct SharedMem {
+    sem_t mutex;
+    sem_t full;
     sem_t agent[2];
-    sem_t worker[2];
+    sem_t worker;
+    sem_t responseMutexes[RESPONSEQUEUELENGTH];
+    sem_t responseSync[RESPONSEQUEUELENGTH];
     bool workerProcessCreated;
-    char area[65536];  // assume ~64K for a tuple is enough
+    char area[BUFSIZE];  // assume ~64K for a tuple is enough
 } SharedMem;
 
 /* Holds the option values to be used when reading or writing files.
@@ -65,18 +98,6 @@ typedef enum FuncName {
     DELETE,
     TERMINATE
 } FuncName;
-
-
-/* Defines */
-#define KVKEYJUNK "__key_junk"
-
-#define KVFDWNAME "kv_fdw"
-
-#define BACKFILE "/KVSharedMem"
-
-#define PERMISSION 0777
-
-#define PATHMAXLENGTH 4096
 
 
 /* Function declarations for extension loading and unloading */

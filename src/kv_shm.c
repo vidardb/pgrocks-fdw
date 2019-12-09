@@ -288,37 +288,33 @@ static void KVWorkerMain(int argc, char *argv[]) {
 
         FuncName func;
         memcpy(&func, ptr->area, sizeof(FuncName));
-        uint32 response_index;
-        memcpy(&response_index,
-               ptr->area + sizeof(FuncName),
-               sizeof(response_index));
+        uint32 responseId;
+        memcpy(&responseId, ptr->area + sizeof(FuncName), sizeof(responseId));
 
         memset(buf, 0, BUFSIZE);
-        memcpy(buf,
-               ptr->area + sizeof(FuncName) + sizeof(response_index),
-               BUFSIZE - sizeof(FuncName) - sizeof(response_index));
+        memcpy(buf, ptr->area + sizeof(FuncName), BUFSIZE - sizeof(FuncName));
         SemPost(&ptr->full, __func__);
 
         if (func == TERMINATE) {
-            SemPost(&ptr->responseSync[response_index], __func__);
+            SemPost(&ptr->responseSync[responseId], __func__);
             break;
         }
 
         switch (func) {
             case OPEN:
-                OpenResponse(buf);
+                OpenResponse(buf + sizeof(responseId));
                 break;
             case CLOSE:
-                CloseResponse(buf);
+                CloseResponse(buf + sizeof(responseId));
                 break;
             case COUNT:
                 CountResponse(buf);
                 break;
             case GETITER:
-                GetIterResponse(buf);
+                GetIterResponse(buf + sizeof(responseId));
                 break;
             case DELITER:
-                DelIterResponse(buf);
+                DelIterResponse(buf + sizeof(responseId));
                 break;
             case NEXT:
                 NextResponse(buf);
@@ -327,16 +323,16 @@ static void KVWorkerMain(int argc, char *argv[]) {
                 GetResponse(buf);
                 break;
             case PUT:
-                PutResponse(buf);
+                PutResponse(buf + sizeof(responseId));
                 break;
             case DELETE:
-                DeleteResponse(buf);
+                DeleteResponse(buf + sizeof(responseId));
                 break;
             default:
                 ereport(ERROR, (errmsg("%s failed in switch", __func__)));
         }
 
-        SemPost(&ptr->responseSync[response_index], __func__);
+        SemPost(&ptr->responseSync[responseId], __func__);
     } while (true);
 
     HASH_SEQ_STATUS status;

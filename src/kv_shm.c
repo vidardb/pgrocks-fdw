@@ -34,11 +34,15 @@ pid_t kvWorkerPid = 0;  // in postmaster process
 
 HTAB *kvTableHash = NULL;  // in kvworker process
 
-HTAB *kvIterHash = NULL;
+HTAB *kvIterHash = NULL;  // in kvworker process
 
 long HASHSIZE = 1;  // non-shared hash can be enlarged
 
+/*
+ * referenced by thread of postmaster process, client process, worker process
+ */
 char *ResponseQueue[RESPONSEQUEUELENGTH];
+
 
 static int StartKVWorker(void);
 
@@ -60,21 +64,18 @@ static void PutResponse(char *area);
 
 static void DeleteResponse(char *area);
 
-void InitResponseArea(void);
-
-void OpenResponseArea(void);
-
-int CompareKVIterHashKey(const void *key1, const void *key2, Size keysize);
 
 /*
- * A child process must acquire the mutex of the shared memory before calling this functions,
- * so processes check the available response slot in the FIFO manner.
- * If all the response slots are used by other processes, the caller process will loop here. 
+ * A child process must acquire the mutex of the shared memory before calling
+ * this functions, so processes check the available response slot in the FIFO
+ * manner. If all the response slots are used by other processes, the caller
+ * process will loop here. Called by the thread in postmaster process and client
+ * process.
  */
-inline int GetResponseQueueIndex(SharedMem *ptr) {
+static inline uint32 GetResponseQueueIndex(SharedMem *ptr) {
     while (true) {
-        for (int i = 0; i < RESPONSEQUEUELENGTH; i++) {
-            int ret = SemTryWait(&ptr->responseMutexes[i], __func__);
+        for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
+            int ret = SemTryWait(&ptr->responseMutex[i], __func__);
             if (ret == 0) {
                 return i;
             }
@@ -82,6 +83,9 @@ inline int GetResponseQueueIndex(SharedMem *ptr) {
     }
 }
 
+/*
+ * called by the thread in postmaster process
+ */
 static void cleanup_handler(void *arg) {
     printf("\n============%s============\n", __func__);
     SharedMem *ptr = *((SharedMem **)arg);
@@ -91,18 +95,17 @@ static void cleanup_handler(void *arg) {
         SemWait(&ptr->mutex, __func__);
         SemWait(&ptr->full, __func__);
         memcpy(ptr->area, &func, sizeof(FuncName));
-        int response_idx = GetResponseQueueIndex(ptr);
-        memcpy(ptr->area + sizeof(FuncName), &response_idx, sizeof(int));
+        uint32 responseId = GetResponseQueueIndex(ptr);
+        memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
         SemPost(&ptr->worker, __func__);
-        SemWait(&ptr->responseSync[response_idx], __func__);
+        SemWait(&ptr->responseSync[responseId], __func__);
         kvWorkerPid = 0;
     }
 
     // release the response area first
-    char filename[FILENAMELENGTH];
-    for (int i = 0; i < RESPONSEQUEUELENGTH; i++) {
-        //SemWait(&ptr->responseMutexes[i], __func__);
-        Munmap(ResponseQueue[i], DATAAREASIZE, __func__);
+    for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
+        Munmap(ResponseQueue[i], BUFSIZE, __func__);
+        char filename[FILENAMELENGTH];
         snprintf(filename, FILENAMELENGTH, "%s%d", RESPONSEFILE, i);
         ShmUnlink(filename, __func__);
     }
@@ -113,8 +116,8 @@ static void cleanup_handler(void *arg) {
     SemDestroy(&ptr->agent[1], __func__);
     SemDestroy(&ptr->worker, __func__);
 
-    for (int i = 0; i < RESPONSEQUEUELENGTH; i++) {
-        SemDestroy(&ptr->responseMutexes[i], __func__);
+    for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
+        SemDestroy(&ptr->responseMutex[i], __func__);
         SemDestroy(&ptr->responseSync[i], __func__);
     }
     
@@ -125,41 +128,46 @@ static void cleanup_handler(void *arg) {
 
 /*
  * Initialize shared memory for responses
+ * called by the thread in postmaster process
  */
-void InitResponseArea(){
-    char filename[FILENAMELENGTH];
-    for (int i = 0; i < RESPONSEQUEUELENGTH; i++) {
+static void InitResponseArea() {
+    for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
+        char filename[FILENAMELENGTH];
         snprintf(filename, FILENAMELENGTH, "%s%d", RESPONSEFILE, i);
         ShmUnlink(filename, __func__);
-        int fd = ShmOpen(filename, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
+        int fd = ShmOpen(filename,
+                         O_CREAT | O_RDWR | O_EXCL,
+                         PERMISSION,
+                         __func__);
         ResponseQueue[i] = Mmap(NULL, 
-                          DATAAREASIZE, 
-                          PROT_READ | PROT_WRITE, 
-                          MAP_SHARED, 
-                          fd, 
-                          0, 
-                          __func__);
-        Ftruncate(fd, DATAAREASIZE, __func__);
+                                BUFSIZE,
+                                PROT_READ | PROT_WRITE,
+                                MAP_SHARED,
+                                fd,
+                                0,
+                                __func__);
+        Ftruncate(fd, BUFSIZE, __func__);
         Fclose(fd, __func__);
-    }  
+    }
 }
 
 /*
  * Open shared memory for responses
+ * called by worker and client process
  */
-void OpenResponseArea() {
-    char filename[FILENAMELENGTH];
-    for (int i = 0; i < RESPONSEQUEUELENGTH; i++) {
+static void OpenResponseArea() {
+    for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
         if (ResponseQueue[i] == NULL) {
+            char filename[FILENAMELENGTH];
             snprintf(filename, FILENAMELENGTH, "%s%d", RESPONSEFILE, i);
             int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
             ResponseQueue[i] = Mmap(NULL,
-                              DATAAREASIZE,
-                              PROT_READ | PROT_WRITE,
-                              MAP_SHARED,
-                              fd,
-                              0,
-                              __func__);
+                                    BUFSIZE,
+                                    PROT_READ | PROT_WRITE,
+                                    MAP_SHARED,
+                                    fd,
+                                    0,
+                                    __func__);
             Fclose(fd, __func__);
         }
     }
@@ -168,15 +176,17 @@ void OpenResponseArea() {
 /*
  * Compare function for KVIterHash
  */
-int CompareKVIterHashKey(const void *key1, const void *key2, Size keysize) {
+static inline int CompareKVIterHashKey(const void *key1,
+                                       const void *key2,
+                                       Size keysize) {
     const KVIterHashKey *k1 = (const KVIterHashKey *)key1;
     const KVIterHashKey *k2 = (const KVIterHashKey *)key2;
 
-    if(k1 == NULL || k2 == NULL) {
+    if (k1 == NULL || k2 == NULL) {
         return -1;
     }
 
-    if(k1->relationId == k2->relationId && k1->pid == k2->pid) {
+    if (k1->relationId == k2->relationId && k1->pid == k2->pid) {
         return 0;
     }
 
@@ -192,11 +202,17 @@ void *KVStorageThreadFun(void *arg) {
 
     ShmUnlink(BACKFILE, __func__);
     int fd = ShmOpen(BACKFILE, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
-    ptr = Mmap(NULL, sizeof(SharedMem), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0, __func__);
+    ptr = Mmap(NULL,
+               sizeof(SharedMem),
+               PROT_READ | PROT_WRITE,
+               MAP_SHARED,
+               fd,
+               0,
+               __func__);
     Ftruncate(fd, sizeof(SharedMem), __func__);
     Fclose(fd, __func__);
 
-    //Initialize the response area
+    // Initialize the response area
     InitResponseArea();
 
     SemInit(&ptr->mutex, 1, 1, __func__);
@@ -205,14 +221,15 @@ void *KVStorageThreadFun(void *arg) {
     SemInit(&ptr->agent[1], 1, 0, __func__);
     SemInit(&ptr->worker, 1, 0, __func__);
     
-    for (int i = 0; i < RESPONSEQUEUELENGTH; i++) {
-        SemInit(&ptr->responseMutexes[i], 1, 1, __func__);
+    for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
+        SemInit(&ptr->responseMutex[i], 1, 1, __func__);
         SemInit(&ptr->responseSync[i], 1, 0, __func__);
     }
     
     ptr->workerProcessCreated = false;
 
     do {
+        // don't create worker process until needed!
         SemWait(&ptr->agent[0], __func__);
 
         kvWorkerPid = StartKVWorker();
@@ -243,7 +260,7 @@ static void KVWorkerMain(int argc, char *argv[]) {
                           __func__);
     Fclose(fd, __func__);
 
-    //open the response queue
+    // open the response queue
     OpenResponseArea();
 
     HASHCTL hash_ctl;
@@ -265,17 +282,21 @@ static void KVWorkerMain(int argc, char *argv[]) {
                              &iterhash_ctl,
                              HASH_ELEM | HASH_COMPARE);
 
-    char buff[BUFSIZE];
+    char buf[BUFSIZE];
     do {
         SemWait(&ptr->worker, __func__);
 
         FuncName func;
         memcpy(&func, ptr->area, sizeof(FuncName));
-        int response_index;
-        memcpy(&response_index, ptr->area + sizeof(FuncName), sizeof(int));
+        uint32 response_index;
+        memcpy(&response_index,
+               ptr->area + sizeof(FuncName),
+               sizeof(response_index));
 
-        memset(buff, 0, DATAAREASIZE);
-        memcpy(buff, ptr->area + sizeof(FuncName), DATAAREASIZE - sizeof(FuncName));
+        memset(buf, 0, BUFSIZE);
+        memcpy(buf,
+               ptr->area + sizeof(FuncName) + sizeof(response_index),
+               BUFSIZE - sizeof(FuncName) - sizeof(response_index));
         SemPost(&ptr->full, __func__);
 
         if (func == TERMINATE) {
@@ -285,36 +306,36 @@ static void KVWorkerMain(int argc, char *argv[]) {
 
         switch (func) {
             case OPEN:
-                OpenResponse(buff + sizeof(int));
+                OpenResponse(buf);
                 break;
             case CLOSE:
-                CloseResponse(buff + sizeof(int));
+                CloseResponse(buf);
                 break;
             case COUNT:
-                CountResponse(buff);
+                CountResponse(buf);
                 break;
             case GETITER:
-                GetIterResponse(buff + sizeof(int));
+                GetIterResponse(buf);
                 break;
             case DELITER:
-                DelIterResponse(buff + sizeof(int));
+                DelIterResponse(buf);
                 break;
             case NEXT:
-                NextResponse(buff);
+                NextResponse(buf);
                 break;
             case GET:
-                GetResponse(buff);
+                GetResponse(buf);
                 break;
             case PUT:
-                PutResponse(buff + sizeof(int));
+                PutResponse(buf);
                 break;
             case DELETE:
-                DeleteResponse(buff + sizeof(int));
+                DeleteResponse(buf);
                 break;
             default:
                 ereport(ERROR, (errmsg("%s failed in switch", __func__)));
         }
-        
+
         SemPost(&ptr->responseSync[response_index], __func__);
     } while (true);
 
@@ -355,7 +376,6 @@ static int StartKVWorker(void) {
     return 0;
 }
 
-
 SharedMem *OpenRequest(Oid relationId, SharedMem *ptr) {
     printf("\n============%s============\n", __func__);
 
@@ -371,11 +391,11 @@ SharedMem *OpenRequest(Oid relationId, SharedMem *ptr) {
         Fclose(fd, __func__);
 
         OpenResponseArea();
-    }    
+    }
 
-    //lock among child processes
+    // lock among child processes
     SemWait(&ptr->mutex, __func__);
-    
+
     if (!ptr->workerProcessCreated) {
         SemPost(&ptr->agent[0], __func__);
         SemWait(&ptr->agent[1], __func__);
@@ -383,23 +403,23 @@ SharedMem *OpenRequest(Oid relationId, SharedMem *ptr) {
 
     // wait for the worker process copy out the previous request
     SemWait(&ptr->full, __func__);
-    
+
     // open request does not need a response
     FuncName func = OPEN;
     memcpy(ptr->area, &func, sizeof(FuncName));
-    int response_idx = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &response_idx, sizeof(int));
+    uint32 responseId = GetResponseQueueIndex(ptr);
+    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
 
     KVFdwOptions *fdwOptions = KVGetOptions(relationId);
     char *path = fdwOptions->filename;
-    strcpy(ptr->area + sizeof(FuncName) + sizeof(int), path);
-    
+    strcpy(ptr->area + sizeof(FuncName) + sizeof(responseId), path);
+
     SemPost(&ptr->worker, __func__);
-    //unlock
+    // unlock
     SemPost(&ptr->mutex, __func__);
- 
-    SemWait(&ptr->responseSync[response_idx], __func__);
-    SemPost(&ptr->responseMutexes[response_idx], __func__);
+
+    SemWait(&ptr->responseSync[responseId], __func__);
+    SemPost(&ptr->responseMutex[responseId], __func__);
     return ptr;
 }
 
@@ -430,14 +450,16 @@ void CloseRequest(Oid relationId, SharedMem *ptr) {
     
     FuncName func = CLOSE;
     memcpy(ptr->area, &func, sizeof(FuncName));
-    int response_idx = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &response_idx, sizeof(int));
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(int), &relationId, sizeof(relationId));
+    uint32 responseId = GetResponseQueueIndex(ptr);
+    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
+           &relationId,
+           sizeof(relationId));
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
 
-    SemWait(&ptr->responseSync[response_idx], __func__);
-    SemPost(&ptr->responseMutexes[response_idx], __func__);
+    SemWait(&ptr->responseSync[responseId], __func__);
+    SemPost(&ptr->responseMutex[responseId], __func__);
 }
 
 static void CloseResponse(char *area) {
@@ -464,31 +486,29 @@ uint64 CountRequest(Oid relationId, SharedMem *ptr) {
     
     FuncName func = COUNT;
     memcpy(ptr->area, &func, sizeof(FuncName));
-    int response_idx = GetResponseQueueIndex(ptr); 
-    memcpy(ptr->area + sizeof(FuncName), &response_idx, sizeof(int));
+    uint32 responseId = GetResponseQueueIndex(ptr);
+    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
 
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(int), &relationId, sizeof(relationId));
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
+           &relationId,
+           sizeof(relationId));
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
 
-    
+    SemWait(&ptr->responseSync[responseId], __func__);
     uint64 count;
-    SemWait(&ptr->responseSync[response_idx], __func__);
-    
-    char *response = ResponseQueue[response_idx];
-    memcpy(&count, response, sizeof(uint64));
-    //memcpy(&count, ptr->area + sizeof(FuncName) + sizeof(int), sizeof(uint64));
-    SemPost(&ptr->responseMutexes[response_idx], __func__);
+    memcpy(&count, ResponseQueue[responseId], sizeof(count));
+    SemPost(&ptr->responseMutex[responseId], __func__);
     return count;
 }
 
 static void CountResponse(char *area) {
     printf("\n============%s============\n", __func__);
 
-    int response_index;
-    memcpy(&response_index, area, sizeof(int));
+    uint32 responseId;
+    memcpy(&responseId, area, sizeof(responseId));
     Oid relationId;
-    memcpy(&relationId, area + sizeof(int), sizeof(relationId));
+    memcpy(&relationId, area + sizeof(responseId), sizeof(relationId));
 
     bool found;
     KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
@@ -496,8 +516,7 @@ static void CountResponse(char *area) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
         uint64 count = Count(entry->db);
-        //memcpy(area, &count, sizeof(uint64));
-        memcpy(ResponseQueue[response_index], &count, sizeof(uint64));
+        memcpy(ResponseQueue[responseId], &count, sizeof(count));
     }
 }
 
@@ -506,20 +525,26 @@ void GetIterRequest(Oid relationId, SharedMem *ptr) {
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
-    
+
     FuncName func = GETITER;
     memcpy(ptr->area, &func, sizeof(FuncName)); 
-    int response_idx = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &response_idx, sizeof(int));
+    uint32 responseId = GetResponseQueueIndex(ptr);
+    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
 
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(int), &relationId, sizeof(relationId));
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
+           &relationId,
+           sizeof(relationId));
+
     pid_t pid = getpid();
-    
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(int) + sizeof(relationId), &pid, sizeof(pid));
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId) + sizeof(relationId),
+           &pid,
+           sizeof(pid));
+
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
-    SemWait(&ptr->responseSync[response_idx], __func__);
-    SemPost(&ptr->responseMutexes[response_idx], __func__);
+
+    SemWait(&ptr->responseSync[responseId], __func__);
+    SemPost(&ptr->responseMutex[responseId], __func__);
 }
 
 static void GetIterResponse(char *area) {
@@ -530,17 +555,22 @@ static void GetIterResponse(char *area) {
     memcpy(&iterKey.pid, area + sizeof(iterKey.relationId), sizeof(pid_t));
 
     bool found;
-    KVHashEntry *entry = hash_search(kvTableHash, &iterKey.relationId, HASH_FIND, &found);
+    KVHashEntry *entry = hash_search(kvTableHash,
+                                     &iterKey.relationId,
+                                     HASH_FIND,
+                                     &found);
  
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
-        bool foundIter;
-        KVIterHashEntry *iterEntry = hash_search(kvIterHash, &iterKey, HASH_ENTER, &foundIter);    
-        if(!foundIter) {
+        bool iterFound;
+        KVIterHashEntry *iterEntry = hash_search(kvIterHash,
+                                                 &iterKey,
+                                                 HASH_ENTER,
+                                                 &iterFound);
+        if (!iterFound) {
             iterEntry->key = iterKey;
         }
-
         iterEntry->iter = GetIter(entry->db);
     }
 }
@@ -553,16 +583,21 @@ void DelIterRequest(Oid relationId, SharedMem *ptr) {
     
     FuncName func = DELITER;
     memcpy(ptr->area, &func, sizeof(FuncName));
-    int response_idx = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &response_idx, sizeof(int));
+    uint32 responseId = GetResponseQueueIndex(ptr);
+    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
 
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(int), &relationId, sizeof(relationId));
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
+           &relationId,
+           sizeof(relationId));
     pid_t pid = getpid();
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(int) + sizeof(relationId), &pid, sizeof(pid_t));
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId) + sizeof(relationId),
+           &pid,
+           sizeof(pid_t));
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
-    SemWait(&ptr->responseSync[response_idx], __func__);
-    SemPost(&ptr->responseMutexes[response_idx], __func__);
+
+    SemWait(&ptr->responseSync[responseId], __func__);
+    SemPost(&ptr->responseMutex[responseId], __func__);
 }
 
 static void DelIterResponse(char *area) {
@@ -591,33 +626,35 @@ bool NextRequest(Oid relationId,
                  char** val,
                  uint32* valLen) {
     printf("\n============%s============\n", __func__);
-      
+
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
     
     FuncName func = NEXT;
     memcpy(ptr->area, &func, sizeof(FuncName));
     
-    int response_idx = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &response_idx, sizeof(int));
-    
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(int), &relationId, sizeof(relationId));
+    uint32 responseId = GetResponseQueueIndex(ptr);
+    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
+
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
+           &relationId,
+           sizeof(relationId));
     pid_t pid = getpid();
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(int) + sizeof(relationId), &pid, sizeof(pid));
-    
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId) + sizeof(relationId),
+           &pid,
+           sizeof(pid));
+
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
   
-    SemWait(&ptr->responseSync[response_idx], __func__);
+    SemWait(&ptr->responseSync[responseId], __func__);
 
-    
-    //char *current = ptr->area + sizeof(FuncName);
-    char *current = ResponseQueue[response_idx];
-    memcpy(keyLen, current, sizeof(uint32));
+    char *current = ResponseQueue[responseId];
+    memcpy(keyLen, current, sizeof(*keyLen));
     
     /* no next item */
     if (*keyLen == 0) {
-        SemPost(&ptr->responseMutexes[response_idx], __func__);
+        SemPost(&ptr->responseMutex[responseId], __func__);
         return false;
     }
 
@@ -632,50 +669,58 @@ bool NextRequest(Oid relationId,
     *val = (char*) palloc0(*valLen);
     memcpy(*val, current, *valLen);
 
-    SemPost(&ptr->responseMutexes[response_idx], __func__);
+    SemPost(&ptr->responseMutex[responseId], __func__);
     return true;
 }
 
 void NextResponse(char *area) {
     printf("\n============%s============\n", __func__);
 
-    int response_index;
-    memcpy(&response_index, area, sizeof(int));
+    uint32 responseId;
+    memcpy(&responseId, area, sizeof(responseId));
 
     KVIterHashKey iterKey;
-    memcpy(&iterKey.relationId, area + sizeof(int), sizeof(iterKey.relationId));
-    memcpy(&iterKey.pid, area + sizeof(int) + sizeof(iterKey.relationId), sizeof(pid_t));
+    memcpy(&iterKey.relationId,
+           area + sizeof(responseId),
+           sizeof(iterKey.relationId));
+    memcpy(&iterKey.pid,
+           area + sizeof(responseId) + sizeof(iterKey.relationId),
+           sizeof(pid_t));
 
-   
     bool found;
-    KVHashEntry *entry = hash_search(kvTableHash, &iterKey.relationId, HASH_FIND, &found);
+    KVHashEntry *entry = hash_search(kvTableHash,
+                                     &iterKey.relationId,
+                                     HASH_FIND,
+                                     &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
         bool iterFound;
-        KVIterHashEntry *iterEntry = hash_search(kvIterHash, &iterKey, HASH_FIND, &iterFound);
-        if (!iterFound)
-        {
-            ereport(ERROR, (errmsg("%s failed in hash search for iterator", __func__)));
-        }else
-        {
+        KVIterHashEntry *iterEntry = hash_search(kvIterHash,
+                                                 &iterKey,
+                                                 HASH_FIND,
+                                                 &iterFound);
+        if (!iterFound) {
+            ereport(ERROR,
+                    (errmsg("%s failed in hash search for iterator", __func__)));
+        } else {
             char *key = NULL, *val = NULL;
             uint32 keyLen = 0, valLen = 0;
    
-            bool res = Next(entry->db, iterEntry->iter, &key, &keyLen, &val, &valLen);
-            
+            bool res = Next(entry->db,
+                            iterEntry->iter,
+                            &key,
+                            &keyLen,
+                            &val,
+                            &valLen);
+
             if (!res) {
                 /* no next item */
-                //memcpy(area, &keyLen, sizeof(keyLen));
-                memset(ResponseQueue[response_index], 0, sizeof(keyLen));
-                memcpy(ResponseQueue[response_index], &keyLen, sizeof(keyLen));
-            
+                memcpy(ResponseQueue[responseId], &keyLen, sizeof(keyLen));
                 return;
             }
 
-            //char *current = area;
-            memset(ResponseQueue[response_index], 0, DATAAREASIZE);
-            char *current = ResponseQueue[response_index];
+            char *current = ResponseQueue[responseId];
             memcpy(current, &keyLen, sizeof(keyLen));
 
             current += sizeof(keyLen);
@@ -686,9 +731,6 @@ void NextResponse(char *area) {
 
             current += sizeof(valLen);
             memcpy(current, val, valLen);
-
-            uint32 nm = 0;
-            memcpy(&nm, ResponseQueue[response_index], sizeof(uint32));
 
             pfree(key);
             pfree(val);
@@ -706,16 +748,20 @@ bool GetRequest(Oid relationId,
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
-    
+
     FuncName func = GET;
     memcpy(ptr->area, &func, sizeof(FuncName));
 
-    int response_idx = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &response_idx, sizeof(int));
+    uint32 responseId = GetResponseQueueIndex(ptr);
+    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
+           &relationId,
+           sizeof(relationId));
 
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(int), &relationId, sizeof(relationId));
-
-    char *current = ptr->area + sizeof(FuncName) + sizeof(int) + sizeof(relationId);
+    char *current = ptr->area +
+                    sizeof(FuncName) +
+                    sizeof(responseId) +
+                    sizeof(relationId);
     memcpy(current, &keyLen, sizeof(keyLen));
 
     current += sizeof(keyLen);
@@ -723,18 +769,17 @@ bool GetRequest(Oid relationId,
 
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
-    SemWait(&ptr->responseSync[response_idx], __func__);
+    SemWait(&ptr->responseSync[responseId], __func__);
 
-    //current = ptr->area + sizeof(FuncName);
-    current = ResponseQueue[response_idx];
+    current = ResponseQueue[responseId];
     bool res;
-    memcpy(&res, current, sizeof(bool));
+    memcpy(&res, current, sizeof(res));
     if (!res) {
-        SemPost(&ptr->responseMutexes[response_idx], __func__);
+        SemPost(&ptr->responseMutex[responseId], __func__);
         return false;
     }
 
-    current += sizeof(bool);
+    current += sizeof(res);
     memcpy(valLen, current, sizeof(*valLen));
 
     current += sizeof(*valLen);
@@ -742,19 +787,19 @@ bool GetRequest(Oid relationId,
     *val = (char*) palloc0(*valLen);
     memcpy(*val, current, *valLen);
 
-    SemPost(&ptr->responseMutexes[response_idx], __func__);
-    
+    SemPost(&ptr->responseMutex[responseId], __func__);
+
     return true;
 }
 
 static void GetResponse(char *area) {
     printf("\n============%s============\n", __func__);
 
-    int response_index;
-    memcpy(&response_index, area, sizeof(int));
+    int responseId;
+    memcpy(&responseId, area, sizeof(responseId));
 
     Oid relationId;
-    memcpy(&relationId, area + sizeof(int), sizeof(relationId));
+    memcpy(&relationId, area + sizeof(responseId), sizeof(relationId));
 
     bool found;
     KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
@@ -762,26 +807,22 @@ static void GetResponse(char *area) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
         uint32 keyLen, valLen;
-        char *current = area + sizeof(int) + sizeof(relationId);
+        char *current = area + sizeof(responseId) + sizeof(relationId);
 
         memcpy(&keyLen, current, sizeof(keyLen));
         char *key = current + sizeof(keyLen);
 
         char *val = NULL;
         bool res = Get(entry->db, key, keyLen, &val, &valLen);
-        //memcpy(area, &res, sizeof(bool));
-        memcpy(ResponseQueue[response_index], &res, sizeof(bool));
+        memcpy(ResponseQueue[responseId], &res, sizeof(res));
         if (!res) {
             return;
         }
 
-        //current = area + sizeof(bool);
-        current = ResponseQueue[response_index] + sizeof(bool);
-        memset(current, 0, sizeof(valLen));
+        current = ResponseQueue[responseId] + sizeof(res);
         memcpy(current, &valLen, sizeof(valLen));
 
         current += sizeof(valLen);
-        memset(current, 0, valLen);
         memcpy(current, val, valLen);
 
         pfree(val);
@@ -798,15 +839,19 @@ void PutRequest(Oid relationId,
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
-    
+
     FuncName func = PUT;
     memcpy(ptr->area, &func, sizeof(FuncName));
-    int response_idx = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &response_idx, sizeof(int));
+    uint32 responseId = GetResponseQueueIndex(ptr);
+    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
+           &relationId,
+           sizeof(relationId));
 
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(int), &relationId, sizeof(relationId));
-
-    char *current = ptr->area + sizeof(FuncName) + sizeof(int) + sizeof(relationId);
+    char *current = ptr->area +
+                    sizeof(FuncName) +
+                    sizeof(responseId) +
+                    sizeof(relationId);
     memcpy(current, &keyLen, sizeof(keyLen));
 
     current += sizeof(keyLen);
@@ -818,10 +863,18 @@ void PutRequest(Oid relationId,
     current += sizeof(valLen);
     memcpy(current, val, valLen);
 
+    if (current + valLen - ptr->area > BUFSIZE) {
+        SemPost(&ptr->mutex, __func__);
+        SemPost(&ptr->responseMutex[responseId], __func__);
+        ereport(ERROR,
+                (errmsg("%s tuple is too long, increase BUFSIZE", __func__)));
+    }
+
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
-    SemWait(&ptr->responseSync[response_idx], __func__);
-    SemPost(&ptr->responseMutexes[response_idx], __func__);
+
+    SemWait(&ptr->responseSync[responseId], __func__);
+    SemPost(&ptr->responseMutex[responseId], __func__);
 }
 
 static void PutResponse(char *area) {
@@ -859,12 +912,16 @@ void DeleteRequest(Oid relationId, SharedMem *ptr, char* key, uint32 keyLen) {
     
     FuncName func = DELETE;
     memcpy(ptr->area, &func, sizeof(FuncName));
-    int response_idx = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &response_idx, sizeof(int));
+    uint32 responseId = GetResponseQueueIndex(ptr);
+    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
+           &relationId,
+           sizeof(relationId));
 
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(int), &relationId, sizeof(relationId));
-
-    char *current = ptr->area + sizeof(FuncName) + sizeof(int) + sizeof(relationId);
+    char *current = ptr->area +
+                    sizeof(FuncName) +
+                    sizeof(responseId) +
+                    sizeof(relationId);
     memcpy(current, &keyLen, sizeof(keyLen));
 
     current += sizeof(keyLen);
@@ -872,8 +929,9 @@ void DeleteRequest(Oid relationId, SharedMem *ptr, char* key, uint32 keyLen) {
 
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
-    SemWait(&ptr->responseSync[response_idx], __func__);
-    SemPost(&ptr->responseMutexes[response_idx], __func__);
+
+    SemWait(&ptr->responseSync[responseId], __func__);
+    SemPost(&ptr->responseMutex[responseId], __func__);
 }
 
 static void DeleteResponse(char *area) {

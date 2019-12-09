@@ -26,6 +26,7 @@ PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 static SharedMem *ptr = NULL;  // in client process
 
+
 static void GetForeignRelSize(PlannerInfo *root,
                               RelOptInfo *baserel,
                               Oid foreignTableId) {

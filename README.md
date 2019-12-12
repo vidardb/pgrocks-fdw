@@ -141,3 +141,7 @@ If you want to debug the source code, you may need to start PostgreSQL in the de
 
     sudo -u postgres /usr/lib/postgresql/11/bin/postgres -d 0 -D /var/lib/postgresql/11/main -c config_file=/etc/postgresql/11/main/postgresql.conf
 ```  
+
+# Docker
+
+We can also support to run the PostgreSQL with RocksDB in docker container and you can refer to it [here](docker-image/README.md).

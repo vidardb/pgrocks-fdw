@@ -1,12 +1,12 @@
 # Run PostgreSQL with RocksDB in Docker
 
-We can also deploy the PostgreSQL with RocksDB in Docker container.
+We can deploy PostgreSQL with RocksDB in Docker container.
 
 ## Testing
 
-We can start a PostgreSQL container with the following official docker image.
+Start the container with the following Docker image we have provided.
 
-- Run a docker container:
+- Run a Docker container:
 
     ```sh
     docker run -d --name postgresql -p 5432:5432 registry.cn-shanghai.aliyuncs.com/vidardb/postgresql:rocksdb-6.2.4
@@ -18,17 +18,17 @@ We can start a PostgreSQL container with the following official docker image.
     psql -h 127.0.0.1 -p 5432 -U postgres
     ```
 
-    Please note that you have already install the PostgreSQL client and you can execute any sql in it.
+    Please note that PostgreSQL client should already be installed before running the container.
 
 ## Building
 
-We can also build a new docker image in the following way. But before it, we need to install docker engine in our building machine.
+We can build a new Docker image in the following way. It is the prerequisite that install docker engine in the building machine.
 
-- Install docker engine:
+- Install Docker engine:
 
-    Docker Engine is available on multiple platforms. Just follow the [official doc](https://docs.docker.com/install/#supported-platforms) to choose the best installation path for you.
+    Docker engine is available on multiple platforms. Just follow the [official doc](https://docs.docker.com/install/#supported-platforms) to choose the best installation option for you.
 
-- Build docker image:
+- Build Docker image:
 
     ```sh
     make docker-image
@@ -36,7 +36,7 @@ We can also build a new docker image in the following way. But before it, we nee
 
     After executing the previous command, it will build docker image with the default image repository and name: `vidardb/postgresql:rocksdb-6.2.4`.
 
-    But you can also specify your own build parameters:
+    One can also specify the build parameters:
 
     ```sh
     REGISTRY=<YOUR REGISTRY ADDRESS> IMAGE=<YOUR IMAGE NAME> TAG=<YOUR IMAGE TAG> make docker-image 

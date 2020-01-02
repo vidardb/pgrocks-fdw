@@ -9,7 +9,7 @@ Start the container with the following Docker image we have provided.
 - Run a Docker container:
 
     ```sh
-    docker run -d --name postgresql -p 5432:5432 registry.cn-shanghai.aliyuncs.com/vidardb/postgresql:rocksdb-6.2.4
+    docker run -d --name postgresql -p 5432:5432 vidardb/postgresql:rocksdb-6.2.4
     ```
 
 - Connect to the PostgreSQL:
@@ -36,7 +36,7 @@ We can build a new Docker image in the following way. It is the prerequisite tha
 
     After executing the previous command, it will build docker image with the default image repository and name: `vidardb/postgresql:rocksdb-6.2.4`.
 
-    One can also specify the build parameters:
+    We can also specify the build parameters:
 
     ```sh
     REGISTRY=<YOUR REGISTRY ADDRESS> IMAGE=<YOUR IMAGE NAME> TAG=<YOUR IMAGE TAG> make docker-image 

@@ -81,4 +81,44 @@ bool Delete(void* db, char* key, uint32 keyLen) {
     return s.ok();
 }
 
+#ifdef VidarDB
+bool RangeQuery(void* db, void** readOptions, RangeSpec range, char** valArray, uint32** valLens, uint32* valArraySize) {
+    Range r(Slice(range.start, range.startLen), Slice(range.limit, range.limitLen));
+    ReadOptions *options = static_cast<ReadOptions*>(*readOptions);
+    if (options == nullptr)
+    {
+        options = (ReadOptions*) palloc0(sizeof(ReadOptions));
+    }
+    options->max_result_num = MAXRESULTNUM;
+    *readOptions = options;
+    std::vector<std::string> res;
+    Status s; 
+    bool ret = static_cast<DB*>(db)->RangeQuery(*options, r, res, &s);
+
+    if (!s.ok()) {
+        *valArraySize = 0;
+        return false;
+    }
+    
+    *valArraySize = res.size();
+    if( *valArraySize > 0) {
+        uint32 *tmpLens = (uint32*) palloc0(*valArraySize * sizeof(uint32));
+        *valLens = tmpLens;
+        uint32 total = 0;
+        for (auto it = res.begin(); it != res.end(); ++it) {
+            *tmpLens = (*it).size();
+            total += (*it).size();
+            tmpLens++;
+        }
+        char *tmpVal = (char*) palloc0(total);
+        *valArray = tmpVal;
+        for (auto it = res.begin(); it != res.end(); ++it) {
+            memcpy(tmpVal, (*it).c_str(), (*it).size());
+            tmpVal = tmpVal + (*it).size();
+        }
+    }
+    return ret;
+}
+#endif
+
 }

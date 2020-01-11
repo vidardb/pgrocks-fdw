@@ -30,6 +30,8 @@
         PREVIOUS_UTILITY(plannedStmt, queryString, context, paramListInfo, \
                          queryEnvironment, destReceiver, completionTag)
 
+/* */
+static SharedMem *ptr = NULL;
 
 /*
  * SQL functions
@@ -200,7 +202,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
              * directory for it during database creation time.
              */
             KVCreateDatabaseDirectory(MyDatabaseId);
-
+            
             StringInfo kvPath = makeStringInfo();
             appendStringInfo(kvPath,
                              "%s/%s/%u/%u",
@@ -470,8 +472,10 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                                                        ALLOCSET_DEFAULT_SIZES);
 
     Oid relationId = RelationGetRelid(relation);
-    KVFdwOptions *fdwOptions = KVGetOptions(relationId);
-    void *db = Open(fdwOptions->filename);
+    //KVFdwOptions *fdwOptions = KVGetOptions(relationId);
+    
+    //void *db = Open(fdwOptions->filename);
+    ptr = OpenRequest(relationId, ptr);
 
     TupleDesc tupleDescriptor = RelationGetDescr(relation);
     uint32 count = tupleDescriptor->natts;
@@ -514,9 +518,12 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
             }
             memcpy(value->data, buffer->data, bufLen);
 
-            if (!Put(db, key->data, key->len, value->data, value->len)) {
-                ereport(ERROR, (errmsg("error from Copy")));
-            }
+            //if (!Put(db, key->data, key->len, value->data, value->len)) {
+            //    ereport(ERROR, (errmsg("error from Copy")));
+            //}
+
+
+            PutRequest(relationId, ptr, key->data, key->len, value->data, value->len);
             rowCount++;
         }
 
@@ -527,7 +534,8 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
 
     /* end read/write sessions and close the relation */
     EndCopyFrom(copyState);
-    Close(db);
+    //Close(db);
+    CloseRequest(relationId, ptr);
     heap_close(relation, ShareUpdateExclusiveLock);
 
     return rowCount;
@@ -657,7 +665,7 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
 
         CopyStmt *copyStmt = (CopyStmt *) parseTree;
         if (KVCopyTableStatement(copyStmt)) {
-
+            
             uint64 rowCount = 0;
             if (copyStmt->is_from) {
                 rowCount = KVCopyIntoTable(copyStmt, queryString);

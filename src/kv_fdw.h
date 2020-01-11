@@ -2,6 +2,7 @@
 #ifndef KV_FDW_H_
 #define KV_FDW_H_
 
+#include "kv_storage.h"
 
 #include <stdbool.h>
 #include <semaphore.h>
@@ -72,6 +73,16 @@ typedef struct TableReadState {
     bool isKeyBased;
     bool done;
     StringInfo key;
+    
+#ifdef VidarDB
+    bool isRangeQueryUsed;
+    RangeSpec rangeSpec;
+    void **rangeReadOptions;
+    char* valArray;
+    uint32* valLens;
+    uint32 valArraySize;
+    uint32 iterCount;
+#endif
 } TableReadState;
 
 /*
@@ -96,6 +107,9 @@ typedef enum FuncName {
     GET,
     PUT,
     DELETE,
+    #ifdef VidarDB
+    RANGEQUERY,
+    #endif
     TERMINATE
 } FuncName;
 
@@ -154,6 +168,13 @@ extern void DeleteRequest(Oid relationId,
                           char* key,
                           uint32 keyLen);
 
+#ifdef VidarDB
+extern void RangeQueryRequest(Oid relationId,
+                              SharedMem *ptr,
+                              void** readOptions,
+                              RangeSpec rangeSpec
+                              );
+#endif
 
 /* global variables */
 

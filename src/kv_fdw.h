@@ -2,6 +2,7 @@
 #ifndef KV_FDW_H_
 #define KV_FDW_H_
 
+
 #include "kv_storage.h"
 
 #include <stdbool.h>
@@ -108,9 +109,9 @@ typedef enum FuncName {
     GET,
     PUT,
     DELETE,
-    #ifdef VidarDB
+#ifdef VidarDB
     RANGEQUERY,
-    #endif
+#endif
     TERMINATE
 } FuncName;
 

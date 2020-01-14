@@ -328,6 +328,10 @@ static void KVWorkerMain(int argc, char *argv[]) {
             case DELETE:
                 DeleteResponse(buf + sizeof(responseId));
                 break;
+            #ifdef VidarDB
+            case RANGEQUERY:
+                RangeQueryResponse(buff + sizeof(int));
+            #endif    
             default:
                 ereport(ERROR, (errmsg("%s failed in switch", __func__)));
         }
@@ -427,6 +431,7 @@ static void OpenResponse(char *area) {
     char *pos = strrchr(path, '/');
     Oid relationId = atoi(pos + 1);
     bool found;
+    
     KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_ENTER, &found);
     if (!found) {
         entry->relationId = relationId;
@@ -952,3 +957,13 @@ static void DeleteResponse(char *area) {
         }
     }
 }
+
+#ifdef VidarDB
+void RangeQueryRequest(Oid relationId, SharedMem *ptr, void** readOptions, RangeSpec rangeSpec) {
+
+}
+
+static void RangeQueryResponse(char *area) {
+
+}
+#endif

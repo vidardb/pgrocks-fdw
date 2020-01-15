@@ -12,7 +12,7 @@ RUN set -xe && apt-get update && apt-get install -y --no-install-recommends gcc-
 
 # Install PostgresForeignDataWrapper
 ENV POSTGRES_VERSION=11
-ENV FDW_VERSION=0.1-alpha
+ENV FDW_VERSION=0.2-alpha
 RUN set -xe && apt-get update && \
     apt-get install -y --no-install-recommends make wget ca-certificates postgresql-server-dev-${POSTGRES_VERSION} && \
     wget --no-check-certificate -O PostgresForeignDataWrapper.tar.gz https://github.com/jsc0218/PostgresForeignDataWrapper/archive/v${FDW_VERSION}.tar.gz && \

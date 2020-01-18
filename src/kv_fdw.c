@@ -454,9 +454,22 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
             found = GetRequest(relationId, ptr, k, kLen, &v, &vLen);
             readState->done = true;
         }
-    /*} else if (readState->isRangeQueryUsed)
-    {*/
-    
+    } else if (readState->isRangeQueryUsed) {
+        if (readState->iterCount < readState->valArraySize) {
+            //memcpy
+            //readState->valArray = 
+            readState->iterCount += 1;
+            found = true;
+        } else if (readState->hasRemaining) {
+            readState->hasRemaining = RangeQueryRequest();
+            if (readState->valArraySize != 0)
+            {
+                //memcpy
+                //readState->valArray = 
+                readState->iterCount = 1;
+                found = true;
+            }           
+        }
     } else {
         found = NextRequest(relationId, ptr, &k, &kLen, &v, &vLen);
     }

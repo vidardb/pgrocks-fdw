@@ -29,12 +29,19 @@ typedef struct KVIterHashEntry {
     void *iter;
 } KVIterHashEntry;
 
+typedef struct KVReadOptionsEntry {
+    KVIterHashKey key;
+    void *readOptions;
+} KVReadOptionsEntry;
+
 
 pid_t kvWorkerPid = 0;  // in postmaster process
 
 HTAB *kvTableHash = NULL;  // in kvworker process
 
 HTAB *kvIterHash = NULL;
+
+HTAB *kvReadOptionsHash = NULL;
 
 long HASHSIZE = 1;  // non-shared hash can be enlarged
 
@@ -265,6 +272,16 @@ static void KVWorkerMain(int argc, char *argv[]) {
                              &iterhash_ctl,
                              HASH_ELEM | HASH_COMPARE);
 
+    HASHCTL optionhash_ctl;
+    memset(&optionhash_ctl, 0, sizeof(optionhash_ctl));
+    optionhash_ctl.keysize = sizeof(KVIterHashKey);
+    optionhash_ctl.entrysize = sizeof(KVReadOptionsEntry);
+    optionhash_ctl.match = CompareKVIterHashKey;
+    kvReadOptionsHash = hash_create("kvReadOptionsHash",
+                                    HASHSIZE,
+                                    &optionhash_ctl,
+                                    HASH_ELEM | HASH_COMPARE);                        
+
     char buff[BUFSIZE];
     do {
         SemWait(&ptr->worker, __func__);
@@ -313,7 +330,7 @@ static void KVWorkerMain(int argc, char *argv[]) {
                 break;
             #ifdef VidarDB
             case RANGEQUERY:
-                RangeQueryResponse(buff + sizeof(int));
+                RangeQueryResponse(buff);
             #endif    
             default:
                 ereport(ERROR, (errmsg("%s failed in switch", __func__)));
@@ -730,7 +747,6 @@ bool GetRequest(Oid relationId,
     SemPost(&ptr->mutex, __func__);
     SemWait(&ptr->responseSync[response_idx], __func__);
 
-    //current = ptr->area + sizeof(FuncName);
     current = ResponseQueue[response_idx];
     bool res;
     memcpy(&res, current, sizeof(bool));
@@ -905,11 +921,99 @@ static void DeleteResponse(char *area) {
 }
 
 #ifdef VidarDB
-void RangeQueryRequest(Oid relationId, SharedMem *ptr, void** readOptions, RangeSpec rangeSpec) {
+// the return value is whether there is a remaining batch
+bool RangeQueryRequest(Oid relationId, SharedMem *ptr, RangeSpec rangeSpec, char **valArr, size_t *valArrLen) {
+    printf("\n============%s============\n", __func__);
+    SemWait(&ptr->mutex, __func__);
+    SemWait(&ptr->full, __func__);
 
+    FuncName func = RANGEQUERY;
+    memcpy(ptr->area, &func, sizeof(FuncName));
+    int response_idx = GetResponseQueueIndex(ptr);
+    memcpy(ptr->area + sizeof(FuncName), &response_idx, sizeof(int)); 
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(int), &relationId, sizeof(relationId));
+    pid_t pid = getpid();
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(int) + sizeof(relationId), &pid, sizeof(pid));
+    
+    char *current = ptr->area + sizeof(FuncName) + sizeof(int) + sizeof(relationId) + sizeof(pid);
+    memcpy(current, &rangeSpec.startLen, sizeof(rangeSpec.startLen));
+
+    current += sizeof(rangeSpec.startLen);
+    memcpy(current, rangeSpec.start, rangeSpec.startLen);
+
+    current += rangeSpec.startLen;
+    memcpy(current, &rangeSpec.limitLen, sizeof(rangeSpec.limitLen));
+
+    current += sizeof(rangeSpec.limitLen);
+    memcpy(current, rangeSpec.limit, rangeSpec.limitLen);
+
+    SemPost(&ptr->worker, __func__);
+    SemPost(&ptr->mutex, __func__);
+    SemWait(&ptr->responseSync[response_idx], __func__);
+
+    current = ResponseQueue[response_idx];
+    size_t buffSize;
+    memcpy(&buffSize, current, sizeof(size_t));
+
+    if (buffSize == 0) {
+        SemPost(&ptr->responseMutexes[response_idx], __func__);
+        return false;
+    }
+
+    bool hasNext;
+    current += sizeof(size_t);
+    memcpy(&hasNext, current, sizeof(bool));
+
+    char filename[FILENAMELENGTH];
+    snprintf(filename, FILENAMELENGTH, "%s%d", RESPONSEFILE, pid);
+    int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
+    char* rqbuff = Mmap(NULL,
+                          buffSize,
+                          PROT_READ | PROT_WRITE,
+                          MAP_SHARED,
+                          fd,
+                          0,
+                          __func__);
+    Fclose(fd, __func__);
+    
+    char* buffptr = rqbuff;
+    memcpy(valArrLen, buffptr, sizeof(size_t));
+    buffptr += sizeof(size_t);
+    *valArr = buffptr;
+
+    SemPost(&ptr->responseMutexes[response_idx], __func__);
+    return hasNext;
 }
 
 static void RangeQueryResponse(char *area) {
+    printf("\n============%s============\n", __func__);
 
+    int response_index; 
+    memcpy(&response_index, area, sizeof(int));
+    KVIterHashKey optionKey;
+    memcpy(&optionKey.relationId, area + sizeof(int), sizeof(optionKey.relationId));
+    memcpy(&optionKey.pid, area + sizeof(int) + sizeof(optionKey.relationId), sizeof(pid_t));
+  
+    bool found;
+    KVHashEntry *entry = hash_search(kvTableHash, &optionKey.relationId, HASH_FIND, &found);
+    if (!found) {
+        ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
+    } else {
+        bool optionFound;
+        KVReadOptionsEntry *optionEntry = hash_search(kvReadOptionsHash, &optionKey, HASH_FIND, &optionFound);
+        if(!optionFound) {
+            
+        }
+        
+        size_t buffSize;
+        bool ret = RangeQuery(entry->db, &optionEntry->readOptions, range, optionKey.pid, &buffSize);
+        char *current = ResponseQueue[response_index];
+        memcpy(current, &buffSize, sizeof(size_t));
+        if (buffSize == 0) {
+            return;
+        }
+        current += sizeof(size_t);
+        memcpy(current, &ret, sizeof(bool));
+    }       
 }
 #endif

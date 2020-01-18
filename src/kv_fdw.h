@@ -77,11 +77,10 @@ typedef struct TableReadState {
 #ifdef VidarDB
     bool isRangeQueryUsed;
     RangeSpec rangeSpec;
-    void **rangeReadOptions;
     char* valArray;
-    uint32* valLens;
     uint32 valArraySize;
     uint32 iterCount;
+    bool hasRemaining;
 #endif
 } TableReadState;
 
@@ -169,10 +168,12 @@ extern void DeleteRequest(Oid relationId,
                           uint32 keyLen);
 
 #ifdef VidarDB
-extern void RangeQueryRequest(Oid relationId,
+extern bool RangeQueryRequest(Oid relationId,
                               SharedMem *ptr,
                               void** readOptions,
-                              RangeSpec rangeSpec
+                              RangeSpec rangeSpec,
+                              char **valArr, 
+                              uint32 *valArrLen
                               );
 #endif
 

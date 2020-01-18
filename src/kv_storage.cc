@@ -1,7 +1,13 @@
 
+#ifdef VidarDB
+#include "vidardb/db.h"
+#include "vidardb/options.h"
+using namespace vidardb;
+#else
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 using namespace rocksdb;
+#endif
 using namespace std;
 
 #include "kv_storage.h"
@@ -82,7 +88,8 @@ bool Delete(void* db, char* key, uint32 keyLen) {
 }
 
 #ifdef VidarDB
-bool RangeQuery(void* db, void** readOptions, RangeSpec range, char** valArray, uint32** valLens, uint32* valArraySize) {
+//char** valArray, uint32** valLens, uint32* valArraySize
+bool RangeQuery(void* db, void** readOptions, RangeSpec range, pid_t pid, size_t* buffSize) {
     Range r(Slice(range.start, range.startLen), Slice(range.limit, range.limitLen));
     ReadOptions *options = static_cast<ReadOptions*>(*readOptions);
     if (options == nullptr)
@@ -91,30 +98,55 @@ bool RangeQuery(void* db, void** readOptions, RangeSpec range, char** valArray, 
     }
     options->max_result_num = MAXRESULTNUM;
     *readOptions = options;
-    std::vector<std::string> res;
+    
+    std::vector<RangeQueryKeyVal> res;
     Status s; 
     bool ret = static_cast<DB*>(db)->RangeQuery(*options, r, res, &s);
 
     if (!s.ok()) {
-        *valArraySize = 0;
+        *buffSize = 0;
         return false;
     }
     
-    *valArraySize = res.size();
-    if( *valArraySize > 0) {
-        uint32 *tmpLens = (uint32*) palloc0(*valArraySize * sizeof(uint32));
-        *valLens = tmpLens;
-        uint32 total = 0;
+    size_t valArraySize = res.size();
+    if(valArraySize > 0) {
+        char filename[FILENAMELENGTH];
+        snprintf(filename, FILENAMELENGTH, "%s%d", RESPONSEFILE, pid);
+        int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
+        *buffSize = (1 + valArraySize) * sizeof(size_t);
+        size_t total = 0;
         for (auto it = res.begin(); it != res.end(); ++it) {
-            *tmpLens = (*it).size();
-            total += (*it).size();
-            tmpLens++;
+            total += (*it).user_key.size();
+            total += (*it).user_val.size();
+            total += 2*sizeof(size_t);
         }
-        char *tmpVal = (char*) palloc0(total);
-        *valArray = tmpVal;
+        *buffSize += total;
+
+        char *rqbuff = Mmap(NULL,
+                        *buffSize,
+                        PROT_READ | PROT_WRITE,
+                        MAP_SHARED,
+                        fd,
+                        0,
+                        __func__);
+        Fclose(fd, __func__);
+
+        char *buffPtr = rqbuff;
+        memcpy(buffPtr, &valArraySize, sizeof(size_t));
+        buffPtr += sizeof(size_t);
+     
         for (auto it = res.begin(); it != res.end(); ++it) {
-            memcpy(tmpVal, (*it).c_str(), (*it).size());
-            tmpVal = tmpVal + (*it).size();
+            size_t keyLen = (*it).user_key.size();
+            memcpy(buffPtr, &keyLen, sizeof(size_t));
+            buffPtr += sizeof(size_t);
+            memcpy(buffPtr, (*it).user_key.c_str(), keyLen);
+            buffPtr += keyLen;
+            
+            size_t valLen = (*it).user_val.size();
+            memcpy(buffPtr, &valLen, sizeof(size_t));
+            buffPtr += sizeof(size_t);
+            memcpy(buffPtr, (*it).user_val.c_str(), valLen);
+            buffPtr += valLen;
         }
     }
     return ret;

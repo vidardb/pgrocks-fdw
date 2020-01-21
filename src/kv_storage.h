@@ -8,7 +8,9 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <fcntl.h>
 #include "postgres.h"
+#include "kv_posix.h"
 
 /**
  * C wrapper
@@ -29,8 +31,9 @@ bool Put(void* db, char* key, uint32 keyLen, char* val, uint32 valLen);
 bool Delete(void* db, char* key, uint32 keyLen);
 
 #ifdef VidarDB
-#define MAXRESULTNUM 10000
+#define BATCHCAPACITY 10000
 #define FILENAMELENGTH 20
+#define PERMISSION 0777
 #define RANGEQUERYFILE "/KVRangeQuery"
 
 typedef struct RangeSpec {

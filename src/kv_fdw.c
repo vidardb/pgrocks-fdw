@@ -323,12 +323,23 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         return;
     }
 
-    //printf("\n-----------------Plan Type: %d----------------------\n", scanState->ss.ps.plan->type);
+    /*TupleDesc tupleDesc = scanState->ss.ss_ScanTupleSlot->tts_tupleDescriptor;
+    uint32 count = tupleDesc->natts;
+    for (uint32 index = 0; index < count; index++)
+    {
+        Form_pg_attribute attributeForm = TupleDescAttr(tupleDesc, index);
+        uint16 attrNum = attributeForm->attnum;
+        if (!attributeForm->) {
+            printf("----Attribute Number: %d----", attrNum);
+        }
+    }
+    
+    printf("\n-----------------Total: %d----------------------\n", count);*/
  
     ListCell *lc;
     foreach (lc, scanState->ss.ps.plan->qual) {
         Expr *state = lfirst(lc);
-        //printf("\n-----------------Qual Type: %d----------------------\n", state->type);
+        printf("\n-----------------Qual Type: %d----------------------\n", state->type);
 
         GetKeyBasedQual((Node *) state,
                         scanState->ss.ss_currentRelation->rd_att,
@@ -454,6 +465,7 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
             found = GetRequest(relationId, ptr, k, kLen, &v, &vLen);
             readState->done = true;
         }
+    #ifdef VidarDB
     } else if (readState->isRangeQueryUsed) {
         if (readState->iterCount < readState->valArraySize) {
             //memcpy
@@ -461,7 +473,7 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
             readState->iterCount += 1;
             found = true;
         } else if (readState->hasRemaining) {
-            readState->hasRemaining = RangeQueryRequest();
+            //readState->hasRemaining = RangeQueryRequest();
             if (readState->valArraySize != 0)
             {
                 //memcpy
@@ -470,6 +482,7 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
                 found = true;
             }           
         }
+    #endif
     } else {
         found = NextRequest(relationId, ptr, &k, &kLen, &v, &vLen);
     }

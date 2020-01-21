@@ -173,7 +173,7 @@ extern bool RangeQueryRequest(Oid relationId,
                               void** readOptions,
                               RangeSpec rangeSpec,
                               char **valArr, 
-                              uint32 *valArrLen
+                              size_t *valArrLen
                               );
 #endif
 

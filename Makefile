@@ -1,8 +1,9 @@
 
 MODULE_big   = kv_fdw
 
-PG_CPPFLAGS += -Wno-declaration-after-statement
-SHLIB_LINK   = -lrocksdb
+PG_CPPFLAGS += -Wno-declaration-after-statement -DVidarDB
+SHLIB_LINK   = -lvidardb
+# SHLIB_LINK   = -lrocksdb
 OBJS         = src/kv_fdw.o src/kv_utility.o src/kv_shm.o src/kv_storage.o src/kv_posix.o
 
 EXTENSION    = kv_fdw

@@ -67,6 +67,10 @@ static void PutResponse(char *area);
 
 static void DeleteResponse(char *area);
 
+#ifdef VidarDB
+static void RangeQueryResponse(char *area);
+#endif
+
 void InitResponseArea(void);
 
 void OpenResponseArea(void);
@@ -922,7 +926,12 @@ static void DeleteResponse(char *area) {
 
 #ifdef VidarDB
 // the return value is whether there is a remaining batch
-bool RangeQueryRequest(Oid relationId, SharedMem *ptr, RangeSpec rangeSpec, char **valArr, size_t *valArrLen) {
+bool RangeQueryRequest(Oid relationId, 
+                       SharedMem *ptr, 
+                       void** readOptions, 
+                       RangeSpec rangeSpec, 
+                       char **valArr, 
+                       size_t *valArrLen) {
     printf("\n============%s============\n", __func__);
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
@@ -994,19 +1003,19 @@ static void RangeQueryResponse(char *area) {
     memcpy(&optionKey.relationId, area + sizeof(int), sizeof(optionKey.relationId));
     memcpy(&optionKey.pid, area + sizeof(int) + sizeof(optionKey.relationId), sizeof(pid_t));
   
-    bool found;
-    KVHashEntry *entry = hash_search(kvTableHash, &optionKey.relationId, HASH_FIND, &found);
+    bool found = false;
+    //KVHashEntry *entry = hash_search(kvTableHash, &optionKey.relationId, HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
-        bool optionFound;
-        KVReadOptionsEntry *optionEntry = hash_search(kvReadOptionsHash, &optionKey, HASH_FIND, &optionFound);
+        bool optionFound = false;
+        //KVReadOptionsEntry *optionEntry = hash_search(kvReadOptionsHash, &optionKey, HASH_FIND, &optionFound);
         if(!optionFound) {
             
         }
         
-        size_t buffSize;
-        bool ret = RangeQuery(entry->db, &optionEntry->readOptions, range, optionKey.pid, &buffSize);
+        size_t buffSize = 0;
+        bool ret = false; //RangeQuery(entry->db, &optionEntry->readOptions, range, optionKey.pid, &buffSize);
         char *current = ResponseQueue[response_index];
         memcpy(current, &buffSize, sizeof(size_t));
         if (buffSize == 0) {

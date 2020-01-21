@@ -96,12 +96,12 @@ bool RangeQuery(void* db, void** readOptions, RangeSpec range, pid_t pid, size_t
     {
         options = (ReadOptions*) palloc0(sizeof(ReadOptions));
     }
-    options->max_result_num = MAXRESULTNUM;
+    options->batch_capacity = BATCHCAPACITY;
     *readOptions = options;
     
     std::vector<RangeQueryKeyVal> res;
     Status s; 
-    bool ret = static_cast<DB*>(db)->RangeQuery(*options, r, res, &s);
+    bool ret = false; //static_cast<DB*>(db)->RangeQuery(*options, r, res, &s);
 
     if (!s.ok()) {
         *buffSize = 0;
@@ -111,7 +111,7 @@ bool RangeQuery(void* db, void** readOptions, RangeSpec range, pid_t pid, size_t
     size_t valArraySize = res.size();
     if(valArraySize > 0) {
         char filename[FILENAMELENGTH];
-        snprintf(filename, FILENAMELENGTH, "%s%d", RESPONSEFILE, pid);
+        snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, pid);
         int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
         *buffSize = (1 + valArraySize) * sizeof(size_t);
         size_t total = 0;
@@ -122,7 +122,7 @@ bool RangeQuery(void* db, void** readOptions, RangeSpec range, pid_t pid, size_t
         }
         *buffSize += total;
 
-        char *rqbuff = Mmap(NULL,
+        char *rqbuff = (char*) Mmap(NULL,
                         *buffSize,
                         PROT_READ | PROT_WRITE,
                         MAP_SHARED,

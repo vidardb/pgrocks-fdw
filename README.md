@@ -6,7 +6,7 @@ RocksDB is a high performance key-value store based on a log-structured merge-tr
 
 This extension can also be used for other systems that have RocksDB-like APIs, but please check the compatibility before you use this extension for other systems.
 
-This extension is developed and maintained by the VidarDB team. Please join the [google group](https://groups.google.com/forum/#!forum/postgresql-foreign-data-wrapper-for-rocksdb) to report bugs or issues.
+This extension is developed and maintained by the VidarDB team. Feel free to report bugs or issues via Github.
 
 # Building
 
@@ -151,3 +151,7 @@ If you want to debug the source code, you may need to start PostgreSQL in the de
 
     sudo -u postgres /usr/lib/postgresql/11/bin/postgres -d 0 -D /var/lib/postgresql/11/main -c config_file=/etc/postgresql/11/main/postgresql.conf
 ```  
+
+# Docker
+
+We can also run PostgreSQL with RocksDB in Docker container and you can refer to [here](docker-image/README.md).

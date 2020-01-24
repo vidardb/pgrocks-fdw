@@ -25,6 +25,7 @@ PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 static SharedMem *ptr = NULL;  // in client process
 
+
 static void GetForeignRelSize(PlannerInfo *root,
                               RelOptInfo *baserel,
                               Oid foreignTableId) {
@@ -52,7 +53,6 @@ static void GetForeignRelSize(PlannerInfo *root,
      * min & max will call GetForeignRelSize & GetForeignPaths multiple times,
      * we should open & close db multiple times.
      */
-    printf("\n-----------------%s open----------------------\n", __func__);
     ptr = OpenRequest(foreignTableId, ptr);
 
     /* TODO better estimation */
@@ -176,7 +176,8 @@ static void GetKeyBasedQual(Node *node,
     /* get the name of the operator according to PG_OPERATOR OID */
     HeapTuple opertup = SearchSysCache1(OPEROID, ObjectIdGetDatum(op->opno));
     if (!HeapTupleIsValid(opertup)) {
-        ereport(ERROR, (errmsg("cache lookup failed for operator %u", op->opno)));
+        ereport(ERROR, (errmsg("cache lookup failed for operator %u",
+                               op->opno)));
     }
     Form_pg_operator operform = (Form_pg_operator) GETSTRUCT(opertup);
     char *oprname = NameStr(operform->oprname);
@@ -242,24 +243,9 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         return;
     }
 
-    /*TupleDesc tupleDesc = scanState->ss.ss_ScanTupleSlot->tts_tupleDescriptor;
-    uint32 count = tupleDesc->natts;
-    for (uint32 index = 0; index < count; index++)
-    {
-        Form_pg_attribute attributeForm = TupleDescAttr(tupleDesc, index);
-        uint16 attrNum = attributeForm->attnum;
-        if (!attributeForm->) {
-            printf("----Attribute Number: %d----", attrNum);
-        }
-    }
-    
-    printf("\n-----------------Total: %d----------------------\n", count);*/
- 
     ListCell *lc;
     foreach (lc, scanState->ss.ps.plan->qual) {
         Expr *state = lfirst(lc);
-        printf("\n-----------------Qual Type: %d----------------------\n", state->type);
-
         GetKeyBasedQual((Node *) state,
                         scanState->ss.ss_currentRelation->rd_att,
                         readState);
@@ -276,7 +262,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 }
 
 static void DeserializeTuple(StringInfo key,
-                             StringInfo value,
+                             StringInfo val,
                              TupleTableSlot *tupleSlot) {
 
     Datum *values = tupleSlot->tts_values;
@@ -295,7 +281,7 @@ static void DeserializeTuple(StringInfo key,
     enlargeStringInfo(buffer, bufLen);
     buffer->len = bufLen;
 
-    memcpy(buffer->data, value->data, bufLen);
+    memcpy(buffer->data, val->data, bufLen);
 
     for (uint32 index = 1; index < count; index++) {
 
@@ -326,7 +312,7 @@ static void DeserializeTuple(StringInfo key,
         if (index == 0) {
             offset = bufLen;
         }
-        current = value->data + offset;
+        current = val->data + offset;
     }
 }
 
@@ -381,10 +367,10 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
     if (found) {
         StringInfo key = makeStringInfo();
         appendBinaryStringInfo(key, k, kLen);
-        StringInfo value = makeStringInfo();
-        appendBinaryStringInfo(value, v, vLen);
+        StringInfo val = makeStringInfo();
+        appendBinaryStringInfo(val, v, vLen);
 
-        DeserializeTuple(key, value, tupleSlot);
+        DeserializeTuple(key, val, tupleSlot);
 
         ExecStoreVirtualTuple(tupleSlot);
     }
@@ -581,7 +567,7 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
 }
 
 static void SerializeTuple(StringInfo key,
-                           StringInfo value,
+                           StringInfo val,
                            TupleTableSlot *tupleSlot) {
 
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
@@ -595,7 +581,7 @@ static void SerializeTuple(StringInfo key,
     nulls->len = nullsLen;
     memset(nulls->data, 0, nullsLen);
 
-    value->len += nullsLen;
+    val->len += nullsLen;
 
     for (uint32 index = 0; index < count; index++) {
 
@@ -611,10 +597,10 @@ static void SerializeTuple(StringInfo key,
         }
 
         Datum datum = tupleSlot->tts_values[index];
-        SerializeAttribute(tupleDescriptor, index, datum, index==0? key: value);
+        SerializeAttribute(tupleDescriptor, index, datum, index==0? key: val);
     }
 
-    memcpy(value->data, nulls->data, nullsLen);
+    memcpy(val->data, nulls->data, nullsLen);
 }
 
 static TupleTableSlot *ExecForeignInsert(EState *executorState,
@@ -660,13 +646,13 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
     slot_getallattrs(tupleSlot);
 
     StringInfo key = makeStringInfo();
-    StringInfo value = makeStringInfo();
+    StringInfo val = makeStringInfo();
 
-    SerializeTuple(key, value, tupleSlot);
+    SerializeTuple(key, val, tupleSlot);
 
     Relation relation = relationInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
-    PutRequest(foreignTableId, ptr, key->data, key->len, value->data, value->len);
+    PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
 
     return tupleSlot;
 }
@@ -714,13 +700,13 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
     slot_getallattrs(tupleSlot);
 
     StringInfo key = makeStringInfo();
-    StringInfo value = makeStringInfo();
+    StringInfo val = makeStringInfo();
 
-    SerializeTuple(key, value, tupleSlot);
+    SerializeTuple(key, val, tupleSlot);
 
     Relation relation = relationInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
-    PutRequest(foreignTableId, ptr, key->data, key->len, value->data, value->len);
+    PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
 
     return tupleSlot;
 }
@@ -767,9 +753,9 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     slot_getallattrs(planSlot);
 
     StringInfo key = makeStringInfo();
-    StringInfo value = makeStringInfo();
+    StringInfo val = makeStringInfo();
 
-    SerializeTuple(key, value, planSlot);
+    SerializeTuple(key, val, planSlot);
 
     Relation relation = relationInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
@@ -778,7 +764,8 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     return tupleSlot;
 }
 
-static void EndForeignModify(EState *executorState, ResultRelInfo *relationInfo) {
+static void EndForeignModify(EState *executorState,
+                             ResultRelInfo *relationInfo) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * End the table update and release resources. It is normally not

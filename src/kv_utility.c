@@ -187,7 +187,8 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
         }
     } else if (nodeTag(parseTree) == T_CreateForeignTableStmt) {
         CreateForeignTableStmt *tableStmt = (CreateForeignTableStmt *) parseTree;
-        ForeignServer *server = GetForeignServerByName(tableStmt->servername, false);
+        ForeignServer *server = GetForeignServerByName(tableStmt->servername,
+                                                       false);
         if (KVServer(server)) {
             Oid relationId = RangeVarGetRelid(tableStmt->base.relation,
                                               AccessShareLock,
@@ -202,7 +203,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
              * directory for it during database creation time.
              */
             KVCreateDatabaseDirectory(MyDatabaseId);
-            
+
             StringInfo kvPath = makeStringInfo();
             appendStringInfo(kvPath,
                              "%s/%s/%u/%u",
@@ -341,7 +342,9 @@ static bool KVCopyTableStatement(CopyStmt* copyStmt) {
         return false;
     }
 
-    Oid relationId = RangeVarGetRelid(copyStmt->relation, AccessShareLock, true);
+    Oid relationId = RangeVarGetRelid(copyStmt->relation,
+                                      AccessShareLock,
+                                      true);
     return KVTable(relationId);
 }
 
@@ -472,9 +475,6 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                                                        ALLOCSET_DEFAULT_SIZES);
 
     Oid relationId = RelationGetRelid(relation);
-    //KVFdwOptions *fdwOptions = KVGetOptions(relationId);
-    
-    //void *db = Open(fdwOptions->filename);
     ptr = OpenRequest(relationId, ptr);
 
     TupleDesc tupleDescriptor = RelationGetDescr(relation);
@@ -498,8 +498,8 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
         if (found) {
             memset(buffer->data, 0, bufLen);
             StringInfo key = makeStringInfo();
-            StringInfo value = makeStringInfo();
-            value->len += bufLen;
+            StringInfo val = makeStringInfo();
+            val->len += bufLen;
 
             for (uint32 index = 0; index < count; index++) {
 
@@ -514,16 +514,14 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                     continue;
                 }
                 Datum datum = values[index];
-                SerializeAttribute(tupleDescriptor, index, datum, index==0? key: value);
+                SerializeAttribute(tupleDescriptor,
+                                   index,
+                                   datum,
+                                   index==0? key: val);
             }
-            memcpy(value->data, buffer->data, bufLen);
+            memcpy(val->data, buffer->data, bufLen);
 
-            //if (!Put(db, key->data, key->len, value->data, value->len)) {
-            //    ereport(ERROR, (errmsg("error from Copy")));
-            //}
-
-
-            PutRequest(relationId, ptr, key->data, key->len, value->data, value->len);
+            PutRequest(relationId, ptr, key->data, key->len, val->data, val->len);
             rowCount++;
         }
 
@@ -534,7 +532,6 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
 
     /* end read/write sessions and close the relation */
     EndCopyFrom(copyState);
-    //Close(db);
     CloseRequest(relationId, ptr);
     heap_close(relation, ShareUpdateExclusiveLock);
 
@@ -665,7 +662,7 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
 
         CopyStmt *copyStmt = (CopyStmt *) parseTree;
         if (KVCopyTableStatement(copyStmt)) {
-            
+
             uint64 rowCount = 0;
             if (copyStmt->is_from) {
                 rowCount = KVCopyIntoTable(copyStmt, queryString);

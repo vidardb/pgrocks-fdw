@@ -2,6 +2,7 @@
 #ifndef KV_FDW_H_
 #define KV_FDW_H_
 
+
 #include "kv_storage.h"
 
 #include <stdbool.h>
@@ -12,6 +13,7 @@
 #include "nodes/nodes.h"
 #include "access/attnum.h"
 #include "utils/relcache.h"
+
 
 /* Defines */
 #define KVKEYJUNK "__key_junk"
@@ -24,7 +26,7 @@
 
 #define PATHMAXLENGTH 4096
 
-#define BUFSIZE 65536
+#define BUFSIZE 65536 * sizeof(char)
 
 #define FILENAMELENGTH 20
 
@@ -32,23 +34,23 @@
 
 #define RESPONSEQUEUELENGTH 2
 
-#define DATAAREASIZE sizeof(char)*BUFSIZE
-
 
 /* Shared memory for function requests: 
- * mutex is used for the mutual exclusion of the request buffer;
- * full is used to tell whether the request buffer is full;
- * agent[2] are used to synchronize the creation of the worker process;
- * worker is used to notify the worker process after a request is submitted;
- * responseMutexes[RESPONSEQUEUELENGTH] are used for the mutual exclusion of the response buffer;
- * responseSync[RESPONSEQUEUELENGTH] are used to notify child processes after the response is ready.
+ * mutex: mutual exclusion of the request buffer;
+ * full: tell whether the request buffer is full;
+ * agent[2]: synchronize the creation of the worker process;
+ * worker: notify the worker process after a request is submitted;
+ * responseMutexes[RESPONSEQUEUELENGTH]:
+ *     mutual exclusion of the response buffer;
+ * responseSync[RESPONSEQUEUELENGTH]:
+ *     notify child processes after the response is ready.
  */
 typedef struct SharedMem {
     sem_t mutex;
     sem_t full;
     sem_t agent[2];
     sem_t worker;
-    sem_t responseMutexes[RESPONSEQUEUELENGTH];
+    sem_t responseMutex[RESPONSEQUEUELENGTH];
     sem_t responseSync[RESPONSEQUEUELENGTH];
     bool workerProcessCreated;
     char area[BUFSIZE];  // assume ~64K for a tuple is enough

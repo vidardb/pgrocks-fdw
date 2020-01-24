@@ -73,15 +73,6 @@ typedef struct TableReadState {
     bool isKeyBased;
     bool done;
     StringInfo key;
-    
-#ifdef VidarDB
-    bool isRangeQueryUsed;
-    RangeSpec rangeSpec;
-    char* valArray;
-    uint32 valArraySize;
-    uint32 iterCount;
-    bool hasRemaining;
-#endif
 } TableReadState;
 
 /*
@@ -106,9 +97,6 @@ typedef enum FuncName {
     GET,
     PUT,
     DELETE,
-    #ifdef VidarDB
-    RANGEQUERY,
-    #endif
     TERMINATE
 } FuncName;
 
@@ -166,16 +154,6 @@ extern void DeleteRequest(Oid relationId,
                           SharedMem *ptr,
                           char* key,
                           uint32 keyLen);
-
-#ifdef VidarDB
-extern bool RangeQueryRequest(Oid relationId,
-                              SharedMem *ptr,
-                              void** readOptions,
-                              RangeSpec rangeSpec,
-                              char **valArr, 
-                              size_t *valArrLen
-                              );
-#endif
 
 /* global variables */
 

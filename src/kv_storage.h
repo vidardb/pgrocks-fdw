@@ -30,22 +30,6 @@ bool Get(void* db, char* key, uint32 keyLen, char** val, uint32* valLen);
 bool Put(void* db, char* key, uint32 keyLen, char* val, uint32 valLen);
 bool Delete(void* db, char* key, uint32 keyLen);
 
-#ifdef VidarDB
-#define BATCHCAPACITY 10000
-#define FILENAMELENGTH 20
-#define PERMISSION 0777
-#define RANGEQUERYFILE "/KVRangeQuery"
-
-typedef struct RangeSpec {
-    char* start;
-    uint32 startLen;
-    char* limit;
-    uint32 limitLen;
-} RangeSpec;
-
-bool RangeQuery(void* db, void** readOptions, RangeSpec range, pid_t pid, size_t* buffSize);
-#endif
-
 #if defined(__cplusplus)
 }
 #endif

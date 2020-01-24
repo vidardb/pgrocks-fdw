@@ -33,12 +33,22 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
   sudo ldconfig
   ```
 
-- Build this foreign data wrapper:
+- Build this foreign data wrapper with RocksDB:
   
   ```sh
   cd PostgresForeignDataWrapper 
 
   make
+
+  sudo make install
+  ```
+
+- Build this foreign data wrapper with VidarDB:
+
+  ```sh
+  cd PostgresForeignDataWrapper 
+
+  make VIDARDB=true
 
   sudo make install
   ```

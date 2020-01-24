@@ -145,87 +145,6 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
                             NULL);
 }
 
-#ifdef VidarDB
-static void GetKeyRangeQual(Plan *plan,
-                            TupleDesc tupleDescriptor,
-                            TableReadState *readState) {
-    if (!plan) {
-        return;
-    }
-
-    int qualSize = list_length(plan->qual);
-    if (qualSize < 2) {
-        return;
-    }
-
-    bool startFlag = false;
-    bool limitFlag = false;
-    StringInfo startInfo = makeStringInfo();
-    StringInfo limitInfo = makeStringInfo();
-
-    ListCell *lc;
-    foreach (lc, plan->qual) {
-        Expr *state = lfirst(lc);
-        if (!state || !IsA(state, OpExpr)) {
-            continue;
-        }
-        OpExpr *op = (OpExpr *) state;
-        if (list_length(op->args) != 2) {
-            continue;
-        }
-
-        Node *left = list_nth(op->args, 0);
-        if (!IsA(left, Var)) {
-            continue;
-        }
-
-        Node *right = list_nth(op->args, 1);
-        if (!IsA(right, Const)) {
-            continue;
-        }
-
-        Index varattno = ((Var *) left)->varattno;
-        if (varattno != 1) {
-            continue;
-        }
-
-        HeapTuple opertup = SearchSysCache1(OPEROID, ObjectIdGetDatum(op->opno));
-        if (!HeapTupleIsValid(opertup)) {
-            ereport(ERROR, (errmsg("cache lookup failed for operator %u", op->opno)));
-        }
-        Form_pg_operator operform = (Form_pg_operator) GETSTRUCT(opertup);
-        char *oprname = NameStr(operform->oprname);
-        if (strncmp(oprname, ">=", NAMEDATALEN) == 0) {
-            startFlag = true;
-            Const *constNode = ((Const *) right);
-            Datum datum = constNode->constvalue;
-            TypeCacheEntry *typeEntry = lookup_type_cache(constNode->consttype, 0);
-            datum = ShortVarlena(datum, typeEntry->typlen, typeEntry->typstorage);
-            SerializeAttribute(tupleDescriptor, varattno-1, datum, startInfo);
-            ReleaseSysCache(opertup);
-        }else if (strncmp(oprname, "<=", NAMEDATALEN) == 0) {
-            limitFlag = true;
-            Const *constNode = ((Const *) right);
-            Datum datum = constNode->constvalue;
-            TypeCacheEntry *typeEntry = lookup_type_cache(constNode->consttype, 0);
-            datum = ShortVarlena(datum, typeEntry->typlen, typeEntry->typstorage);
-            SerializeAttribute(tupleDescriptor, varattno-1, datum, limitInfo);
-            ReleaseSysCache(opertup);
-        }else{
-            ReleaseSysCache(opertup);
-            continue;
-        }
-        
-        if (startFlag && limitFlag) {
-            readState->isRangeQueryUsed = true;
-            readState->rangeSpec.start = startInfo->data;
-            readState->rangeSpec.startLen = startInfo->len;
-            readState->rangeSpec.limit = limitInfo->data;
-            readState->rangeSpec.limitLen = limitInfo->len;
-        }
-    }
-}
-#endif
 
 static void GetKeyBasedQual(Node *node,
                             TupleDesc tupleDescriptor,
@@ -351,18 +270,8 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     }
 
     if (!readState->isKeyBased) {
-        #ifdef VidarDB
-        GetKeyRangeQual(scanState->ss.ps.plan, 
-                scanState->ss.ss_currentRelation->rd_att,
-                readState);
-        #endif
-        //if(readState->isRangeQueryUsed) {
-
-        //}else
-        //{
-            Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
-            GetIterRequest(relationId, ptr);   
-        //}
+        Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
+        GetIterRequest(relationId, ptr);   
     }
 }
 
@@ -465,24 +374,6 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
             found = GetRequest(relationId, ptr, k, kLen, &v, &vLen);
             readState->done = true;
         }
-    #ifdef VidarDB
-    } else if (readState->isRangeQueryUsed) {
-        if (readState->iterCount < readState->valArraySize) {
-            //memcpy
-            //readState->valArray = 
-            readState->iterCount += 1;
-            found = true;
-        } else if (readState->hasRemaining) {
-            //readState->hasRemaining = RangeQueryRequest();
-            if (readState->valArraySize != 0)
-            {
-                //memcpy
-                //readState->valArray = 
-                readState->iterCount = 1;
-                found = true;
-            }           
-        }
-    #endif
     } else {
         found = NextRequest(relationId, ptr, &k, &kLen, &v, &vLen);
     }

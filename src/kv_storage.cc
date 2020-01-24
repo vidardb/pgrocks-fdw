@@ -31,7 +31,11 @@ void Close(void* db) {
 
 uint64 Count(void* db) {
     string num;
+    #ifdef VidarDB
+    static_cast<DB*>(db)->GetProperty("vidardb.estimate-num-keys", &num);
+    #else
     static_cast<DB*>(db)->GetProperty("rocksdb.estimate-num-keys", &num);
+    #endif
     return stoull(num);
 }
 
@@ -86,71 +90,5 @@ bool Delete(void* db, char* key, uint32 keyLen) {
     Status s = static_cast<DB*>(db)->Delete(WriteOptions(), Slice(key, keyLen));
     return s.ok();
 }
-
-#ifdef VidarDB
-//char** valArray, uint32** valLens, uint32* valArraySize
-bool RangeQuery(void* db, void** readOptions, RangeSpec range, pid_t pid, size_t* buffSize) {
-    Range r(Slice(range.start, range.startLen), Slice(range.limit, range.limitLen));
-    ReadOptions *options = static_cast<ReadOptions*>(*readOptions);
-    if (options == nullptr)
-    {
-        options = (ReadOptions*) palloc0(sizeof(ReadOptions));
-    }
-    options->batch_capacity = BATCHCAPACITY;
-    *readOptions = options;
-    
-    std::vector<RangeQueryKeyVal> res;
-    Status s; 
-    bool ret = false; //static_cast<DB*>(db)->RangeQuery(*options, r, res, &s);
-
-    if (!s.ok()) {
-        *buffSize = 0;
-        return false;
-    }
-    
-    size_t valArraySize = res.size();
-    if(valArraySize > 0) {
-        char filename[FILENAMELENGTH];
-        snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, pid);
-        int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
-        *buffSize = (1 + valArraySize) * sizeof(size_t);
-        size_t total = 0;
-        for (auto it = res.begin(); it != res.end(); ++it) {
-            total += (*it).user_key.size();
-            total += (*it).user_val.size();
-            total += 2*sizeof(size_t);
-        }
-        *buffSize += total;
-
-        char *rqbuff = (char*) Mmap(NULL,
-                        *buffSize,
-                        PROT_READ | PROT_WRITE,
-                        MAP_SHARED,
-                        fd,
-                        0,
-                        __func__);
-        Fclose(fd, __func__);
-
-        char *buffPtr = rqbuff;
-        memcpy(buffPtr, &valArraySize, sizeof(size_t));
-        buffPtr += sizeof(size_t);
-     
-        for (auto it = res.begin(); it != res.end(); ++it) {
-            size_t keyLen = (*it).user_key.size();
-            memcpy(buffPtr, &keyLen, sizeof(size_t));
-            buffPtr += sizeof(size_t);
-            memcpy(buffPtr, (*it).user_key.c_str(), keyLen);
-            buffPtr += keyLen;
-            
-            size_t valLen = (*it).user_val.size();
-            memcpy(buffPtr, &valLen, sizeof(size_t));
-            buffPtr += sizeof(size_t);
-            memcpy(buffPtr, (*it).user_val.c_str(), valLen);
-            buffPtr += valLen;
-        }
-    }
-    return ret;
-}
-#endif
 
 }

@@ -29,19 +29,12 @@ typedef struct KVIterHashEntry {
     void *iter;
 } KVIterHashEntry;
 
-typedef struct KVReadOptionsEntry {
-    KVIterHashKey key;
-    void *readOptions;
-} KVReadOptionsEntry;
-
 
 pid_t kvWorkerPid = 0;  // in postmaster process
 
 HTAB *kvTableHash = NULL;  // in kvworker process
 
 HTAB *kvIterHash = NULL;  // in kvworker process
-
-HTAB *kvReadOptionsHash = NULL;
 
 long HASHSIZE = 1;  // non-shared hash can be enlarged
 

@@ -15,7 +15,7 @@ ENV POSTGRES_VERSION=11
 ENV FDW_VERSION=0.2-alpha
 RUN set -xe && apt-get update && \
     apt-get install -y --no-install-recommends make wget ca-certificates postgresql-server-dev-${POSTGRES_VERSION} && \
-    wget --no-check-certificate -O PostgresForeignDataWrapper.tar.gz https://github.com/jsc0218/PostgresForeignDataWrapper/archive/v${FDW_VERSION}.tar.gz && \
+    wget --no-check-certificate -O PostgresForeignDataWrapper.tar.gz https://github.com/vidardb/PostgresForeignDataWrapper/archive/v${FDW_VERSION}.tar.gz && \
     tar zxvf PostgresForeignDataWrapper.tar.gz && cd PostgresForeignDataWrapper-${FDW_VERSION} && make && make install && cd .. && \
     apt-get purge -y --auto-remove make wget ca-certificates postgresql-server-dev-${POSTGRES_VERSION} && \
     rm -rf /var/lib/apt/lists/* /tmp/* PostgresForeignDataWrapper.tar.gz PostgresForeignDataWrapper-${FDW_VERSION}

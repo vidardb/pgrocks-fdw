@@ -1,0 +1,16 @@
+dist: bionic
+language: cpp
+os:
+  - linux
+compiler:
+  - clang
+
+addons:
+  apt:
+      packages: ['docker-ce', 'postgresql-server-dev-11']
+
+before_script:
+  - docker version
+
+script:
+  - make docker-image

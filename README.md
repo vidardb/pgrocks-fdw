@@ -156,4 +156,4 @@ If you want to debug the source code, you may need to start PostgreSQL in the de
 
 # Docker
 
-We can also run PostgreSQL with RocksDB in Docker container and you can refer to [here](docker-image/README.md).
+We can also run PostgreSQL with RocksDB in Docker container and you can refer to [here](docker_image/README.md).

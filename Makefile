@@ -31,4 +31,4 @@ src/kv_storage.bc:
 .PHONY: docker-image
 docker-image:
 	@echo "Building docker image..."
-	$(DOCKER) build --no-cache --pull -t $(REGISTRY)/$(IMAGE):$(TAG) docker-image
+	$(DOCKER) build --no-cache --pull -t $(REGISTRY)/$(IMAGE):$(TAG) docker_image

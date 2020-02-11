@@ -20,6 +20,14 @@ Start the container with the following Docker image we have provided.
 
     Please note that PostgreSQL client should already be installed before running the container.
 
+- For the users who don't have the PostgreSQL client installed:
+
+    ```sh
+    docker exec -it postgresql /bin/bash
+    ```
+    
+    Then we can connect to the PostgreSQL successfully inside the container (retry the second command again). 
+
 ## Building
 
 We can build a new Docker image in the following way. It is the prerequisite that install docker engine in the building machine.

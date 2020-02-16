@@ -1,4 +1,5 @@
-FROM postgres:11.6
+# Mirror from https://hub.docker.com/_/postgres
+FROM vidardb/postgres:11.7
 
 # Install RocksDB
 ENV ROCKSDB_VERSION=6.2.4

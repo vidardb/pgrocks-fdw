@@ -1,3 +1,5 @@
+<img style="width:100%;" src="/github-banner.png">
+
 # PostgresForeignDataWrapper
 
 [![Build Status](https://travis-ci.org/vidardb/PostgresForeignDataWrapper.svg?branch=master)](https://travis-ci.org/vidardb/PostgresForeignDataWrapper)

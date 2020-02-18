@@ -4,7 +4,7 @@
 
 [![Build Status](https://travis-ci.org/vidardb/PostgresForeignDataWrapper.svg?branch=master)](https://travis-ci.org/vidardb/PostgresForeignDataWrapper)
 
-This PostgreSQL extension implements a Foreign Data Wrapper (FDW) for [RocksDB](https://rocksdb.org/)
+This PostgreSQL extension implements a Foreign Data Wrapper (FDW) for [RocksDB](https://rocksdb.org/). This repo has been listed in PostgreSQL [wiki](https://wiki.postgresql.org/wiki/Foreign_data_wrappers). 
 
 RocksDB is a high performance key-value store based on a log-structured merge-tree (LSM tree). RocksDB can efficiently use many CPU cores and fast storage. This is the first foreign data wrapper that connects a LSM-tree-based storage engine to PostgreSQL. Because RocksDB is an embeddable key-value store, you do not need to run another server to use this extension.
 

@@ -1,6 +1,6 @@
 # Run PostgreSQL with RocksDB in Docker
 
-We can easily deploy PostgreSQL with RocksDB in a Docker container.The following document will guide you to install and play with RocksDB in one minute. 
+We can easily deploy PostgreSQL with RocksDB in a Docker container. The following document will guide you to install and play with RocksDB in one minute.
 
 ## Requirement
 
@@ -8,32 +8,38 @@ We can easily deploy PostgreSQL with RocksDB in a Docker container.The following
 
 ## Run a RocksDB's Docker container:
 
+*Before running any of the following commands, please ensure that both the container name `postgresql` and the port `5432` have not been used in your environment.*
+
+To run a RocksDB's Docker container:
+
 ```sh
 docker run -d --name postgresql -p 5432:5432 vidardb/postgresql:rocksdb-6.2.4
 ```
 
+After doing that, a `postgresql` container will start and the database will be initialized.
+
 ## Connect to the PostgreSQL:
+
+For the users who don't have the PostgreSQL client installed:
+
+```sh
+docker exec -it postgresql sh -c 'psql -h 127.0.0.1 -p 5432 -U postgres'
+```
+
+For the others who have the PostgreSQL client installed:
 
 ```sh
 psql -h 127.0.0.1 -p 5432 -U postgres
 ```
 
-*Please note that the PostgreSQL client should already be installed before connecting the container.*
+Then we can connect to the PostgreSQL successfully (retry the connecting command again).
 
-For the users who don't have the PostgreSQL client installed:
+## Build your own Docker image
 
-```sh
-docker exec -it postgresql /bin/bash
-```
-
-Then we can connect to the PostgreSQL successfully inside the container (retry the connecting command again). 
-
-## Building your own Docker image
-
-You may want to create your custom Docker image. Do it by '1-click':
+You may want to create your custom Docker image. Do it by '1-click' in the root directory of `PostgresForeignDataWrapper` repository:
 
 ```sh
-# Building a Docker image with the default name: 'vidardb/postgresql:rocksdb-6.2.4'
+# Build a Docker image with the default name 'vidardb/postgresql:rocksdb-6.2.4'
 make docker-image
 ```
 

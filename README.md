@@ -14,20 +14,33 @@ This extension is developed and maintained by the VidarDB team. Feel free to rep
 
 # Building
 
-We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 together with RocksDB-6.2.4 ( built with GCC-8.3.0).
+We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 together with RocksDB-6.2.4 (built with GCC-7.4.0).
 
 - Install PostgreSQL and the dev library which is required by extensions:
 
   ```sh
-  sudo apt-get install postgresql-11
+  # add the repository
+  sudo tee /etc/apt/sources.list.d/pgdg.list << END
+  deb http://apt.postgresql.org/pub/repos/apt/ bionic-pgdg main
+  END
 
+  # get the signing key and import it
+  wget https://www.postgresql.org/media/keys/ACCC4CF8.asc
+  sudo apt-key add ACCC4CF8.asc
+
+  # fetch the metadata from the new repo
+  sudo apt-get update
+
+  # install postgresql and the dev library
+  sudo apt-get install postgresql-11
   sudo apt-get install postgresql-server-dev-11
   ```
 
-- Install RocksDB from source code:
-
+- Install [RocksDB](https://github.com/facebook/rocksdb) from source code:
 
   ```sh
+  git clone -b v6.2.4 https://github.com/facebook/rocksdb.git
+
   cd rocksdb
 
   sudo DEBUG_LEVEL=0 make shared_lib install-shared
@@ -37,9 +50,11 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
   sudo ldconfig
   ```
 
-- Build this foreign data wrapper with RocksDB:
-  
+- Build this foreign data wrapper:
+
   ```sh
+  git clone https://github.com/vidardb/PostgresForeignDataWrapper.git
+
   cd PostgresForeignDataWrapper 
 
   make
@@ -47,17 +62,15 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
   sudo make install
   ```
 
-- Build this foreign data wrapper with VidarDB:
+  To build the foreign data wrapper for [VidarDB](https://github.com/vidardb/vidardb), add flag `VIDARDB=true` to the above `make` command.
+
+- Before using this foreign data wrapper, we need to add it to `shared_preload_libraries` in the `postgresql.conf`:
 
   ```sh
-  cd PostgresForeignDataWrapper 
-
-  make VIDARDB=true
-
-  sudo make install
+  sudo echo "shared_preload_libraries = 'kv_fdw'" >> /etc/postgresql/11/main/postgresql.conf
   ```
 
-- Restart the PostgreSQL server to enable this extension:
+  and restart PostgreSQL:
 
   ```sh
   sudo service postgresql restart
@@ -79,22 +92,9 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
 
 # Usage
 
-Before using this foreign data wrapper, you need to add it to ```shared_preload_libraries``` in your ```postgresql.conf``` 
-
-```sh
-    shared_preload_libraries = 'kv_fdw'    # (change requires restart)
-```    
-
-and restart Postgres:
-
-
-```sh
-    sudo service postgresql restart  
-```
-
 This extension does not have any parameter. After creating the extension and corresponding server, you can use RocksDB as a foreign storage engine for your PostgreSQL.
 
-A simple example is as follows.
+A simple example is as follows (*you can run '`sudo -u postgres psql -U postgres`' to connect the local postgresql server*):
 
 
 ```

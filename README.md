@@ -51,7 +51,7 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
   ```
 
 - Build this foreign data wrapper:
-  
+
   ```sh
   git clone https://github.com/vidardb/PostgresForeignDataWrapper.git
 
@@ -62,13 +62,9 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
   sudo make install
   ```
 
-  If you want to build this foreign data wrapper for [VidarDB](https://github.com/vidardb/vidardb), you can build like this:
+  To build the foreign data wrapper for [VidarDB](https://github.com/vidardb/vidardb), add flag `VIDARDB=true` to the above `make` command.
 
-  ```sh
-  make VIDARDB=true
-  ```
-
-- Instead of using this foreign data wrapper you need to add it to ```shared_preload_libraries``` in your ```postgresql.conf```:
+- Before using this foreign data wrapper, we need to add it to `shared_preload_libraries` in the `postgresql.conf`:
 
   ```sh
   sudo echo "shared_preload_libraries = 'kv_fdw'" >> /etc/postgresql/11/main/postgresql.conf

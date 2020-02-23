@@ -130,7 +130,7 @@ A simple example is as follows (*you can run '`sudo -u postgres psql -U postgres
 
 # Testing
 
-We have tested certain typical SQL statements and will add more test cases later. The test scripts are in the test/sql folder. The corresponding results can be found in the test/expected folder. You can run the tests in the following way *with a non-root user*:
+We have tested certain typical SQL statements and will add more test cases later. The test scripts are in the test/sql folder which are recommended to be placed in a non-root directory. The corresponding results can be found in the test/expected folder. You can run the tests in the following way:
 
 
 ```sh

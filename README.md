@@ -67,7 +67,7 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
 - Before using this foreign data wrapper, we need to add it to `shared_preload_libraries` in the `postgresql.conf`:
 
   ```sh
-  sudo echo "shared_preload_libraries = 'kv_fdw'" >> /etc/postgresql/11/main/postgresql.conf
+  sudo bash -c 'echo "shared_preload_libraries = 'kv_fdw'" >> /etc/postgresql/11/main/postgresql.conf'
   ```
 
   and restart PostgreSQL:
@@ -76,7 +76,7 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
   sudo service postgresql restart
   ```
 
-- Uninstall this extension:
+- When uninstall this extension, first issue the following commands, and then delete the data by locating PostgreSQL data folder via `show data_directory;` in PostgreSQL terminal.
 
   ```sh
   cd PostgresForeignDataWrapper

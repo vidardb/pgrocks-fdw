@@ -1,10 +1,10 @@
-# Run PostgreSQL with RocksDB in Docker
+# Run PostgreSQL with RocksDB using Docker
 
-We can easily deploy PostgreSQL with RocksDB in a Docker container. The following document will guide you to install and play with RocksDB in one minute.
+We can easily deploy PostgreSQL with RocksDB using Docker. This section will guide you to install and play with RocksDB in one minute.
 
 ## Requirement
 
-- Docker is the only requirement. Install it at https://docs.docker.com/install/ .
+Docker is the only requirement. Install it at https://docs.docker.com/install/ .
 
 ## Run a RocksDB's Docker container:
 
@@ -31,8 +31,6 @@ For the others who have the PostgreSQL client installed:
 ```sh
 psql -h 127.0.0.1 -p 5432 -U postgres
 ```
-
-Then we can connect to the PostgreSQL successfully (retry the connecting command again).
 
 ## Build your own Docker image
 

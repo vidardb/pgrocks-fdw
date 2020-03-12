@@ -163,7 +163,7 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
                      PERMISSION,
                      __func__);
 
-    /* will be provided by storage engine later */
+    /* TODO: will be provided by storage engine later */
     for (auto it = res.begin(), *bufLen = 0; it != res.end(); ++it) {
         *bufLen += it->user_key.size() + it->user_val.size() + sizeof(size_t) * 2;
     }

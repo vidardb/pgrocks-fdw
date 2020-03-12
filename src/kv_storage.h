@@ -17,7 +17,7 @@ extern "C" {
  */
 
 #ifdef VidarDB
-void* Open(char* path, bool useColumn, int ColumnNumber);
+void* Open(char* path, bool useColumn, uint32_t ColumnNumber);
 #else
 void* Open(char* path);
 #endif
@@ -47,10 +47,11 @@ typedef struct RangeQueryOptions {
     char* limit;
     size_t targetNum;
     uint32_t* targetIndexes;
-    int32 batchCapacity;
+    size_t batchCapacity;
 } RangeQueryOptions;
 
-bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* rangeQueryOptions, pid_t pid, size_t* buffSize);
+bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
+                pid_t pid, size_t* bufLen);
 #endif
 
 #if defined(__cplusplus)

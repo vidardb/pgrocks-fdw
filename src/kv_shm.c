@@ -702,7 +702,7 @@ void NextResponse(char *area) {
                     (errmsg("%s failed in hash search for iterator", __func__)));
         } else {
             char *key = NULL, *val = NULL;
-            uint32 keyLen = 0, valLen = 0;
+            size_t keyLen = 0, valLen = 0;
    
             bool res = Next(entry->db,
                             iterEntry->iter,
@@ -803,7 +803,7 @@ static void GetResponse(char *area) {
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
-        uint32 keyLen, valLen;
+        size_t keyLen, valLen;
         char *current = area + sizeof(responseId) + sizeof(relationId);
 
         memcpy(&keyLen, current, sizeof(keyLen));

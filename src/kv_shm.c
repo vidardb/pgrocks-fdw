@@ -29,6 +29,15 @@ typedef struct KVIterHashEntry {
     void *iter;
 } KVIterHashEntry;
 
+#ifdef VidarDB
+typedef struct KVReadOptionsEntry {
+    KVIterHashKey key;
+    void *readOptions;
+} KVReadOptionsEntry;
+
+HTAB *kvReadOptionsHash = NULL;
+#endif
+
 
 pid_t kvWorkerPid = 0;  // in postmaster process
 
@@ -63,6 +72,10 @@ static void GetResponse(char *area);
 static void PutResponse(char *area);
 
 static void DeleteResponse(char *area);
+
+#ifdef VidarDB
+static void RangeQueryResponse(char *area);
+#endif
 
 
 /*
@@ -282,6 +295,20 @@ static void KVWorkerMain(int argc, char *argv[]) {
                              &iterhash_ctl,
                              HASH_ELEM | HASH_COMPARE);
 
+    #ifdef VidarDB
+    HASHCTL optionhash_ctl;
+    memset(&optionhash_ctl, 0, sizeof(optionhash_ctl));
+    optionhash_ctl.keysize = sizeof(KVIterHashKey);
+    optionhash_ctl.entrysize = sizeof(KVReadOptionsEntry);
+    optionhash_ctl.match = CompareKVIterHashKey;
+    kvReadOptionsHash = hash_create("kvReadOptionsHash",
+                                    HASHSIZE,
+                                    &optionhash_ctl,
+                                    HASH_ELEM | HASH_COMPARE);
+
+    #endif
+
+
     char buf[BUFSIZE];
     do {
         SemWait(&ptr->worker, __func__);
@@ -328,6 +355,11 @@ static void KVWorkerMain(int argc, char *argv[]) {
             case DELETE:
                 DeleteResponse(buf + sizeof(responseId));
                 break;
+            #ifdef VidarDB
+            case RANGEQUERY:
+                RangeQueryResponse(buf);
+                break;
+            #endif
             default:
                 ereport(ERROR, (errmsg("%s failed in switch", __func__)));
         }
@@ -372,7 +404,7 @@ static int StartKVWorker(void) {
     return 0;
 }
 
-SharedMem *OpenRequest(Oid relationId, SharedMem *ptr) {
+SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...) {
     printf("\n============%s============\n", __func__);
 
     if (!ptr) {
@@ -405,10 +437,22 @@ SharedMem *OpenRequest(Oid relationId, SharedMem *ptr) {
     memcpy(ptr->area, &func, sizeof(FuncName));
     uint32 responseId = GetResponseQueueIndex(ptr);
     memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
+    char* current = ptr->area + sizeof(FuncName) + sizeof(responseId);
+    #ifdef VidarDB
+    va_list vl;
+    va_start(vl, ptr);
+    bool useColumn = (bool)va_arg(vl, int);
+    memcpy(current, &useColumn, sizeof(useColumn));
+    current = current + sizeof(useColumn);
+    int columnNum = va_arg(vl, int);
+    memcpy(current, &columnNum, sizeof(columnNum));
+    current = current + sizeof(columnNum);
+    #endif
 
     KVFdwOptions *fdwOptions = KVGetOptions(relationId);
     char *path = fdwOptions->filename;
-    strcpy(ptr->area + sizeof(FuncName) + sizeof(responseId), path);
+    strcpy(current, path);
+
 
     SemPost(&ptr->worker, __func__);
     // unlock
@@ -422,8 +466,17 @@ SharedMem *OpenRequest(Oid relationId, SharedMem *ptr) {
 static void OpenResponse(char *area) {
     printf("\n============%s============\n", __func__);
 
+    char* current  = area;
+    #ifdef VidarDB
+    bool useColumn = false;
+    memcpy(&useColumn, current, sizeof(useColumn));
+    current = current + sizeof(useColumn);
+    int columnNum = 0;
+    memcpy(&columnNum, current, sizeof(columnNum));
+    current = current + sizeof(columnNum);
+    #endif
     char path[PATHMAXLENGTH];
-    strcpy(path, area);
+    strcpy(path, current);
     char *pos = strrchr(path, '/');
     Oid relationId = atoi(pos + 1);
     bool found;
@@ -432,7 +485,11 @@ static void OpenResponse(char *area) {
     if (!found) {
         entry->relationId = relationId;
         entry->ref = 1;
+        #ifdef VidarDB
+        entry->db = Open(path, useColumn, columnNum);
+        #else
         entry->db = Open(path);
+        #endif
     } else {
         entry->ref++;
         printf("\n%s ref %d\n", __func__, entry->ref);
@@ -619,9 +676,9 @@ static void DelIterResponse(char *area) {
 bool NextRequest(Oid relationId,
                  SharedMem *ptr,
                  char** key,
-                 uint32* keyLen,
+                 size_t* keyLen,
                  char** val,
-                 uint32* valLen) {
+                 size_t* valLen) {
     printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
@@ -738,9 +795,9 @@ void NextResponse(char *area) {
 bool GetRequest(Oid relationId,
                 SharedMem *ptr,
                 char* key,
-                uint32 keyLen,
+                size_t keyLen,
                 char** val,
-                uint32* valLen) {
+                size_t* valLen) {
     printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
@@ -829,9 +886,9 @@ static void GetResponse(char *area) {
 void PutRequest(Oid relationId,
                 SharedMem *ptr,
                 char* key,
-                uint32 keyLen,
+                size_t keyLen,
                 char* val,
-                uint32 valLen) {
+                size_t valLen) {
     printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
@@ -885,7 +942,7 @@ static void PutResponse(char *area) {
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
-        uint32 keyLen, valLen;
+        size_t keyLen, valLen;
         char *current = area + sizeof(relationId);
 
         memcpy(&keyLen, current, sizeof(keyLen));
@@ -901,7 +958,7 @@ static void PutResponse(char *area) {
     }
 }
 
-void DeleteRequest(Oid relationId, SharedMem *ptr, char* key, uint32 keyLen) {
+void DeleteRequest(Oid relationId, SharedMem *ptr, char* key, size_t keyLen) {
     printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
@@ -942,7 +999,7 @@ static void DeleteResponse(char *area) {
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
-        uint32 keyLen;
+        size_t keyLen;
         char *current = area + sizeof(relationId);
 
         memcpy(&keyLen, current, sizeof(keyLen));
@@ -953,3 +1010,151 @@ static void DeleteResponse(char *area) {
         }
     }
 }
+
+#ifdef VidarDB
+/*
+ * valArr is the pointer to the pointer to the range query result
+ * valArrLen is the pointer to the number of records in the range query result
+ * the return value is whether there is a remaining batch
+ */
+bool RangeQueryRequest(Oid relationId,
+                       SharedMem *ptr,
+                       RangeQueryOptions *rangeQueryOptions,
+                       char **valArr,
+                       size_t *valBufferLen) {
+    printf("\n============%s============\n", __func__);
+    SemWait(&ptr->mutex, __func__);
+    SemWait(&ptr->full, __func__);
+
+    //char filename[FILENAMELENGTH];
+    pid_t pid = getpid();
+    //snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, pid);
+    //ShmUnlink(filename, __func__);
+
+    FuncName func = RANGEQUERY;
+    memcpy(ptr->area, &func, sizeof(FuncName));
+    int response_idx = GetResponseQueueIndex(ptr);
+    memcpy(ptr->area + sizeof(FuncName), &response_idx, sizeof(int));
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(int), &relationId, sizeof(relationId));
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(int) + sizeof(relationId), &pid, sizeof(pid));
+
+    
+    char *current = ptr->area + sizeof(FuncName) + sizeof(int) + sizeof(relationId) + sizeof(pid);
+    
+    memcpy(current, &(rangeQueryOptions->startLen), sizeof(rangeQueryOptions->startLen));
+    current += sizeof(rangeQueryOptions->startLen);
+    if (rangeQueryOptions->startLen > 0) {
+        memcpy(current, rangeQueryOptions->start, rangeQueryOptions->startLen);
+        current += rangeQueryOptions->startLen;
+    }
+        
+    memcpy(current, &(rangeQueryOptions->limitLen), sizeof(rangeQueryOptions->limitLen));
+    current += sizeof(rangeQueryOptions->limitLen);
+    if (rangeQueryOptions->limitLen > 0) {
+        memcpy(current, rangeQueryOptions->limit, rangeQueryOptions->limitLen);
+        current += rangeQueryOptions->limitLen;
+    }
+        
+    memcpy(current, &(rangeQueryOptions->targetNum), sizeof(rangeQueryOptions->targetNum));
+    current += sizeof(rangeQueryOptions->targetNum);
+    if (rangeQueryOptions->targetNum > 0) {
+        memcpy(current, rangeQueryOptions->targetIndexes, 
+               rangeQueryOptions->targetNum * sizeof(uint32_t));
+    }
+
+    SemPost(&ptr->worker, __func__);
+    SemPost(&ptr->mutex, __func__);
+    SemWait(&ptr->responseSync[response_idx], __func__);
+
+    current = ResponseQueue[response_idx];
+    memcpy(valBufferLen, current, sizeof(*valBufferLen));
+
+    if (*valBufferLen == 0) {
+        *valArr = NULL;
+        SemPost(&ptr->responseMutex[response_idx], __func__);
+        return false;
+    }
+    
+    bool hasNext;
+    current += sizeof(*valBufferLen);
+    memcpy(&hasNext, current, sizeof(hasNext));
+
+    char queryFilename[FILENAMELENGTH];
+    snprintf(queryFilename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, pid);
+    int fd = ShmOpen(queryFilename, O_RDWR, PERMISSION, __func__);
+    char* rangeQueryBuffer = Mmap(NULL,
+                          *valBufferLen,
+                          PROT_READ | PROT_WRITE,
+                          MAP_SHARED,
+                          fd,
+                          0,
+                          __func__);
+    Fclose(fd, __func__);
+
+    *valArr = rangeQueryBuffer;
+    
+    SemPost(&ptr->responseMutex[response_idx], __func__);
+    return hasNext;
+}
+
+static void RangeQueryResponse(char *area) {
+    printf("\n============%s============\n", __func__);
+
+    char *current = area;
+    int response_index;
+    memcpy(&response_index, current, sizeof(int));
+    current += sizeof(int);
+    KVIterHashKey optionKey;
+    memcpy(&optionKey.relationId, current, sizeof(optionKey.relationId));
+    current += sizeof(optionKey.relationId);
+    memcpy(&optionKey.pid, current, sizeof(pid_t));
+    current += sizeof(pid_t);
+
+    RangeQueryOptions rqOptions;
+    memcpy(&(rqOptions.startLen), current, sizeof(rqOptions.startLen));
+    current += sizeof(rqOptions.startLen);
+    if (rqOptions.startLen > 0) {
+        char *rqStart = (char*)palloc(rqOptions.startLen);
+        memcpy(rqStart, current, rqOptions.startLen);
+        current += rqOptions.startLen;
+    }
+    memcpy(&(rqOptions.limitLen), current, sizeof(rqOptions.limitLen));
+    current += sizeof(rqOptions.limitLen);
+    if (rqOptions.limitLen > 0) {
+        char *rqLimit = (char*)palloc(rqOptions.limitLen);
+        memcpy(rqLimit, current, rqOptions.limitLen);
+        current += rqOptions.limitLen;
+    }
+    memcpy(&(rqOptions.targetNum), current, sizeof(rqOptions.targetNum));
+    current += sizeof(rqOptions.targetNum);
+    if (rqOptions.targetNum > 0) {
+        uint32_t *targetArray = (uint32_t*)palloc(rqOptions.targetNum);
+        memcpy(targetArray, current, rqOptions.targetNum * sizeof(uint32_t));
+        rqOptions.targetIndexes = targetArray;
+    }
+
+    bool found = false;
+    KVHashEntry *entry = hash_search(kvTableHash, &optionKey.relationId, HASH_FIND, &found);
+    if (!found) {
+        ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
+    } else {
+        bool optionFound = false;
+        KVReadOptionsEntry *optionEntry = hash_search(kvReadOptionsHash, &optionKey, HASH_ENTER, &optionFound);
+        if(!optionFound) {
+            optionEntry->key = optionKey;
+            optionEntry->readOptions = NULL;
+        }
+
+        size_t buffSize = 0;
+        bool ret = RangeQuery(entry->db, &(optionEntry->readOptions), &rqOptions, optionKey.pid, &buffSize);
+        char *current = ResponseQueue[response_index];
+        memcpy(current, &buffSize, sizeof(buffSize));
+        
+        if (buffSize == 0) {
+            return;
+        }
+        current += sizeof(buffSize);
+        memcpy(current, &ret, sizeof(ret));
+    }
+}
+#endif

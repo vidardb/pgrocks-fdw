@@ -6,6 +6,7 @@
 #include "kv_storage.h"
 
 #include <stdbool.h>
+#include <stdarg.h>
 #include <semaphore.h>
 
 #include "postgres.h"
@@ -13,6 +14,7 @@
 #include "nodes/nodes.h"
 #include "access/attnum.h"
 #include "utils/relcache.h"
+#include "utils/builtins.h"
 
 
 /* Defines */
@@ -34,6 +36,11 @@
 
 #define RESPONSEQUEUELENGTH 2
 
+/* Defines for valid options */
+#define OPTION_STORAGE_FORMAT "storage"
+#define OPTION_BATCH_CAPACITY "batch"
+
+#define COLUMNSTORE "column"
 
 /* Shared memory for function requests: 
  * mutex: mutual exclusion of the request buffer;
@@ -75,6 +82,15 @@ typedef struct TableReadState {
     bool isKeyBased;
     bool done;
     StringInfo key;
+
+    #ifdef VidarDB
+    bool isRangeQueryUsed;
+    RangeQueryOptions rangeQueryOptions;
+    char* valArray;
+    size_t valBufferLength;
+    char* dataPtr;
+    bool hasRemaining;
+    #endif
 } TableReadState;
 
 /*
@@ -99,6 +115,9 @@ typedef enum FuncName {
     GET,
     PUT,
     DELETE,
+    #ifdef VidarDB
+    RANGEQUERY,
+    #endif
     TERMINATE
 } FuncName;
 
@@ -112,16 +131,32 @@ extern void _PG_fini(void);
 /* Functions used across files in kv_fdw */
 extern KVFdwOptions *KVGetOptions(Oid foreignTableId);
 
+#ifdef VidarDB
+extern void SerializeAttribute(TupleDesc tupleDescriptor,
+                               Index index,
+                               Datum datum,
+                               StringInfo buffer,
+                               bool useColumn);
+#else
 extern void SerializeAttribute(TupleDesc tupleDescriptor,
                                Index index,
                                Datum datum,
                                StringInfo buffer);
+#endif                               
+
+int GetColumnNumber(Oid foreignTableId);
+
+char * GetOptionValue(Oid foreignTableId, const char *optionName);
+
+bool isColumnUsed(Oid relationId);
+
+int32 getBatchCapacity(Oid relationId);
 
 extern Datum ShortVarlena(Datum datum, int typeLength, char storage);
 
 extern void *KVStorageThreadFun(void *arg);
 
-extern SharedMem *OpenRequest(Oid relationId, SharedMem *ptr);
+extern SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...);
 
 extern void CloseRequest(Oid relationId, SharedMem *ptr);
 
@@ -134,28 +169,37 @@ extern void DelIterRequest(Oid relationId, SharedMem *ptr);
 extern bool NextRequest(Oid relationId,
                         SharedMem *ptr,
                         char** key,
-                        uint32* keyLen,
+                        size_t* keyLen,
                         char** val,
-                        uint32* valLen);
+                        size_t* valLen);
 
 extern bool GetRequest(Oid relationId,
                        SharedMem *ptr,
                        char* key,
-                       uint32 keyLen,
+                       size_t keyLen,
                        char** val,
-                       uint32* valLen);
+                       size_t* valLen);
 
 extern void PutRequest(Oid relationId,
                        SharedMem *ptr,
                        char* key,
-                       uint32 keyLen,
+                       size_t keyLen,
                        char* val,
-                       uint32 valLen);
+                       size_t valLen);
 
 extern void DeleteRequest(Oid relationId,
                           SharedMem *ptr,
                           char* key,
-                          uint32 keyLen);
+                          size_t keyLen);
+
+#ifdef VidarDB
+extern bool RangeQueryRequest(Oid relationId,
+                              SharedMem *ptr,
+                              RangeQueryOptions *rangeQueryOptions,
+                              char **valArr,
+                              size_t *valBufferLen
+                              );
+#endif
 
 /* global variables */
 

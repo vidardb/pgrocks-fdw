@@ -349,7 +349,7 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
 
     TableReadState *readState = (TableReadState *) scanState->fdw_state;
     char *k = NULL, *v = NULL;
-    uint32 kLen = 0, vLen = 0;
+    size_t kLen = 0, vLen = 0;
 
     Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
     bool found = false;

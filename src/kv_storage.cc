@@ -78,8 +78,8 @@ bool Next(void* db, void* iter, char** key, size_t* keyLen,
     if (it == nullptr || !it->Valid()) return false;
 
     *keyLen = it->key().size(), *valLen = it->value().size();
-    *key = (char*) palloc0(*keyLen);
-    *val = (char*) palloc0(*valLen);
+    *key = static_cast<char*>(palloc0(*keyLen));
+    *val = static_cast<char*>(palloc0(*valLen));
 
     memcpy(*key, it->key().data(), *keyLen);
     memcpy(*val, it->value().data(), *valLen);
@@ -93,7 +93,7 @@ bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen) {
     Status s = static_cast<DB*>(db)->Get(ReadOptions(), Slice(key, keyLen), &sval);
     if (!s.ok()) return false;
     *valLen = sval.length();
-    *val = (char*) palloc0(*valLen);
+    *val = static_cast<char*>(palloc0(*valLen));
     memcpy(*val, sval.c_str(), *valLen);
     return true;
 }
@@ -127,7 +127,7 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
 
     ReadOptions* options = static_cast<ReadOptions*>(*readOptions);
     if (options == NULL) {
-        options = (ReadOptions*) palloc0(sizeof(ReadOptions));
+        options = static_cast<ReadOptions*>(palloc0(sizeof(ReadOptions)));
     }
 
     /* first attribute in the value must be returned */
@@ -168,13 +168,13 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
         *bufLen += it->user_key.size() + it->user_val.size() + sizeof(size_t) * 2;
     }
 
-    char *buf = (char*) Mmap(NULL,
-                             *bufLen,
-                             PROT_READ | PROT_WRITE,
-                             MAP_SHARED,
-                             fd,
-                             0,
-                             __func__);
+    char *buf = static_cast<char*>(Mmap(NULL,
+                                   *bufLen,
+                                   PROT_READ | PROT_WRITE,
+                                   MAP_SHARED,
+                                   fd,
+                                   0,
+                                   __func__));
     Ftruncate(fd, *bufLen, __func__);
     Fclose(fd, __func__);
 

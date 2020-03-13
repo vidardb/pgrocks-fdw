@@ -215,15 +215,13 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
             /* Initialize the database */
             #ifdef VidarDB
             bool useColumn = false;
-            char* storageOption = GetOptionValue(relationId, OPTION_STORAGE_FORMAT);
-            if (storageOption != NULL) {
-                if (0 == strncmp(storageOption, COLUMNSTORE, sizeof(COLUMNSTORE))) {
-                    useColumn = true;
-                }
+            char* option = GetOptionValue(relationId, OPTION_STORAGE_FORMAT);
+            if (option != NULL) {
+                useColumn =
+                    (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE)));
             }
             TupleDesc tupleDescriptor = RelationGetDescr(relation);
-            int natts = tupleDescriptor->natts;
-            void *kvDB = Open(kvPath->data, useColumn, natts);
+            void *kvDB = Open(kvPath->data, useColumn, tupleDescriptor->natts);
             #else
             void *kvDB = Open(kvPath->data);
             #endif
@@ -415,22 +413,16 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
     int typeLength = attributeForm->attlen;
     char storage = attributeForm->attstorage;
 
+    /* copy utility gets varlena with 4B header, same with constant */
     datum = ShortVarlena(datum, typeLength, storage);
+
     uint32 offset = buffer->len;
     uint32 datumLength = att_addlength_datum(offset, typeLength, datum);
 
-    if (useColumn && index > 0) {
-        enlargeStringInfo(buffer, datumLength + 1);
-    }else {
-        enlargeStringInfo(buffer, datumLength);
-    }
-    char *current = buffer->data + buffer->len;
+    enlargeStringInfo(buffer, datumLength + (useColumn && index > 0)? 1: 0);
 
-    if (useColumn && index > 0) {
-        memset(current, 0, datumLength + 1 - offset);
-    } else {
-        memset(current, 0, datumLength - offset);
-    }
+    char *current = buffer->data + buffer->len;
+    memset(current, 0, datumLength - offset + (useColumn && index > 0)? 1: 0);
 
     if (typeLength > 0) {
         if (byValue) {
@@ -444,7 +436,7 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
 
     if (useColumn && index > 0) {
         char delimiter = '|';
-        memcpy(current+datumLength-offset+1, &delimiter, 1);
+        memcpy(current + datumLength - offset + 1, &delimiter, 1);
         buffer->len = (datumLength + 1);
     } else {
         buffer->len = datumLength;
@@ -540,12 +532,10 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     uint32 count = tupleDescriptor->natts;
 
     #ifdef VidarDB
-    char* storageOption = GetOptionValue(relationId, OPTION_STORAGE_FORMAT);
+    char* option = GetOptionValue(relationId, OPTION_STORAGE_FORMAT);
     bool useColumn = false;
-    if (storageOption != NULL) {
-        if (0 == strncmp(storageOption, COLUMNSTORE, sizeof(COLUMNSTORE))) {
-            useColumn = true;
-        }
+    if (option != NULL) {
+        useColumn = (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE)));
     }
     ptr = OpenRequest(relationId, ptr, useColumn, count);
     #else

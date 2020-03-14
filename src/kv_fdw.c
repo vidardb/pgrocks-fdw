@@ -15,7 +15,8 @@
 #include "catalog/pg_operator.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
-
+#include "commands/defrem.h"
+#include "foreign/foreign.h"
 
 PG_MODULE_MAGIC;
 
@@ -25,6 +26,61 @@ PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 static SharedMem *ptr = NULL;  // in client process
 
+
+int GetColumnNumber(Oid foreignTableId) {
+    Relation relation = heap_open(foreignTableId, AccessShareLock);
+	TupleDesc tupleDescriptor = RelationGetDescr(relation);
+    int natts = tupleDescriptor->natts;
+    heap_close(relation, AccessShareLock);
+    return natts;
+}
+
+char * GetOptionValue(Oid foreignTableId, const char *optionName) {
+    ForeignTable *foreignTable = NULL;
+	ForeignServer *foreignServer = NULL;
+	List *optionList = NIL;
+	ListCell *optionCell = NULL;
+	char *optionValue = NULL;
+
+	foreignTable = GetForeignTable(foreignTableId);
+	foreignServer = GetForeignServer(foreignTable->serverid);
+
+	optionList = list_concat(optionList, foreignTable->options);
+	optionList = list_concat(optionList, foreignServer->options);
+
+    if (list_length(optionList) > 0) {
+	    foreach(optionCell, optionList)
+	    {
+		    DefElem *optionDef = (DefElem *) lfirst(optionCell);
+		    char *optionDefName = optionDef->defname;
+
+		    if (strncmp(optionDefName, optionName, NAMEDATALEN) == 0)
+		    {
+			    optionValue = defGetString(optionDef);
+			    break;
+		    }
+	    }
+    }
+	return optionValue;
+}
+
+bool isColumnUsed(Oid relationId) {
+    char* storageOption = GetOptionValue(relationId, OPTION_STORAGE_FORMAT);
+    if (storageOption == NULL) return false;
+    if (0 == strncmp(storageOption, COLUMNSTORE, sizeof(COLUMNSTORE))) {
+        return true;
+    }
+    return false;
+}
+
+int32 getBatchCapacity(Oid relationId) {
+    char* batchCapacityString = GetOptionValue(relationId, OPTION_BATCH_CAPACITY);
+    int32 batchCapacityOption = 0;
+    if (batchCapacityString != NULL) {
+        batchCapacityOption = pg_atoi(batchCapacityString, sizeof(int32), 0);
+    }
+    return batchCapacityOption;
+}
 
 static void GetForeignRelSize(PlannerInfo *root,
                               RelOptInfo *baserel,
@@ -53,7 +109,16 @@ static void GetForeignRelSize(PlannerInfo *root,
      * min & max will call GetForeignRelSize & GetForeignPaths multiple times,
      * we should open & close db multiple times.
      */
+    #ifdef VidarDB
+    bool useColumn = isColumnUsed(foreignTableId);
+    int columnNum = 0;
+    if (useColumn ==  true) {
+        columnNum = GetColumnNumber(foreignTableId);
+    }
+    ptr = OpenRequest(foreignTableId, ptr, useColumn, columnNum);
+    #else
     ptr = OpenRequest(foreignTableId, ptr);
+    #endif
 
     /* TODO better estimation */
     baserel->rows = CountRequest(foreignTableId, ptr);
@@ -132,7 +197,16 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
     scanClauses = extract_actual_clauses(scanClauses, false);
 
     /* To accommodate min & max, we open file here */
+    #ifdef VidarDB
+    bool useColumn = isColumnUsed(foreignTableId);
+    int columnNum = 0;
+    if (useColumn ==  true) {
+        columnNum = GetColumnNumber(foreignTableId);
+    }
+    ptr = OpenRequest(foreignTableId, ptr, useColumn, columnNum);
+    #else
     ptr = OpenRequest(foreignTableId, ptr);
+    #endif
 
     /* Create the ForeignScan node */
     return make_foreignscan(targetList,
@@ -147,7 +221,7 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
 
 
 static void GetKeyBasedQual(Node *node,
-                            TupleDesc tupleDescriptor,
+                            Relation relation,
                             TableReadState *readState) {
     if (!node || !IsA(node, OpExpr)) {
         return;
@@ -203,7 +277,16 @@ static void GetKeyBasedQual(Node *node,
      */
     readState->isKeyBased = true;
     readState->key = makeStringInfo();
+    TupleDesc tupleDescriptor = relation->rd_att;
+
+    #ifdef VidarDB
+    Oid foreignTableId = RelationGetRelid(relation);
+    bool useColumn = isColumnUsed(foreignTableId);
+    SerializeAttribute(tupleDescriptor, varattno-1, 
+                        datum, readState->key, useColumn);
+    #else
     SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key);
+    #endif
 
     return;
 }
@@ -247,7 +330,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     foreach (lc, scanState->ss.ps.plan->qual) {
         Expr *state = lfirst(lc);
         GetKeyBasedQual((Node *) state,
-                        scanState->ss.ss_currentRelation->rd_att,
+                        scanState->ss.ss_currentRelation,
                         readState);
         if (readState->isKeyBased) {
             printf("\nkey_based_qual\n");
@@ -257,9 +340,132 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
     if (!readState->isKeyBased) {
         Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
-        GetIterRequest(relationId, ptr);   
+       
+        #ifdef VidarDB
+        bool useColumn = isColumnUsed(relationId);
+        if (useColumn == true) {
+            int listLen = list_length(scanState->ss.ps.plan->targetlist);
+            RangeQueryOptions rqOptions;
+            int32 batchCapa = getBatchCapacity(relationId);
+            rqOptions.batchCapacity = batchCapa;
+            rqOptions.startLen = 0;
+            rqOptions.limitLen = 0;
+            
+            if (listLen > 0)
+            {
+                uint32_t * attrNoArray = (uint32_t *)palloc(listLen);
+                int i = 0;
+                ListCell *targetCell;
+                foreach (targetCell, scanState->ss.ps.plan->targetlist) {
+                    TargetEntry *tEntry = lfirst(targetCell);
+                    
+                    /*The column number to RangeQuery starts from 1 for now*/
+                    if (tEntry->resno > 1) {
+                        *(attrNoArray + i) = tEntry->resorigcol - 1;
+                        i++;
+                    } else {
+                        listLen -= 1;        
+                    }
+                }                
+                rqOptions.targetIndexes = attrNoArray;
+            }
+            rqOptions.targetNum = listLen;
+
+            bool hasNext = RangeQueryRequest(relationId, 
+                                         ptr, 
+                                         &rqOptions, 
+                                         &readState->valArray, 
+                                         &readState->valBufferLength);
+            
+            readState->rangeQueryOptions = rqOptions;
+            readState->hasRemaining = hasNext;
+            readState->dataPtr = readState->valArray;
+        } else {
+            GetIterRequest(relationId, ptr);
+        }
+        #else
+        GetIterRequest(relationId, ptr);
+        #endif   
     }
 }
+
+#ifdef VidarDB
+static void DeserializeTupleByColumn(StringInfo key,
+                                     StringInfo val,
+                                     TupleTableSlot *tupleSlot,
+                                     List *targetList) {
+
+    Datum *values = tupleSlot->tts_values;
+    bool *nulls = tupleSlot->tts_isnull;
+    TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
+    uint32 count = tupleDescriptor->natts;
+    memset(values, 0, count * sizeof(Datum));
+    memset(nulls, false, count * sizeof(bool));
+
+    uint32 bufLen = (count - 1 + 7) / 8;
+
+    StringInfo buffer = makeStringInfo();
+    enlargeStringInfo(buffer, bufLen);
+    buffer->len = bufLen;
+
+    memcpy(buffer->data, val->data, bufLen);
+
+    for (uint32 index = 1; index < count; index++) {
+        uint32 byteIndex = (index - 1) / 8;
+        uint32 bitIndex = (index - 1) % 8;
+        uint8 bitmask = (1 << bitIndex);
+        nulls[index] = (buffer->data[byteIndex] & bitmask)? true: false;
+    }
+    
+    int * attrNoArray = NULL;
+    int targetListLen = list_length(targetList);
+    if (targetListLen > 0)
+    {
+        attrNoArray = (int *)palloc(targetListLen);
+        int i = 0;
+        ListCell *targetCell;
+        foreach (targetCell, targetList) {
+            TargetEntry *tEntry = lfirst(targetCell);
+            *(attrNoArray + i) = tEntry->resorigcol;
+            i++;
+        }                            
+    }
+    
+    uint32 offset = 0;
+    char *current = key->data;
+    
+    for (int index = 0; index <= 1; index++) {
+        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
+        bool byValue = attributeForm->attbyval;
+        int typeLength = attributeForm->attlen;
+    
+        values[index] = fetch_att(current, byValue, typeLength);
+        offset = att_addlength_datum(offset, typeLength, current);
+        offset += 1;
+        if (index == 0) {     
+            offset = bufLen;
+        }
+        current = val->data + offset;
+    }
+
+    for (int targetIdx = 0; targetIdx < targetListLen; targetIdx++)
+    {
+        int attrNum = *(attrNoArray + targetIdx);
+        /*after key and first value*/
+        if (attrNum > 2) {
+            int attrIdx = attrNum - 1;
+            Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, attrIdx);
+            bool byValue = attributeForm->attbyval;
+            int typeLength = attributeForm->attlen;
+        
+            values[attrIdx] = fetch_att(current, byValue, typeLength);
+            offset = att_addlength_datum(offset, typeLength, current);
+            offset +=1;
+            current = val->data + offset;
+        }
+    }    
+}
+#endif
 
 static void DeserializeTuple(StringInfo key,
                              StringInfo val,
@@ -284,7 +490,6 @@ static void DeserializeTuple(StringInfo key,
     memcpy(buffer->data, val->data, bufLen);
 
     for (uint32 index = 1; index < count; index++) {
-
         uint32 byteIndex = (index - 1) / 8;
         uint32 bitIndex = (index - 1) % 8;
         uint8 bitmask = (1 << bitIndex);
@@ -305,13 +510,14 @@ static void DeserializeTuple(StringInfo key,
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
-
+        
         values[index] = fetch_att(current, byValue, typeLength);
         offset = att_addlength_datum(offset, typeLength, current);
-
+            
         if (index == 0) {
             offset = bufLen;
         }
+        
         current = val->data + offset;
     }
 }
@@ -352,6 +558,9 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
     size_t kLen = 0, vLen = 0;
 
     Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
+    #ifdef VidarDB
+    bool useColumn = isColumnUsed(relationId);
+    #endif
     bool found = false;
     if (readState->isKeyBased) {
         if (!readState->done) {
@@ -361,20 +570,78 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
             readState->done = true;
         }
     } else {
+        #ifdef VidarDB
+        if (useColumn) {
+            if (readState->valBufferLength != 0) {
+                char *bufferEnd = readState->valArray + readState->valBufferLength;
+
+                if (readState->dataPtr < bufferEnd)
+                {
+                    memcpy(&kLen, readState->dataPtr, sizeof(kLen));
+                    readState->dataPtr += sizeof(kLen);                    
+                    k = readState->dataPtr;
+                    readState->dataPtr += kLen;
+
+                    memcpy(&vLen, readState->dataPtr, sizeof(vLen));
+                    readState->dataPtr += sizeof(vLen);
+                    v = readState->dataPtr;
+                    readState->dataPtr += vLen;
+
+                    found = true;
+                } else if(readState->hasRemaining) {
+                    Munmap(readState->valArray, readState->valBufferLength, __func__);
+                    bool hasNext = RangeQueryRequest(relationId, 
+                                         ptr, 
+                                         &readState->rangeQueryOptions, 
+                                         &readState->valArray, 
+                                         &readState->valBufferLength);
+
+                    readState->hasRemaining = hasNext;
+                    readState->dataPtr = readState->valArray;
+
+                    if (readState->valBufferLength != 0) {
+                        memcpy(&kLen, readState->dataPtr, sizeof(kLen));
+                        readState->dataPtr += sizeof(kLen);
+                        k = readState->dataPtr;
+                        readState->dataPtr += kLen;
+
+                        memcpy(&vLen, readState->dataPtr, sizeof(vLen));
+                        readState->dataPtr += sizeof(vLen);
+                        v = readState->dataPtr;
+                        readState->dataPtr += vLen;
+
+                        found = true;
+                    }
+                }
+            }
+        } else {
+            found = NextRequest(relationId, ptr, &k, &kLen, &v, &vLen);
+        }
+        #else
         found = NextRequest(relationId, ptr, &k, &kLen, &v, &vLen);
+        #endif
     }
 
     if (found) {
         StringInfo key = makeStringInfo();
         appendBinaryStringInfo(key, k, kLen);
-        StringInfo val = makeStringInfo();
+        StringInfo val = makeStringInfo();             
         appendBinaryStringInfo(val, v, vLen);
-
+        
+        #ifdef VidarDB
+        if (useColumn) {
+            DeserializeTupleByColumn(key, val, tupleSlot, scanState->ss.ps.plan->targetlist);
+            
+        } else {
+            DeserializeTuple(key, val, tupleSlot);
+        }
+        #else
         DeserializeTuple(key, val, tupleSlot);
-
+        #endif
+        
         ExecStoreVirtualTuple(tupleSlot);
     }
-
+    
     return tupleSlot;
 }
 
@@ -404,7 +671,10 @@ static void EndForeignScan(ForeignScanState *scanState) {
     if (readState) {
         Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
 
+        #ifdef VidarDB
+        #else
         DelIterRequest(relationId, ptr);
+        #endif
         CloseRequest(relationId, ptr);
 
         pfree(readState);
@@ -550,7 +820,16 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     heap_open(foreignTableId, ShareUpdateExclusiveLock);
 
     if (operation == CMD_INSERT) {
+        #ifdef VidarDB
+        bool useColumn = isColumnUsed(foreignTableId);
+        int columnNum = 0;
+        if (useColumn ==  true) {
+            columnNum = GetColumnNumber(foreignTableId);
+        }
+        ptr = OpenRequest(foreignTableId, ptr, useColumn, columnNum);
+        #else
         ptr = OpenRequest(foreignTableId, ptr);
+        #endif
     }
 
     if (operation == CMD_DELETE) {
@@ -566,6 +845,49 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     relationInfo->ri_FdwState = (void *) writeState;
 }
 
+#ifdef VidarDB
+static void SerializeTuple(StringInfo key,
+                           StringInfo val,
+                           TupleTableSlot *tupleSlot,
+                           bool useColumn) {
+    TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
+    uint32 count = tupleDescriptor->natts;
+
+    /* first column must exist */
+    uint32 nullsLen = (count - 1 + 7) / 8;
+
+    StringInfo nulls = makeStringInfo();
+    enlargeStringInfo(nulls, nullsLen);
+    nulls->len = nullsLen;
+    memset(nulls->data, 0, nullsLen);
+
+    val->len += nullsLen;
+    for (uint32 index = 0; index < count; index++) {
+
+        if (tupleSlot->tts_isnull[index]) {
+            if (index == 0) {
+                ereport(ERROR, (errmsg("first column cannot be null!")));
+            }
+            uint32 byteIndex = (index - 1) / 8;
+            uint32 bitIndex = (index - 1) % 8;
+            uint8 bitmask = (1 << bitIndex);
+            nulls->data[byteIndex] |= bitmask;
+            continue;
+        }
+
+        Datum datum = tupleSlot->tts_values[index];
+        
+        /*The last column does not require a delimiter*/
+        if (index == count - 1) {
+            useColumn = false;
+        }
+
+        SerializeAttribute(tupleDescriptor, index, datum, index==0? key: val, useColumn);
+    }
+
+    memcpy(val->data, nulls->data, nullsLen);
+}
+#else
 static void SerializeTuple(StringInfo key,
                            StringInfo val,
                            TupleTableSlot *tupleSlot) {
@@ -602,6 +924,7 @@ static void SerializeTuple(StringInfo key,
 
     memcpy(val->data, nulls->data, nullsLen);
 }
+#endif
 
 static TupleTableSlot *ExecForeignInsert(EState *executorState,
                                          ResultRelInfo *relationInfo,
@@ -648,10 +971,16 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
     StringInfo key = makeStringInfo();
     StringInfo val = makeStringInfo();
 
-    SerializeTuple(key, val, tupleSlot);
-
     Relation relation = relationInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
+
+    #ifdef VidarDB
+    bool useColumn = isColumnUsed(foreignTableId);
+    SerializeTuple(key, val, tupleSlot, useColumn);
+    #else
+    SerializeTuple(key, val, tupleSlot);
+    #endif
+
     PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
 
     return tupleSlot;
@@ -702,10 +1031,16 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
     StringInfo key = makeStringInfo();
     StringInfo val = makeStringInfo();
 
-    SerializeTuple(key, val, tupleSlot);
-
     Relation relation = relationInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
+
+    #ifdef VidarDB
+    bool useColumn = isColumnUsed(foreignTableId);
+    SerializeTuple(key, val, tupleSlot, useColumn);
+    #else
+    SerializeTuple(key, val, tupleSlot);
+    #endif
+
     PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
 
     return tupleSlot;
@@ -755,10 +1090,16 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     StringInfo key = makeStringInfo();
     StringInfo val = makeStringInfo();
 
-    SerializeTuple(key, val, planSlot);
-
     Relation relation = relationInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
+    
+    #ifdef VidarDB
+    bool useColumn = isColumnUsed(foreignTableId);
+    SerializeTuple(key, val, planSlot, useColumn);
+    #else
+    SerializeTuple(key, val, planSlot);
+    #endif
+
     DeleteRequest(foreignTableId, ptr, key->data, key->len);
 
     return tupleSlot;
@@ -918,7 +1259,7 @@ Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
 
 Datum kv_fdw_validator(PG_FUNCTION_ARGS) {
     printf("\n-----------------%s----------------------\n", __func__);
-    List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
+    //List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
@@ -926,11 +1267,11 @@ Datum kv_fdw_validator(PG_FUNCTION_ARGS) {
 
     /* no options are supported */
 
-    if (list_length(options_list) > 0) {
+    /*if (list_length(options_list) > 0) {
         ereport(ERROR, (errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
                         errmsg("invalid options"),
                         errhint("FDW does not support any options")));
-    }
+    }*/
 
     PG_RETURN_VOID();
 }

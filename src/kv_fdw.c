@@ -336,12 +336,12 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
             }
             options.targetNum = listLen;
 
-            bool hasNext = RangeQueryRequest(relationId, 
+            bool hasNext = RangeQueryRequest(relationId,
                                              ptr,
                                              &options,
                                              &readState->valArray,
                                              &readState->valBufferLength);
-            
+
             readState->rangeQueryOptions = options;
             readState->hasRemaining = hasNext;
             readState->dataPtr = readState->valArray;
@@ -1050,7 +1050,7 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
 
     Relation relation = relationInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
-    
+
     #ifdef VIDARDB
     bool useColumn = isColumnUsed(foreignTableId);
     SerializeTuple(key, val, planSlot, useColumn);

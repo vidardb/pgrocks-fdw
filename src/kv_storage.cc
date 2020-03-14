@@ -165,8 +165,7 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
 
     /* TODO: will be provided by storage engine later */
     size_t total = 0;
-    for (std::list<RangeQueryKeyVal>::iterator it = res.begin();
-         it != res.end(); ++it) {
+    for (auto it = res.begin(); it != res.end(); ++it) {
         total += it->user_key.size() + it->user_val.size() + sizeof(size_t) * 2;
     }
     *bufLen = total;

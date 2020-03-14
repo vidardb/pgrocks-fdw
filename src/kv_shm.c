@@ -451,7 +451,6 @@ SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...) {
     char *path = fdwOptions->filename;
     strcpy(current, path);
 
-
     SemPost(&ptr->worker, __func__);
     // unlock
     SemPost(&ptr->mutex, __func__);

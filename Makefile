@@ -2,7 +2,7 @@
 MODULE_big   = kv_fdw
 
 ifdef VIDARDB
-PG_CPPFLAGS += -Wno-declaration-after-statement -DVidarDB
+PG_CPPFLAGS += -Wno-declaration-after-statement -DVIDARDB
 SHLIB_LINK   = -lvidardb
 
 COMPILE.cxx.bc = $(CLANG) -xc++ -Wno-ignored-attributes $(BITCODE_CXXFLAGS) $(CPPFLAGS) -emit-llvm -c

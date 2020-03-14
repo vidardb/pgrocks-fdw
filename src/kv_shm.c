@@ -29,7 +29,7 @@ typedef struct KVIterHashEntry {
     void *iter;
 } KVIterHashEntry;
 
-#ifdef VidarDB
+#ifdef VIDARDB
 typedef struct KVReadOptionsEntry {
     KVIterHashKey key;
     void *readOptions;
@@ -73,7 +73,7 @@ static void PutResponse(char *area);
 
 static void DeleteResponse(char *area);
 
-#ifdef VidarDB
+#ifdef VIDARDB
 static void RangeQueryResponse(char *area);
 #endif
 
@@ -294,7 +294,7 @@ static void KVWorkerMain(int argc, char *argv[]) {
                              &iter_hash_ctl,
                              HASH_ELEM | HASH_COMPARE);
 
-    #ifdef VidarDB
+    #ifdef VIDARDB
     HASHCTL option_hash_ctl;
     memset(&option_hash_ctl, 0, sizeof(option_hash_ctl));
     option_hash_ctl.keysize = sizeof(KVIterHashKey);
@@ -352,7 +352,7 @@ static void KVWorkerMain(int argc, char *argv[]) {
             case DELETE:
                 DeleteResponse(buf + sizeof(responseId));
                 break;
-            #ifdef VidarDB
+            #ifdef VIDARDB
             case RANGEQUERY:
                 RangeQueryResponse(buf);
                 break;
@@ -436,7 +436,7 @@ SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...) {
     memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
     char* current = ptr->area + sizeof(FuncName) + sizeof(responseId);
 
-    #ifdef VidarDB
+    #ifdef VIDARDB
     va_list vl;
     va_start(vl, ptr);
     bool useColumn = (bool)va_arg(vl, int);
@@ -464,7 +464,7 @@ SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...) {
 static void OpenResponse(char *area) {
     printf("\n============%s============\n", __func__);
 
-    #ifdef VidarDB
+    #ifdef VIDARDB
     bool useColumn = false;
     memcpy(&useColumn, area, sizeof(useColumn));
     area += sizeof(useColumn);
@@ -483,7 +483,7 @@ static void OpenResponse(char *area) {
     if (!found) {
         entry->relationId = relationId;
         entry->ref = 1;
-        #ifdef VidarDB
+        #ifdef VIDARDB
         entry->db = Open(path, useColumn, columnNum);
         #else
         entry->db = Open(path);
@@ -1009,7 +1009,7 @@ static void DeleteResponse(char *area) {
     }
 }
 
-#ifdef VidarDB
+#ifdef VIDARDB
 /*
  * valArr is the pointer to the pointer to the range query result
  * valArrLen is the pointer to the number of records in the range query result

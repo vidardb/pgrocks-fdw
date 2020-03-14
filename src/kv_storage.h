@@ -16,7 +16,7 @@ extern "C" {
  * C wrapper
  */
 
-#ifdef VidarDB
+#ifdef VIDARDB
 void* Open(char* path, bool useColumn, uint32_t ColumnNumber);
 #else
 void* Open(char* path);
@@ -34,7 +34,7 @@ bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen);
 bool Put(void* db, char* key, size_t keyLen, char* val, size_t valLen);
 bool Delete(void* db, char* key, size_t keyLen);
 
-#ifdef VidarDB
+#ifdef VIDARDB
 #define BATCHCAPACITY 10000
 #define FILENAMELENGTH 20
 #define PERMISSION 0777

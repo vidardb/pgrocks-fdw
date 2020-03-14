@@ -213,7 +213,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
                              relationId);
 
             /* Initialize the database */
-            #ifdef VidarDB
+            #ifdef VIDARDB
             bool useColumn = false;
             char* option = GetOptionValue(relationId, OPTION_STORAGE_FORMAT);
             if (option != NULL) {
@@ -402,7 +402,7 @@ Datum ShortVarlena(Datum datum, int typeLength, char storage) {
     PG_RETURN_DATUM(datum);
 }
 
-#ifdef VidarDB
+#ifdef VIDARDB
 void SerializeAttribute(TupleDesc tupleDescriptor,
                         Index index,
                         Datum datum,
@@ -419,10 +419,10 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
     uint32 offset = buffer->len;
     uint32 datumLength = att_addlength_datum(offset, typeLength, datum);
 
-    enlargeStringInfo(buffer, datumLength + (useColumn && index > 0)? 1: 0);
+    enlargeStringInfo(buffer, datumLength + ((useColumn && index > 0)? 1: 0));
 
     char *current = buffer->data + buffer->len;
-    memset(current, 0, datumLength - offset + (useColumn && index > 0)? 1: 0);
+    memset(current, 0, datumLength - offset + ((useColumn && index > 0)? 1: 0));
 
     if (typeLength > 0) {
         if (byValue) {
@@ -531,7 +531,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     TupleDesc tupleDescriptor = RelationGetDescr(relation);
     uint32 count = tupleDescriptor->natts;
 
-    #ifdef VidarDB
+    #ifdef VIDARDB
     char* option = GetOptionValue(relationId, OPTION_STORAGE_FORMAT);
     bool useColumn = false;
     if (option != NULL) {
@@ -577,10 +577,8 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                     continue;
                 }
                 Datum datum = values[index];
-                #ifdef VidarDB
-                if (index == count - 1) {
-                    useColumn = false;
-                }
+                #ifdef VIDARDB
+                useColumn = (index == count - 1)? false: useColumn;
                 SerializeAttribute(tupleDescriptor,
                                    index,
                                    datum,
@@ -826,6 +824,33 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
                               destReceiver,
                               completionTag);
     }
+}
+
+char *GetOptionValue(Oid foreignTableId, const char *optionName) {
+    ForeignTable *foreignTable = NULL;
+    ForeignServer *foreignServer = NULL;
+    List *optionList = NIL;
+    ListCell *optionCell = NULL;
+    char *optionValue = NULL;
+
+    foreignTable = GetForeignTable(foreignTableId);
+    foreignServer = GetForeignServer(foreignTable->serverid);
+
+    optionList = list_concat(optionList, foreignTable->options);
+    optionList = list_concat(optionList, foreignServer->options);
+
+    if (list_length(optionList) > 0) {
+        foreach (optionCell, optionList) {
+            DefElem *optionDef = (DefElem *) lfirst(optionCell);
+            char *optionDefName = optionDef->defname;
+
+            if (strncmp(optionDefName, optionName, NAMEDATALEN) == 0) {
+                optionValue = defGetString(optionDef);
+                break;
+            }
+        }
+    }
+    return optionValue;
 }
 
 /*

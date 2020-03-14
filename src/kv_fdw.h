@@ -6,7 +6,6 @@
 #include "kv_storage.h"
 
 #include <stdbool.h>
-//#include <stdarg.h>
 #include <semaphore.h>
 
 #include "postgres.h"
@@ -14,7 +13,6 @@
 #include "nodes/nodes.h"
 #include "access/attnum.h"
 #include "utils/relcache.h"
-//#include "utils/builtins.h"
 
 
 /* Defines */
@@ -84,7 +82,7 @@ typedef struct TableReadState {
     bool done;
     StringInfo key;
 
-    #ifdef VidarDB
+    #ifdef VIDARDB
     bool isRangeQueryUsed;
     RangeQueryOptions rangeQueryOptions;
     char *valArray;
@@ -116,7 +114,7 @@ typedef enum FuncName {
     GET,
     PUT,
     DELETE,
-    #ifdef VidarDB
+    #ifdef VIDARDB
     RANGEQUERY,
     #endif
     TERMINATE
@@ -132,7 +130,7 @@ extern void _PG_fini(void);
 /* Functions used across files in kv_fdw */
 extern KVFdwOptions *KVGetOptions(Oid foreignTableId);
 
-#ifdef VidarDB
+#ifdef VIDARDB
 extern void SerializeAttribute(TupleDesc tupleDescriptor,
                                Index index,
                                Datum datum,
@@ -145,13 +143,7 @@ extern void SerializeAttribute(TupleDesc tupleDescriptor,
                                StringInfo buffer);
 #endif
 
-int GetColumnNumber(Oid foreignTableId);
-
-char *GetOptionValue(Oid foreignTableId, const char *optionName);
-
-bool isColumnUsed(Oid relationId);
-
-int32 getBatchCapacity(Oid relationId);
+extern char *GetOptionValue(Oid foreignTableId, const char *optionName);
 
 extern Datum ShortVarlena(Datum datum, int typeLength, char storage);
 
@@ -193,7 +185,7 @@ extern void DeleteRequest(Oid relationId,
                           char *key,
                           size_t keyLen);
 
-#ifdef VidarDB
+#ifdef VIDARDB
 extern bool RangeQueryRequest(Oid relationId,
                               SharedMem *ptr,
                               RangeQueryOptions *options,

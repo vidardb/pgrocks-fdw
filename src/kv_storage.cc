@@ -1,5 +1,5 @@
 
-#ifdef VidarDB
+#ifdef VIDARDB
 #include "vidardb/db.h"
 #include "vidardb/options.h"
 #include "vidardb/table.h"
@@ -16,7 +16,7 @@ using namespace std;
 
 extern "C" {
 
-#ifdef VidarDB
+#ifdef VIDARDB
 void* Open(char* path, bool useColumn, uint32_t columnNum) {
     DB* db = nullptr;
     Options options;
@@ -54,7 +54,7 @@ void Close(void* db) {
 
 uint64 Count(void* db) {
     string num;
-    #ifdef VidarDB
+    #ifdef VIDARDB
     static_cast<DB*>(db)->GetProperty("vidardb.estimate-num-keys", &num);
     #else
     static_cast<DB*>(db)->GetProperty("rocksdb.estimate-num-keys", &num);
@@ -109,7 +109,7 @@ bool Delete(void* db, char* key, size_t keyLen) {
     return s.ok();
 }
 
-#ifdef VidarDB
+#ifdef VIDARDB
 bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
                 pid_t pid, size_t* bufLen) {
     printf("\n-----------------%s----------------------\n", __func__);
@@ -164,9 +164,12 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
                      __func__);
 
     /* TODO: will be provided by storage engine later */
-    for (auto it = res.begin(), *bufLen = 0; it != res.end(); ++it) {
-        *bufLen += it->user_key.size() + it->user_val.size() + sizeof(size_t) * 2;
+    size_t total = 0;
+    for (std::list<RangeQueryKeyVal>::iterator it = res.begin();
+         it != res.end(); ++it) {
+        total += it->user_key.size() + it->user_val.size() + sizeof(size_t) * 2;
     }
+    *bufLen = total;
 
     char *buf = static_cast<char*>(Mmap(NULL,
                                    *bufLen,

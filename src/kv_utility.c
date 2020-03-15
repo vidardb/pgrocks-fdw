@@ -215,7 +215,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
             /* Initialize the database */
             #ifdef VIDARDB
             bool useColumn = false;
-            char* option = GetOptionValue(relationId, OPTION_STORAGE_FORMAT);
+            char* option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
             if (option != NULL) {
                 useColumn =
                     (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE)));
@@ -278,7 +278,7 @@ static char *KVDefaultFilePath(Oid foreignTableId) {
  * looks for the option with the given name. If found, the function returns the
  * option's value. This function is unchanged from mongo_fdw.
  */
-static char *KVGetOptionValue(Oid foreignTableId, const char *optionName) {
+char *KVGetOptionValue(Oid foreignTableId, const char *optionName) {
     ForeignTable *foreignTable = GetForeignTable(foreignTableId);
     ForeignServer *foreignServer = GetForeignServer(foreignTable->serverid);
 
@@ -532,7 +532,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     uint32 count = tupleDescriptor->natts;
 
     #ifdef VIDARDB
-    char* option = GetOptionValue(relationId, OPTION_STORAGE_FORMAT);
+    char* option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
     bool useColumn = false;
     if (option != NULL) {
         useColumn = (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE)));
@@ -824,33 +824,6 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
                               destReceiver,
                               completionTag);
     }
-}
-
-char *GetOptionValue(Oid foreignTableId, const char *optionName) {
-    ForeignTable *foreignTable = NULL;
-    ForeignServer *foreignServer = NULL;
-    List *optionList = NIL;
-    ListCell *optionCell = NULL;
-    char *optionValue = NULL;
-
-    foreignTable = GetForeignTable(foreignTableId);
-    foreignServer = GetForeignServer(foreignTable->serverid);
-
-    optionList = list_concat(optionList, foreignTable->options);
-    optionList = list_concat(optionList, foreignServer->options);
-
-    if (list_length(optionList) > 0) {
-        foreach (optionCell, optionList) {
-            DefElem *optionDef = (DefElem *) lfirst(optionCell);
-            char *optionDefName = optionDef->defname;
-
-            if (strncmp(optionDefName, optionName, NAMEDATALEN) == 0) {
-                optionValue = defGetString(optionDef);
-                break;
-            }
-        }
-    }
-    return optionValue;
 }
 
 /*

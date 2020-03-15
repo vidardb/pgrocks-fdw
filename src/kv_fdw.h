@@ -88,7 +88,7 @@ typedef struct TableReadState {
     char *valArray;
     size_t valBufferLength;
     char *dataPtr;
-    bool hasRemaining;
+    bool hasNext;
     #endif
 } TableReadState;
 
@@ -143,7 +143,7 @@ extern void SerializeAttribute(TupleDesc tupleDescriptor,
                                StringInfo buffer);
 #endif
 
-extern char *GetOptionValue(Oid foreignTableId, const char *optionName);
+extern char *KVGetOptionValue(Oid foreignTableId, const char *optionName);
 
 extern Datum ShortVarlena(Datum datum, int typeLength, char storage);
 

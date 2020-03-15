@@ -39,7 +39,7 @@ static int GetColumnNumber(Oid foreignTableId) {
 }
 
 static bool isColumnUsed(Oid relationId) {
-    char *option = GetOptionValue(relationId, OPTION_STORAGE_FORMAT);
+    char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
     if (option == NULL) {
         return false;
     }
@@ -47,12 +47,8 @@ static bool isColumnUsed(Oid relationId) {
 }
 
 static int32 GetBatchCapacity(Oid relationId) {
-    char *batchCapacityString = GetOptionValue(relationId, OPTION_BATCH_CAPACITY);
-    int32 batchCapacityOption = 0;
-    if (batchCapacityString != NULL) {
-        batchCapacityOption = pg_atoi(batchCapacityString, sizeof(int32), 0);
-    }
-    return batchCapacityOption;
+    char *batchCapacityString = KVGetOptionValue(relationId, OPTION_BATCH_CAPACITY);
+    return batchCapacityString? pg_atoi(batchCapacityString, sizeof(int32), 0): 0;
 }
 #endif
 
@@ -187,7 +183,6 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
                             NULL);
 }
 
-
 static void GetKeyBasedQual(Node *node,
                             Relation relation,
                             TableReadState *readState) {
@@ -307,7 +302,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
     if (!readState->isKeyBased) {
         Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
-       
+
         #ifdef VIDARDB
         bool useColumn = isColumnUsed(relationId);
         if (useColumn) {
@@ -318,15 +313,15 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
             options.limitLen = 0;
 
             if (listLen > 0) {
-                uint32_t *attrNoArray = (uint32_t *) palloc(listLen);
+                uint32_t *attrNoArray = palloc(listLen);
                 int i = 0;
                 ListCell *targetCell;
                 foreach (targetCell, scanState->ss.ps.plan->targetlist) {
-                    TargetEntry *tEntry = lfirst(targetCell);
+                    TargetEntry *targetEntry = lfirst(targetCell);
 
                     /*The column number to RangeQuery starts from 1 for now*/
-                    if (tEntry->resno > 1) {
-                        *(attrNoArray + i) = tEntry->resorigcol - 1;
+                    if (targetEntry->resno > 1) {
+                        *(attrNoArray + i) = targetEntry->resorigcol - 1;
                         i++;
                     } else {
                         listLen -= 1;
@@ -336,21 +331,20 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
             }
             options.targetNum = listLen;
 
-            bool hasNext = RangeQueryRequest(relationId,
-                                             ptr,
-                                             &options,
-                                             &readState->valArray,
-                                             &readState->valBufferLength);
+            readState->hasNext = RangeQueryRequest(relationId,
+                                                   ptr,
+                                                   &options,
+                                                   &readState->valArray,
+                                                   &readState->valBufferLength);
 
             readState->rangeQueryOptions = options;
-            readState->hasRemaining = hasNext;
             readState->dataPtr = readState->valArray;
         } else {
             GetIterRequest(relationId, ptr);
         }
         #else
         GetIterRequest(relationId, ptr);
-        #endif   
+        #endif
     }
 }
 
@@ -381,7 +375,7 @@ static void DeserializeTupleByColumn(StringInfo key,
         uint8 bitmask = (1 << bitIndex);
         nulls[index] = (buffer->data[byteIndex] & bitmask)? true: false;
     }
-    
+
     int * attrNoArray = NULL;
     int targetListLen = list_length(targetList);
     if (targetListLen > 0) {
@@ -550,15 +544,14 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
                     readState->dataPtr += vLen;
 
                     found = true;
-                } else if(readState->hasRemaining) {
+                } else if(readState->hasNext) {
                     Munmap(readState->valArray, readState->valBufferLength, __func__);
-                    bool hasNext = RangeQueryRequest(relationId, 
-                                         ptr, 
-                                         &readState->rangeQueryOptions, 
-                                         &readState->valArray, 
-                                         &readState->valBufferLength);
+                    readState->hasNext = RangeQueryRequest(relationId,
+                                             ptr,
+                                             &readState->rangeQueryOptions,
+                                             &readState->valArray,
+                                             &readState->valBufferLength);
 
-                    readState->hasRemaining = hasNext;
                     readState->dataPtr = readState->valArray;
 
                     if (readState->valBufferLength != 0) {
@@ -834,7 +827,7 @@ static void SerializeTuple(StringInfo key,
         }
 
         Datum datum = tupleSlot->tts_values[index];
-        
+
         /*The last column does not require a delimiter*/
         if (index == count - 1) {
             useColumn = false;

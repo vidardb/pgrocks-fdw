@@ -626,9 +626,14 @@ static void EndForeignScan(ForeignScanState *scanState) {
         Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
 
         #ifdef VIDARDB
+        bool useColumn = isColumnUsed(relationId);
+        if (useColumn == false) {
+            DelIterRequest(relationId, ptr);
+	}
         #else
         DelIterRequest(relationId, ptr);
         #endif
+
         CloseRequest(relationId, ptr);
 
         pfree(readState);

@@ -83,11 +83,11 @@ typedef struct TableReadState {
     StringInfo key;
 
     #ifdef VIDARDB
-    RangeQueryOptions rangeQueryOptions;
-    char *valArray; /*buffer for data returned by RangeQuery*/
-    size_t valBufferLength; /*buffer length*/
-    char *dataPtr; /*pointer to the next data entry for IterateForeignScan*/
-    bool hasNext; /*whether there will be a next batch from RangeQuery*/
+    RangeQueryOptions options;
+    char *buf;      // buffer for data returned by RangeQuery
+    size_t bufLen;  // buffer length
+    char *next;     // pointer to the next data entry for IterateForeignScan
+    bool hasNext;   // whether there will be a next batch from RangeQuery
     #endif
 } TableReadState;
 
@@ -188,8 +188,8 @@ extern void DeleteRequest(Oid relationId,
 extern bool RangeQueryRequest(Oid relationId,
                               SharedMem *ptr,
                               RangeQueryOptions *options,
-                              char **valArr,
-                              size_t *valBufferLen);
+                              char **buf,
+                              size_t *bufLen);
 #endif
 
 /* global variables */

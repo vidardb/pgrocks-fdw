@@ -42,11 +42,11 @@ bool Delete(void* db, char* key, size_t keyLen);
 
 typedef struct RangeQueryOptions {
     size_t startLen;
-    char* start;
+    char *start;
     size_t limitLen;
-    char* limit;
+    char *limit;
     size_t targetNum;
-    uint32_t* targetIndexes;
+    uint32_t *targetArray;
     size_t batchCapacity;
 } RangeQueryOptions;
 

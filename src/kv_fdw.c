@@ -327,18 +327,18 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
                         listLen -= 1;
                     }
                 }
-                options.targetIndexes = attrNoArray;
+                options.targetArray = attrNoArray;
             }
             options.targetNum = listLen;
 
             readState->hasNext = RangeQueryRequest(relationId,
                                                    ptr,
                                                    &options,
-                                                   &readState->valArray,
-                                                   &readState->valBufferLength);
+                                                   &readState->buf,
+                                                   &readState->bufLen);
 
-            readState->rangeQueryOptions = options;
-            readState->dataPtr = readState->valArray;
+            readState->options = options;
+            readState->next = readState->buf;
         } else {
             GetIterRequest(relationId, ptr);
         }
@@ -529,41 +529,41 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
     } else {
         #ifdef VIDARDB
         if (useColumn) {
-            if (readState->valBufferLength != 0) {
-                char *bufferEnd = readState->valArray + readState->valBufferLength;
+            if (readState->bufLen != 0) {
+                char *bufferEnd = readState->buf + readState->bufLen;
 
-                if (readState->dataPtr < bufferEnd) {
-                    memcpy(&kLen, readState->dataPtr, sizeof(kLen));
-                    readState->dataPtr += sizeof(kLen);
-                    k = readState->dataPtr;
-                    readState->dataPtr += kLen;
+                if (readState->next < bufferEnd) {
+                    memcpy(&kLen, readState->next, sizeof(kLen));
+                    readState->next += sizeof(kLen);
+                    k = readState->next;
+                    readState->next += kLen;
 
-                    memcpy(&vLen, readState->dataPtr, sizeof(vLen));
-                    readState->dataPtr += sizeof(vLen);
-                    v = readState->dataPtr;
-                    readState->dataPtr += vLen;
+                    memcpy(&vLen, readState->next, sizeof(vLen));
+                    readState->next += sizeof(vLen);
+                    v = readState->next;
+                    readState->next += vLen;
 
                     found = true;
                 } else if(readState->hasNext) {
-                    Munmap(readState->valArray, readState->valBufferLength, __func__);
+                    Munmap(readState->buf, readState->bufLen, __func__);
                     readState->hasNext = RangeQueryRequest(relationId,
                                              ptr,
-                                             &readState->rangeQueryOptions,
-                                             &readState->valArray,
-                                             &readState->valBufferLength);
+                                             &readState->options,
+                                             &readState->buf,
+                                             &readState->bufLen);
 
-                    readState->dataPtr = readState->valArray;
+                    readState->next = readState->buf;
 
-                    if (readState->valBufferLength != 0) {
-                        memcpy(&kLen, readState->dataPtr, sizeof(kLen));
-                        readState->dataPtr += sizeof(kLen);
-                        k = readState->dataPtr;
-                        readState->dataPtr += kLen;
+                    if (readState->bufLen != 0) {
+                        memcpy(&kLen, readState->next, sizeof(kLen));
+                        readState->next += sizeof(kLen);
+                        k = readState->next;
+                        readState->next += kLen;
 
-                        memcpy(&vLen, readState->dataPtr, sizeof(vLen));
-                        readState->dataPtr += sizeof(vLen);
-                        v = readState->dataPtr;
-                        readState->dataPtr += vLen;
+                        memcpy(&vLen, readState->next, sizeof(vLen));
+                        readState->next += sizeof(vLen);
+                        v = readState->next;
+                        readState->next += vLen;
 
                         found = true;
                     }
@@ -629,7 +629,7 @@ static void EndForeignScan(ForeignScanState *scanState) {
         bool useColumn = isColumnUsed(relationId);
         if (useColumn == false) {
             DelIterRequest(relationId, ptr);
-	}
+        }
         #else
         DelIterRequest(relationId, ptr);
         #endif

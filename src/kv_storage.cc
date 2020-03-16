@@ -134,7 +134,7 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
     options->columns.push_back(1);
     if (queryOptions != NULL) {
         for (size_t i = 0; i < queryOptions->targetNum; i++) {
-            uint32_t targetIdx = *(queryOptions->targetIndexes + i);
+            uint32_t targetIdx = *(queryOptions->targetArray + i);
             if (targetIdx > 1) {
                 options->columns.push_back(targetIdx);
             }

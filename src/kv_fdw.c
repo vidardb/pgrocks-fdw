@@ -381,7 +381,7 @@ static void DeserializeTupleByColumn(StringInfo key,
     AttrNumber *attrs = NULL;
     int targetListLen = list_length(targetList);
     if (targetListLen > 0) {
-        attrs = (AttrNumber *) palloc(targetListLen);
+        attrs = (AttrNumber *) palloc(targetListLen * sizeof(*attrs));
         int i = 0;
         ListCell *targetCell;
         foreach (targetCell, targetList) {
@@ -393,8 +393,7 @@ static void DeserializeTupleByColumn(StringInfo key,
 
     int offset = 0;
     char *current = key->data;
-
-    for (int index = 0; index <= 1; index++) {
+    for (int index = 0; index < 2; index++) {
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
@@ -411,17 +410,18 @@ static void DeserializeTupleByColumn(StringInfo key,
     for (int targetIdx = 0; targetIdx < targetListLen; targetIdx++) {
         AttrNumber attr = *(attrs + targetIdx);
         /* after key and first value */
-        if (attr > 2) {
-            AttrNumber attrIdx = attr - 1;
-            Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, attrIdx);
-            bool byValue = attributeForm->attbyval;
-            int typeLength = attributeForm->attlen;
-
-            values[attrIdx] = fetch_att(current, byValue, typeLength);
-            offset = att_addlength_datum(offset, typeLength, current);
-            offset +=1;
-            current = val->data + offset;
+        if (attr <= 2) {
+            continue;
         }
+        attr--;
+        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, attr);
+        bool byValue = attributeForm->attbyval;
+        int typeLength = attributeForm->attlen;
+
+        values[attr] = fetch_att(current, byValue, typeLength);
+        offset = att_addlength_datum(offset, typeLength, current);
+        offset += 1;
+        current = val->data + offset;
     }
 }
 #endif
@@ -530,11 +530,32 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
         }
     } else {
         #ifdef VIDARDB
-        if (useColumn) {
-            if (readState->bufLen != 0) {
-                char *bufferEnd = readState->buf + readState->bufLen;
+        if (useColumn && readState->bufLen != 0) {
 
-                if (readState->next < bufferEnd) {
+            char *bufEnd = readState->buf + readState->bufLen;
+            if (readState->next < bufEnd) {
+                memcpy(&kLen, readState->next, sizeof(kLen));
+                readState->next += sizeof(kLen);
+                k = readState->next;
+                readState->next += kLen;
+
+                memcpy(&vLen, readState->next, sizeof(vLen));
+                readState->next += sizeof(vLen);
+                v = readState->next;
+                readState->next += vLen;
+
+                found = true;
+            } else if (readState->hasNext) {
+                Munmap(readState->buf, readState->bufLen, __func__);
+                readState->hasNext = RangeQueryRequest(relationId,
+                                                       ptr,
+                                                       &readState->options,
+                                                       &readState->buf,
+                                                       &readState->bufLen);
+
+                readState->next = readState->buf;
+
+                if (readState->bufLen != 0) {
                     memcpy(&kLen, readState->next, sizeof(kLen));
                     readState->next += sizeof(kLen);
                     k = readState->next;
@@ -546,29 +567,6 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
                     readState->next += vLen;
 
                     found = true;
-                } else if (readState->hasNext) {
-                    Munmap(readState->buf, readState->bufLen, __func__);
-                    readState->hasNext = RangeQueryRequest(relationId,
-                                             ptr,
-                                             &readState->options,
-                                             &readState->buf,
-                                             &readState->bufLen);
-
-                    readState->next = readState->buf;
-
-                    if (readState->bufLen != 0) {
-                        memcpy(&kLen, readState->next, sizeof(kLen));
-                        readState->next += sizeof(kLen);
-                        k = readState->next;
-                        readState->next += kLen;
-
-                        memcpy(&vLen, readState->next, sizeof(vLen));
-                        readState->next += sizeof(vLen);
-                        v = readState->next;
-                        readState->next += vLen;
-
-                        found = true;
-                    }
                 }
             }
         } else {
@@ -808,6 +806,7 @@ static void SerializeTuple(StringInfo key,
                            StringInfo val,
                            TupleTableSlot *tupleSlot,
                            bool useColumn) {
+
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
     int count = tupleDescriptor->natts;
 
@@ -820,6 +819,7 @@ static void SerializeTuple(StringInfo key,
     memset(nulls->data, 0, nullsLen);
 
     val->len += nullsLen;
+
     for (int index = 0; index < count; index++) {
 
         if (tupleSlot->tts_isnull[index]) {

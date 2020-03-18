@@ -439,12 +439,15 @@ SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...) {
     #ifdef VIDARDB
     va_list vl;
     va_start(vl, ptr);
-    bool useColumn = (bool)va_arg(vl, int);
+
+    bool useColumn = (bool) va_arg(vl, int);
     memcpy(current, &useColumn, sizeof(useColumn));
     current += sizeof(useColumn);
-    int columnNum = va_arg(vl, int);
-    memcpy(current, &columnNum, sizeof(columnNum));
-    current += sizeof(columnNum);
+
+    int attrCount = va_arg(vl, int);
+    memcpy(current, &attrCount, sizeof(attrCount));
+    current += sizeof(attrCount);
+    va_end(vl);
     #endif
 
     KVFdwOptions *fdwOptions = KVGetOptions(relationId);
@@ -467,9 +470,9 @@ static void OpenResponse(char *area) {
     bool useColumn = false;
     memcpy(&useColumn, area, sizeof(useColumn));
     area += sizeof(useColumn);
-    int columnNum = 0;
-    memcpy(&columnNum, area, sizeof(columnNum));
-    area += sizeof(columnNum);
+    int attrCount = 0;
+    memcpy(&attrCount, area, sizeof(attrCount));
+    area += sizeof(attrCount);
     #endif
 
     char path[PATHMAXLENGTH];
@@ -483,7 +486,7 @@ static void OpenResponse(char *area) {
         entry->relationId = relationId;
         entry->ref = 1;
         #ifdef VIDARDB
-        entry->db = Open(path, useColumn, columnNum);
+        entry->db = Open(path, useColumn, attrCount);
         #else
         entry->db = Open(path);
         #endif
@@ -710,14 +713,14 @@ bool NextRequest(Oid relationId,
     }
 
     current += sizeof(*keyLen);
-    *key = palloc0(*keyLen);
+    *key = palloc(*keyLen);
     memcpy(*key, current, *keyLen);
 
     current += *keyLen;
     memcpy(valLen, current, sizeof(*valLen));
 
     current += sizeof(*valLen);
-    *val = palloc0(*valLen);
+    *val = palloc(*valLen);
     memcpy(*val, current, *valLen);
 
     SemPost(&ptr->responseMutex[responseId], __func__);
@@ -835,7 +838,7 @@ bool GetRequest(Oid relationId,
 
     current += sizeof(*valLen);
     
-    *val = palloc0(*valLen);
+    *val = palloc(*valLen);
     memcpy(*val, current, *valLen);
 
     SemPost(&ptr->responseMutex[responseId], __func__);
@@ -1010,9 +1013,7 @@ static void DeleteResponse(char *area) {
 
 #ifdef VIDARDB
 /*
- * valArr is the pointer to the pointer to the range query result
- * valArrLen is the pointer to the number of records in the range query result
- * the return value is whether there is a remaining batch
+ * return whether there is a remaining batch
  */
 bool RangeQueryRequest(Oid relationId,
                        SharedMem *ptr,
@@ -1023,22 +1024,18 @@ bool RangeQueryRequest(Oid relationId,
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
 
-    //char filename[FILENAMELENGTH];
-    pid_t pid = getpid();
-    //snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, pid);
-    //ShmUnlink(filename, __func__);
-
     FuncName func = RANGEQUERY;
     memcpy(ptr->area, &func, sizeof(FuncName));
-    uint32 responseId = GetResponseQueueIndex(ptr);
-
     char *current = ptr->area + sizeof(FuncName);
+
+    uint32 responseId = GetResponseQueueIndex(ptr);
     memcpy(current, &responseId, sizeof(responseId));
     current += sizeof(responseId);
 
     memcpy(current, &relationId, sizeof(relationId));
     current += sizeof(relationId);
 
+    pid_t pid = getpid();
     memcpy(current, &pid, sizeof(pid));
     current += sizeof(pid);
 
@@ -1056,12 +1053,12 @@ bool RangeQueryRequest(Oid relationId,
         current += options->limitLen;
     }
 
-    memcpy(current, &(options->targetNum), sizeof(options->targetNum));
-    current += sizeof(options->targetNum);
-    if (options->targetNum > 0) {
+    memcpy(current, &(options->attrCount), sizeof(options->attrCount));
+    current += sizeof(options->attrCount);
+    if (options->attrCount > 0) {
         memcpy(current,
-               options->targetArray,
-               options->targetNum * sizeof(*(options->targetArray)));
+               options->attrs,
+               options->attrCount * sizeof(*(options->attrs)));
     }
 
     SemPost(&ptr->worker, __func__);
@@ -1084,16 +1081,14 @@ bool RangeQueryRequest(Oid relationId,
     char queryFilename[FILENAMELENGTH];
     snprintf(queryFilename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, pid);
     int fd = ShmOpen(queryFilename, O_RDWR, PERMISSION, __func__);
-    char *rangeQueryBuffer = Mmap(NULL,
-                                  *bufLen,
-                                  PROT_READ | PROT_WRITE,
-                                  MAP_SHARED,
-                                  fd,
-                                  0,
-                                  __func__);
+    *buf = Mmap(NULL,
+                *bufLen,
+                PROT_READ | PROT_WRITE,
+                MAP_SHARED,
+                fd,
+                0,
+                __func__);
     Fclose(fd, __func__);
-
-    *buf = rangeQueryBuffer;
 
     SemPost(&ptr->responseMutex[responseId], __func__);
     return hasNext;
@@ -1130,12 +1125,12 @@ static void RangeQueryResponse(char *area) {
         area += options.limitLen;
     }
 
-    memcpy(&(options.targetNum), area, sizeof(options.targetNum));
-    area += sizeof(options.targetNum);
-    if (options.targetNum > 0) {
-        uint32_t *targetArray = palloc(options.targetNum);
-        memcpy(targetArray, area, options.targetNum * sizeof(uint32_t));
-        options.targetArray = targetArray;
+    memcpy(&(options.attrCount), area, sizeof(options.attrCount));
+    area += sizeof(options.attrCount);
+    if (options.attrCount > 0) {
+        uint32 bytes = options.attrCount * sizeof(*(options.attrs));
+        options.attrs = palloc(bytes);
+        memcpy(options.attrs, area, bytes);
     }
 
     bool found = false;

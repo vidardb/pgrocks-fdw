@@ -17,7 +17,7 @@ using namespace std;
 extern "C" {
 
 #ifdef VIDARDB
-void* Open(char* path, bool useColumn, uint32_t columnNum) {
+void* Open(char* path, bool useColumn, int attrCount) {
     DB* db = nullptr;
     Options options;
     options.OptimizeAdaptiveLevelStyleCompaction();
@@ -27,7 +27,8 @@ void* Open(char* path, bool useColumn, uint32_t columnNum) {
     shared_ptr<TableFactory> column_table(NewColumnTableFactory());
     ColumnTableOptions* column_opts =
         static_cast<ColumnTableOptions*>(column_table->GetOptions());
-    column_opts->column_num = columnNum;  // Total column number excluding key
+    /* TODO: might change later */
+    column_opts->column_count = attrCount;
 
     options.table_factory.reset(NewAdaptiveTableFactory(block_based_table,
         block_based_table, column_table, useColumn? 0: -1));
@@ -53,13 +54,13 @@ void Close(void* db) {
 }
 
 uint64 Count(void* db) {
-    string num;
+    string count;
     #ifdef VIDARDB
-    static_cast<DB*>(db)->GetProperty("vidardb.estimate-num-keys", &num);
+    static_cast<DB*>(db)->GetProperty("vidardb.estimate-num-keys", &count);
     #else
-    static_cast<DB*>(db)->GetProperty("rocksdb.estimate-num-keys", &num);
+    static_cast<DB*>(db)->GetProperty("rocksdb.estimate-num-keys", &count);
     #endif
-    return stoull(num);
+    return stoull(count);
 }
 
 void* GetIter(void* db) {
@@ -78,8 +79,8 @@ bool Next(void* db, void* iter, char** key, size_t* keyLen,
     if (it == nullptr || !it->Valid()) return false;
 
     *keyLen = it->key().size(), *valLen = it->value().size();
-    *key = static_cast<char*>(palloc0(*keyLen));
-    *val = static_cast<char*>(palloc0(*valLen));
+    *key = static_cast<char*>(palloc(*keyLen));
+    *val = static_cast<char*>(palloc(*valLen));
 
     memcpy(*key, it->key().data(), *keyLen);
     memcpy(*val, it->value().data(), *valLen);
@@ -93,7 +94,7 @@ bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen) {
     Status s = static_cast<DB*>(db)->Get(ReadOptions(), Slice(key, keyLen), &sval);
     if (!s.ok()) return false;
     *valLen = sval.length();
-    *val = static_cast<char*>(palloc0(*valLen));
+    *val = static_cast<char*>(palloc(*valLen));
     memcpy(*val, sval.c_str(), *valLen);
     return true;
 }
@@ -130,13 +131,13 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
         options = static_cast<ReadOptions*>(palloc0(sizeof(ReadOptions)));
     }
 
-    /* first attribute in the value must be returned */
+    /* TODO: might change, first attribute in the value must be returned */
     options->columns.push_back(1);
     if (queryOptions != NULL) {
-        for (size_t i = 0; i < queryOptions->targetNum; i++) {
-            uint32_t targetIdx = *(queryOptions->targetArray + i);
-            if (targetIdx > 1) {
-                options->columns.push_back(targetIdx);
+        for (int i = 0; i < queryOptions->attrCount; i++) {
+            AttrNumber attr = *(queryOptions->attrs + i);
+            if (attr > 1) {
+                options->columns.push_back(attr);
             }
         }
     }

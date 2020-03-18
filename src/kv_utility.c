@@ -215,7 +215,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
             /* Initialize the database */
             #ifdef VIDARDB
             bool useColumn = false;
-            char* option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
+            char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
             if (option != NULL) {
                 useColumn =
                     (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE)));
@@ -416,8 +416,8 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
     /* copy utility gets varlena with 4B header, same with constant */
     datum = ShortVarlena(datum, typeLength, storage);
 
-    uint32 offset = buffer->len;
-    uint32 datumLength = att_addlength_datum(offset, typeLength, datum);
+    int offset = buffer->len;
+    int datumLength = att_addlength_datum(offset, typeLength, datum);
 
     enlargeStringInfo(buffer, datumLength + ((useColumn && index > 0)? 1: 0));
 
@@ -436,8 +436,8 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
 
     if (useColumn && index > 0) {
         char delimiter = '|';
-        memcpy(current + datumLength - offset + 1, &delimiter, 1);
-        buffer->len = (datumLength + 1);
+        memcpy(current + datumLength - offset, &delimiter, sizeof(delimiter));
+        buffer->len = datumLength + 1;
     } else {
         buffer->len = datumLength;
     }
@@ -455,8 +455,8 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
     /* copy utility gets varlena with 4B header, same with constant */
     datum = ShortVarlena(datum, typeLength, storage);
 
-    uint32 offset = buffer->len;
-    uint32 datumLength = att_addlength_datum(offset, typeLength, datum);
+    int offset = buffer->len;
+    int datumLength = att_addlength_datum(offset, typeLength, datum);
 
     enlargeStringInfo(buffer, datumLength);
 
@@ -529,24 +529,24 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
 
     Oid relationId = RelationGetRelid(relation);
     TupleDesc tupleDescriptor = RelationGetDescr(relation);
-    uint32 count = tupleDescriptor->natts;
+    int attrCount = tupleDescriptor->natts;
 
     #ifdef VIDARDB
-    char* option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
     bool useColumn = false;
+    char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
     if (option != NULL) {
         useColumn = (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE)));
     }
-    ptr = OpenRequest(relationId, ptr, useColumn, count);
+    ptr = OpenRequest(relationId, ptr, useColumn, attrCount);
     #else
     ptr = OpenRequest(relationId, ptr);
     #endif
 
-    Datum *values = palloc0(count * sizeof(Datum));
-    bool *nulls = palloc0(count * sizeof(bool));
+    Datum *values = palloc0(attrCount * sizeof(Datum));
+    bool *nulls = palloc0(attrCount * sizeof(bool));
 
-    /* first column must exist */
-    uint32 bufLen = (count - 1 + 7) / 8;
+    /* first attr must exist */
+    int bufLen = (attrCount - 1 + 7) / 8;
     StringInfo buffer = makeStringInfo();
     enlargeStringInfo(buffer, bufLen);
     buffer->len = bufLen;
@@ -564,21 +564,21 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
             StringInfo val = makeStringInfo();
             val->len += bufLen;
 
-            for (uint32 index = 0; index < count; index++) {
+            for (int index = 0; index < attrCount; index++) {
 
                 if (nulls[index]) {
                     if (index == 0) {
                         ereport(ERROR, (errmsg("first column cannot be null!")));
                     }
-                    uint32 byteIndex = (index - 1) / 8;
-                    uint32 bitIndex = (index - 1) % 8;
+                    int byteIndex = (index - 1) / 8;
+                    int bitIndex = (index - 1) % 8;
                     uint8 bitmask = (1 << bitIndex);
                     buffer->data[byteIndex] |= bitmask;
                     continue;
                 }
                 Datum datum = values[index];
                 #ifdef VIDARDB
-                useColumn = (index == count - 1)? false: useColumn;
+                useColumn = (index == attrCount - 1)? false: useColumn;
                 SerializeAttribute(tupleDescriptor,
                                    index,
                                    datum,
@@ -615,7 +615,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
  * "COPY (SELECT * FROM kv_table) TO ..." and forwarded to Postgres native
  * COPY handler. Function returns number of files copied to external stream.
  */
-static uint64 KVCopyOutTable(CopyStmt* copyStmt, const char* queryString) {
+static uint64 KVCopyOutTable(CopyStmt *copyStmt, const char *queryString) {
 
     if (copyStmt->attlist != NIL) {
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),

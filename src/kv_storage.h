@@ -11,13 +11,15 @@ extern "C" {
 #include <fcntl.h>
 #include "postgres.h"
 #include "kv_posix.h"
+#include "access/attnum.h"
+
 
 /**
  * C wrapper
  */
 
 #ifdef VIDARDB
-void* Open(char* path, bool useColumn, uint32_t ColumnNumber);
+void* Open(char* path, bool useColumn, int attrCount);
 #else
 void* Open(char* path);
 #endif
@@ -42,11 +44,11 @@ bool Delete(void* db, char* key, size_t keyLen);
 
 typedef struct RangeQueryOptions {
     size_t startLen;
-    char *start;
+    char* start;
     size_t limitLen;
-    char *limit;
-    size_t targetNum;
-    uint32_t *targetArray;
+    char* limit;
+    int attrCount;
+    AttrNumber* attrs;
     size_t batchCapacity;
 } RangeQueryOptions;
 

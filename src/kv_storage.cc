@@ -27,8 +27,8 @@ void* Open(char* path, bool useColumn, int attrCount) {
     shared_ptr<TableFactory> column_table(NewColumnTableFactory());
     ColumnTableOptions* column_opts =
         static_cast<ColumnTableOptions*>(column_table->GetOptions());
-    /* TODO: might change later */
-    column_opts->column_count = attrCount;
+    /* TODO: currently, we assume 1 attribute primary key */
+    column_opts->column_count = attrCount - 1;
 
     options.table_factory.reset(NewAdaptiveTableFactory(block_based_table,
         block_based_table, column_table, useColumn? 0: -1));
@@ -73,8 +73,8 @@ void DelIter(void* it) {
     delete static_cast<Iterator*>(it);
 }
 
-bool Next(void* db, void* iter, char** key, size_t* keyLen,
-          char** val, size_t* valLen) {
+bool Next(void* db, void* iter, char** key, size_t* keyLen, char** val,
+          size_t* valLen) {
     Iterator* it = static_cast<Iterator*>(iter);
     if (it == nullptr || !it->Valid()) return false;
 
@@ -114,15 +114,13 @@ bool Delete(void* db, char* key, size_t keyLen) {
 bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
                 pid_t pid, size_t* bufLen) {
     printf("\n-----------------%s----------------------\n", __func__);
-    Range r;
+    Range range;
     if (queryOptions != NULL) {
         if (queryOptions->startLen > 0) {
-            Slice s(queryOptions->start, queryOptions->startLen);
-            r.start = s;
+            range.start = Slice(queryOptions->start, queryOptions->startLen);
         }
         if (queryOptions->limitLen > 0) {
-            Slice l(queryOptions->limit, queryOptions->limitLen);
-            r.limit = l;
+            range.limit = Slice(queryOptions->limit, queryOptions->limitLen);
         }
     }
 
@@ -131,29 +129,28 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
         options = static_cast<ReadOptions*>(palloc0(sizeof(ReadOptions)));
     }
 
-    /* TODO: might change, first attribute in the value must be returned */
+    /* TODO: currently, first attribute in the value must be returned */
     options->columns.push_back(1);
     if (queryOptions != NULL) {
         for (int i = 0; i < queryOptions->attrCount; i++) {
             AttrNumber attr = *(queryOptions->attrs + i);
+            /* TODO: primary key is 1 according to AttrNumber, should we? */
             if (attr > 1) {
                 options->columns.push_back(attr);
             }
         }
     }
-    options->batch_capacity = queryOptions->batchCapacity > 0?
-                              queryOptions->batchCapacity: BATCHCAPACITY;
+    options->batch_capacity = queryOptions->batchCapacity;
+
     *readOptions = options;
 
     std::list<RangeQueryKeyVal> res;
     Status s;
-    bool ret = static_cast<DB*>(db)->RangeQuery(*options, r, res, &s);
-
+    bool ret = static_cast<DB*>(db)->RangeQuery(*options, range, res, &s);
     if (!s.ok()) {
         *bufLen = 0;
         return false;
     }
-
     if (res.size() == 0) return ret;
 
     char filename[FILENAMELENGTH];
@@ -164,7 +161,7 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
                      PERMISSION,
                      __func__);
 
-    /* TODO: will be provided by storage engine later */
+    /* TODO: Now provided by storage engine */
     size_t total = 0;
     for (auto it = res.begin(); it != res.end(); ++it) {
         total += it->user_key.size() + it->user_val.size() + sizeof(size_t) * 2;
@@ -196,7 +193,7 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
     }
 
     Munmap(buf, *bufLen, __func__);
-    // ShmUnlink(filename, __func__); Do we need this here?
+    /* TODO: check ShmUnlink is issued in another side, and shm is released*/
 
     return ret;
 }

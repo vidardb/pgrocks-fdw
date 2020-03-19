@@ -29,15 +29,14 @@ uint64 Count(void* db);
 
 void* GetIter(void* db);
 void DelIter(void* it);
-bool Next(void* db, void* iter, char** key, size_t* keyLen,
-          char** val, size_t* valLen);
+bool Next(void* db, void* iter, char** key, size_t* keyLen, char** val,
+          size_t* valLen);
 
 bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen);
 bool Put(void* db, char* key, size_t keyLen, char* val, size_t valLen);
 bool Delete(void* db, char* key, size_t keyLen);
 
 #ifdef VIDARDB
-#define BATCHCAPACITY 10000
 #define FILENAMELENGTH 20
 #define PERMISSION 0777
 #define RANGEQUERYFILE "/KVRangeQuery"

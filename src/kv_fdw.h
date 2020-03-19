@@ -34,11 +34,16 @@
 
 #define RESPONSEQUEUELENGTH 2
 
-/* Defines for valid options */
+/* Defines for valid options and the default values */
+#ifdef VIDARDB
 #define OPTION_STORAGE_FORMAT "storage"
+
 #define OPTION_BATCH_CAPACITY "batch"
 
 #define COLUMNSTORE "column"
+
+#define BATCHCAPACITY 10000
+#endif
 
 
 /* Shared memory for function requests: 

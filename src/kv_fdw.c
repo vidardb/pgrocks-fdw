@@ -47,8 +47,8 @@ static bool IsColumnUsed(Oid relationId) {
 }
 
 static int32 GetBatchCapacity(Oid relationId) {
-    char *batchCapacity = KVGetOptionValue(relationId, OPTION_BATCH_CAPACITY);
-    return batchCapacity? pg_atoi(batchCapacity, sizeof(int32), 0): 0;
+    char *capacity = KVGetOptionValue(relationId, OPTION_BATCH_CAPACITY);
+    return capacity? pg_atoi(capacity, sizeof(int32), 0): BATCHCAPACITY;
 }
 #endif
 

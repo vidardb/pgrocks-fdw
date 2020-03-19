@@ -1128,7 +1128,7 @@ static void RangeQueryResponse(char *area) {
         area += options.limitLen;
     }
 
-    memcpy(&(options.batchCapacity), area, sieof(options.batchCapacity));
+    memcpy(&(options.batchCapacity), area, sizeof(options.batchCapacity));
     area += sizeof(options.batchCapacity);
 
     memcpy(&(options.attrCount), area, sizeof(options.attrCount));

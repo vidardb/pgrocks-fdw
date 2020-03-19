@@ -244,8 +244,8 @@ static void GetKeyBasedQual(Node *node,
 
     #ifdef VIDARDB
     Oid foreignTableId = RelationGetRelid(relation);
-    bool useColumn = IsColumnUsed(foreignTableId);
-    SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key, useColumn);
+    bool useDelimiter = IsColumnUsed(foreignTableId);
+    SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key, useDelimiter);
     #else
     SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key);
     #endif
@@ -805,7 +805,7 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
 static void SerializeTuple(StringInfo key,
                            StringInfo val,
                            TupleTableSlot *tupleSlot,
-                           bool useColumn) {
+                           bool useDelimiter) {
 
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
     int count = tupleDescriptor->natts;
@@ -837,10 +837,10 @@ static void SerializeTuple(StringInfo key,
 
         /*The last column does not require a delimiter*/
         if (index == count - 1) {
-            useColumn = false;
+            useDelimiter = false;
         }
 
-        SerializeAttribute(tupleDescriptor, index, datum, index==0? key: val, useColumn);
+        SerializeAttribute(tupleDescriptor, index, datum, index==0? key: val, useDelimiter);
     }
 
     memcpy(val->data, nulls->data, nullsLen);
@@ -933,8 +933,8 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
     Oid foreignTableId = RelationGetRelid(relation);
 
     #ifdef VIDARDB
-    bool useColumn = IsColumnUsed(foreignTableId);
-    SerializeTuple(key, val, tupleSlot, useColumn);
+    bool useDelimiter = IsColumnUsed(foreignTableId);
+    SerializeTuple(key, val, tupleSlot, useDelimiter);
     #else
     SerializeTuple(key, val, tupleSlot);
     #endif
@@ -993,8 +993,8 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
     Oid foreignTableId = RelationGetRelid(relation);
 
     #ifdef VIDARDB
-    bool useColumn = IsColumnUsed(foreignTableId);
-    SerializeTuple(key, val, tupleSlot, useColumn);
+    bool useDelimiter = IsColumnUsed(foreignTableId);
+    SerializeTuple(key, val, tupleSlot, useDelimiter);
     #else
     SerializeTuple(key, val, tupleSlot);
     #endif
@@ -1052,8 +1052,8 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     Oid foreignTableId = RelationGetRelid(relation);
 
     #ifdef VIDARDB
-    bool useColumn = IsColumnUsed(foreignTableId);
-    SerializeTuple(key, val, planSlot, useColumn);
+    bool useDelimiter = IsColumnUsed(foreignTableId);
+    SerializeTuple(key, val, planSlot, useDelimiter);
     #else
     SerializeTuple(key, val, planSlot);
     #endif

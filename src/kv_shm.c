@@ -1053,6 +1053,9 @@ bool RangeQueryRequest(Oid relationId,
         current += options->limitLen;
     }
 
+    memcpy(current, &(options->batchCapacity), sizeof(options->batchCapacity));
+    current += sizeof(options->batchCapacity);
+
     memcpy(current, &(options->attrCount), sizeof(options->attrCount));
     current += sizeof(options->attrCount);
     if (options->attrCount > 0) {
@@ -1124,6 +1127,9 @@ static void RangeQueryResponse(char *area) {
         memcpy(limit, area, options.limitLen);
         area += options.limitLen;
     }
+
+    memcpy(&(options.batchCapacity), area, sizeof(options.batchCapacity));
+    area += sizeof(options.batchCapacity);
 
     memcpy(&(options.attrCount), area, sizeof(options.attrCount));
     area += sizeof(options.attrCount);

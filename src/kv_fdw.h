@@ -134,7 +134,7 @@ extern void SerializeAttribute(TupleDesc tupleDescriptor,
                                Index index,
                                Datum datum,
                                StringInfo buffer,
-                               bool useColumn);
+                               bool useDelimiter);
 #else
 extern void SerializeAttribute(TupleDesc tupleDescriptor,
                                Index index,

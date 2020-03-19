@@ -407,7 +407,7 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
                         Index index,
                         Datum datum,
                         StringInfo buffer,
-                        bool useColumn) {
+                        bool useDelimiter) {
     Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
     bool byValue = attributeForm->attbyval;
     int typeLength = attributeForm->attlen;
@@ -419,10 +419,10 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
     int offset = buffer->len;
     int datumLength = att_addlength_datum(offset, typeLength, datum);
 
-    enlargeStringInfo(buffer, datumLength + ((useColumn && index > 0)? 1: 0));
+    enlargeStringInfo(buffer, datumLength + ((useDelimiter && index > 0)? 1: 0));
 
     char *current = buffer->data + buffer->len;
-    memset(current, 0, datumLength - offset + ((useColumn && index > 0)? 1: 0));
+    memset(current, 0, datumLength - offset + ((useDelimiter && index > 0)? 1: 0));
 
     if (typeLength > 0) {
         if (byValue) {
@@ -434,7 +434,7 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
         memcpy(current, DatumGetPointer(datum), datumLength - offset);
     }
 
-    if (useColumn && index > 0) {
+    if (useDelimiter && index > 0) {
         char delimiter = '|';
         memcpy(current + datumLength - offset, &delimiter, sizeof(delimiter));
         buffer->len = datumLength + 1;
@@ -578,12 +578,12 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                 }
                 Datum datum = values[index];
                 #ifdef VIDARDB
-                useColumn = (index == attrCount - 1)? false: useColumn;
+                bool useDelimiter = (index == attrCount - 1)? false: useColumn;
                 SerializeAttribute(tupleDescriptor,
                                    index,
                                    datum,
                                    index==0? key: val,
-                                   useColumn);
+                                   useDelimiter);
                 #else
                 SerializeAttribute(tupleDescriptor,
                                    index,

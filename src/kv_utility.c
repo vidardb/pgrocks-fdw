@@ -214,12 +214,9 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
 
             /* Initialize the database */
             #ifdef VIDARDB
-            bool useColumn = false;
             char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
-            if (option != NULL) {
-                useColumn =
-                    (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE)));
-            }
+            bool useColumn = (option != NULL) ?
+                (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
             TupleDesc tupleDescriptor = RelationGetDescr(relation);
             void *kvDB = Open(kvPath->data, useColumn, tupleDescriptor->natts);
             #else
@@ -402,7 +399,6 @@ Datum ShortVarlena(Datum datum, int typeLength, char storage) {
     PG_RETURN_DATUM(datum);
 }
 
-#ifdef VIDARDB
 void SerializeAttribute(TupleDesc tupleDescriptor,
                         Index index,
                         Datum datum,
@@ -419,10 +415,10 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
     int offset = buffer->len;
     int datumLength = att_addlength_datum(offset, typeLength, datum);
 
-    enlargeStringInfo(buffer, datumLength + ((useDelimiter && index > 0)? 1: 0));
+    enlargeStringInfo(buffer, datumLength + (useDelimiter? 1: 0));
 
     char *current = buffer->data + buffer->len;
-    memset(current, 0, datumLength - offset + ((useDelimiter && index > 0)? 1: 0));
+    memset(current, 0, datumLength - offset + (useDelimiter? 1: 0));
 
     if (typeLength > 0) {
         if (byValue) {
@@ -434,7 +430,7 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
         memcpy(current, DatumGetPointer(datum), datumLength - offset);
     }
 
-    if (useDelimiter && index > 0) {
+    if (useDelimiter) {
         char delimiter = '|';
         memcpy(current + datumLength - offset, &delimiter, sizeof(delimiter));
         buffer->len = datumLength + 1;
@@ -442,40 +438,6 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
         buffer->len = datumLength;
     }
 }
-#else
-void SerializeAttribute(TupleDesc tupleDescriptor,
-                        Index index,
-                        Datum datum,
-                        StringInfo buffer) {
-    Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
-    bool byValue = attributeForm->attbyval;
-    int typeLength = attributeForm->attlen;
-    char storage = attributeForm->attstorage;
-
-    /* copy utility gets varlena with 4B header, same with constant */
-    datum = ShortVarlena(datum, typeLength, storage);
-
-    int offset = buffer->len;
-    int datumLength = att_addlength_datum(offset, typeLength, datum);
-
-    enlargeStringInfo(buffer, datumLength);
-
-    char *current = buffer->data + buffer->len;
-    memset(current, 0, datumLength - offset);
-
-    if (typeLength > 0) {
-        if (byValue) {
-            store_att_byval(current, datum, typeLength);
-        } else {
-            memcpy(current, DatumGetPointer(datum), typeLength);
-        }
-    } else {
-        memcpy(current, DatumGetPointer(datum), datumLength - offset);
-    }
-
-    buffer->len = datumLength;
-}
-#endif
 
 /*
  * Handles a "COPY kv_table FROM" statement. This function uses the COPY
@@ -532,11 +494,9 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     int attrCount = tupleDescriptor->natts;
 
     #ifdef VIDARDB
-    bool useColumn = false;
     char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
-    if (option != NULL) {
-        useColumn = (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE)));
-    }
+    bool useColumn = (option != NULL) ?
+        (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
     ptr = OpenRequest(relationId, ptr, useColumn, attrCount);
     #else
     ptr = OpenRequest(relationId, ptr);
@@ -578,7 +538,8 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                 }
                 Datum datum = values[index];
                 #ifdef VIDARDB
-                bool useDelimiter = (index == attrCount - 1)? false: useColumn;
+                bool useDelimiter = ((index == attrCount - 1)? false: useColumn)
+                                    && (index > 0);
                 SerializeAttribute(tupleDescriptor,
                                    index,
                                    datum,
@@ -588,7 +549,8 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                 SerializeAttribute(tupleDescriptor,
                                    index,
                                    datum,
-                                   index==0? key: val);
+                                   index==0? key: val,
+                                   false);
                 #endif
             }
             memcpy(val->data, buffer->data, bufLen);

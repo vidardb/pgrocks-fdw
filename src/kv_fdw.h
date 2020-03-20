@@ -134,18 +134,11 @@ extern void _PG_fini(void);
 /* Functions used across files in kv_fdw */
 extern KVFdwOptions *KVGetOptions(Oid foreignTableId);
 
-#ifdef VIDARDB
 extern void SerializeAttribute(TupleDesc tupleDescriptor,
                                Index index,
                                Datum datum,
                                StringInfo buffer,
                                bool useDelimiter);
-#else
-extern void SerializeAttribute(TupleDesc tupleDescriptor,
-                               Index index,
-                               Datum datum,
-                               StringInfo buffer);
-#endif
 
 extern char *KVGetOptionValue(Oid foreignTableId, const char *optionName);
 

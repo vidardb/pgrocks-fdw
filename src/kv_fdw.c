@@ -244,10 +244,10 @@ static void GetKeyBasedQual(Node *node,
 
     #ifdef VIDARDB
     Oid foreignTableId = RelationGetRelid(relation);
-    bool useDelimiter = IsColumnUsed(foreignTableId);
+    bool useDelimiter = IsColumnUsed(foreignTableId) && (varattno > 1);
     SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key, useDelimiter);
     #else
-    SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key);
+    SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key, false);
     #endif
 
     return;
@@ -801,7 +801,6 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     relationInfo->ri_FdwState = (void *) writeState;
 }
 
-#ifdef VIDARDB
 static void SerializeTuple(StringInfo key,
                            StringInfo val,
                            TupleTableSlot *tupleSlot,
@@ -839,50 +838,12 @@ static void SerializeTuple(StringInfo key,
         if (index == count - 1) {
             useDelimiter = false;
         }
-
+        useDelimiter = (useDelimiter && index > 0);
         SerializeAttribute(tupleDescriptor, index, datum, index==0? key: val, useDelimiter);
     }
 
     memcpy(val->data, nulls->data, nullsLen);
 }
-#else
-static void SerializeTuple(StringInfo key,
-                           StringInfo val,
-                           TupleTableSlot *tupleSlot) {
-
-    TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
-    int count = tupleDescriptor->natts;
-
-    /* first attr must exist */
-    int nullsLen = (count - 1 + 7) / 8;
-
-    StringInfo nulls = makeStringInfo();
-    enlargeStringInfo(nulls, nullsLen);
-    nulls->len = nullsLen;
-    memset(nulls->data, 0, nullsLen);
-
-    val->len += nullsLen;
-
-    for (int index = 0; index < count; index++) {
-
-        if (tupleSlot->tts_isnull[index]) {
-            if (index == 0) {
-                ereport(ERROR, (errmsg("first column cannot be null!")));
-            }
-            int byteIndex = (index - 1) / 8;
-            int bitIndex = (index - 1) % 8;
-            uint8 bitmask = (1 << bitIndex);
-            nulls->data[byteIndex] |= bitmask;
-            continue;
-        }
-
-        Datum datum = tupleSlot->tts_values[index];
-        SerializeAttribute(tupleDescriptor, index, datum, index==0? key: val);
-    }
-
-    memcpy(val->data, nulls->data, nullsLen);
-}
-#endif
 
 static TupleTableSlot *ExecForeignInsert(EState *executorState,
                                          ResultRelInfo *relationInfo,
@@ -936,7 +897,7 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
     bool useDelimiter = IsColumnUsed(foreignTableId);
     SerializeTuple(key, val, tupleSlot, useDelimiter);
     #else
-    SerializeTuple(key, val, tupleSlot);
+    SerializeTuple(key, val, tupleSlot, false);
     #endif
 
     PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
@@ -996,7 +957,7 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
     bool useDelimiter = IsColumnUsed(foreignTableId);
     SerializeTuple(key, val, tupleSlot, useDelimiter);
     #else
-    SerializeTuple(key, val, tupleSlot);
+    SerializeTuple(key, val, tupleSlot, false);
     #endif
 
     PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
@@ -1055,7 +1016,7 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     bool useDelimiter = IsColumnUsed(foreignTableId);
     SerializeTuple(key, val, planSlot, useDelimiter);
     #else
-    SerializeTuple(key, val, planSlot);
+    SerializeTuple(key, val, planSlot, false);
     #endif
 
     DeleteRequest(foreignTableId, ptr, key->data, key->len);

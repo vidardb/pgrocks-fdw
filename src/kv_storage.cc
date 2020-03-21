@@ -166,12 +166,9 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
                      PERMISSION,
                      __func__);
 
-    /* TODO: Now provided by storage engine */
-    *bufLen = options->result_key_size 
+    *bufLen = options->result_key_size
             + options->result_val_size
             + sizeof(size_t) * 2 * res.size();
-
-    
 
     char *buf = static_cast<char*>(Mmap(NULL,
                                    *bufLen,

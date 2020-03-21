@@ -306,25 +306,23 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         #ifdef VIDARDB
         bool useColumn = IsColumnUsed(relationId);
         if (useColumn) {
-            int listLen = list_length(scanState->ss.ps.plan->targetlist);
+
             RangeQueryOptions options;
             options.batchCapacity = GetBatchCapacity(relationId);
             options.startLen = 0;
             options.limitLen = 0;
 
-            if (listLen > 0) {
-                options.attrs = palloc(listLen * sizeof(*(options.attrs)));
+            options.attrCount = list_length(scanState->ss.ps.plan->targetlist);
+            if (options.attrCount > 0) {
+                options.attrs = palloc(options.attrCount * sizeof(*(options.attrs)));
                 int i = 0;
                 ListCell *targetCell;
                 foreach (targetCell, scanState->ss.ps.plan->targetlist) {
                     TargetEntry *targetEntry = lfirst(targetCell);
-
-                    /* TODO: The attr number to RangeQuery starts from 1 for now */   
                     *(options.attrs + i) = targetEntry->resorigcol - 1;
                     i++;
                 }
             }
-            options.attrCount = listLen;
 
             readState->hasNext = RangeQueryRequest(relationId,
                                                    ptr,
@@ -395,28 +393,25 @@ static void DeserializeTupleByColumn(StringInfo key,
         int typeLength = attributeForm->attlen;
 
         values[index] = fetch_att(current, byValue, typeLength);
-        offset = att_addlength_datum(offset, typeLength, current);
-        offset += 1;
+        offset = att_addlength_datum(offset, typeLength, current) + 1;
         if (index == 0) {
             offset = bufLen;
         }
         current = val->data + offset;
     }
 
-    for (int targetIdx = 0; targetIdx < targetListLen; targetIdx++) {
-        AttrNumber attr = *(attrs + targetIdx);
+    for (int index = 0; index < targetListLen; index++) {
+        AttrNumber attr = *(attrs + index);
         /* after key and first value */
         if (attr <= 2) {
             continue;
         }
-        attr--;
-        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, attr);
+        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, --attr);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
 
         values[attr] = fetch_att(current, byValue, typeLength);
-        offset = att_addlength_datum(offset, typeLength, current);
-        offset += 1;
+        offset = att_addlength_datum(offset, typeLength, current) + 1;
         current = val->data + offset;
     }
 }
@@ -526,10 +521,9 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
         }
     } else {
         #ifdef VIDARDB
-        if (useColumn && readState->bufLen != 0) {
+        if (useColumn && readState->bufLen > 0) {
 
-            char *bufEnd = readState->buf + readState->bufLen;
-            if (readState->next < bufEnd) {
+            if (readState->next < readState->buf + readState->bufLen) {
                 memcpy(&kLen, readState->next, sizeof(kLen));
                 readState->next += sizeof(kLen);
                 k = readState->next;

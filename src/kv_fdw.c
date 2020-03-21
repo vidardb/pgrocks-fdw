@@ -319,13 +319,9 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
                 foreach (targetCell, scanState->ss.ps.plan->targetlist) {
                     TargetEntry *targetEntry = lfirst(targetCell);
 
-                    /* TODO: The attr number to RangeQuery starts from 1 for now */
-                    if (targetEntry->resorigcol > 1) {
-                        *(options.attrs + i) = targetEntry->resorigcol - 1;
-                        i++;
-                    } else {
-                        listLen -= 1;
-                    }
+                    /* TODO: The attr number to RangeQuery starts from 1 for now */   
+                    *(options.attrs + i) = targetEntry->resorigcol - 1;
+                    i++;
                 }
             }
             options.attrCount = listLen;

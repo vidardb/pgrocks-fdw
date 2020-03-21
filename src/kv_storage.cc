@@ -129,17 +129,22 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
         options = static_cast<ReadOptions*>(palloc0(sizeof(ReadOptions)));
     }
 
-    /* TODO: currently, first attribute in the value must be returned */
-    options->columns.push_back(1);
+    /* TODO: currently, first attribute in the value must be returned */   
+    bool containsOne = false;
     if (queryOptions != NULL) {
         for (int i = 0; i < queryOptions->attrCount; i++) {
             AttrNumber attr = *(queryOptions->attrs + i);
             /* TODO: primary key is 1 according to AttrNumber, should we? */
-            if (attr > 1) {
-                options->columns.push_back(attr);
+            options->columns.push_back(attr);
+            if (attr == 1) {
+                containsOne = true;
             }
         }
+        if (containsOne == false) {
+            options->columns.push_back(1);
+        }
     }
+    
     options->batch_capacity = queryOptions->batchCapacity;
 
     *readOptions = options;

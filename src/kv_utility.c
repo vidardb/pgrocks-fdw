@@ -31,7 +31,7 @@
                          queryEnvironment, destReceiver, completionTag)
 
 /* */
-static SharedMem *ptr = NULL;
+static SharedMem * ptr = NULL;
 
 /*
  * SQL functions
@@ -46,12 +46,12 @@ static shmem_startup_hook_type PreviousShmemStartupHook = NULL;
 
 /* local functions forward declarations */
 static void KVProcessUtility(PlannedStmt *plannedStmt,
-                             const char *queryString,
-                             ProcessUtilityContext context,
-                             ParamListInfo paramListInfo,
-                             QueryEnvironment *queryEnvironment,
-                             DestReceiver *destReceiver,
-                             char *completionTag);
+							 const char *queryString,
+							 ProcessUtilityContext context,
+							 ParamListInfo paramListInfo,
+							 QueryEnvironment *queryEnvironment,
+							 DestReceiver *destReceiver,
+							 char *completionTag);
 static void KVShmemStartup(void);
 
 
@@ -60,48 +60,62 @@ static void KVShmemStartup(void);
  * previous utility hook, and then install our hook to pre-intercept calls to
  * the copy command.
  */
-void _PG_init(void) {
-    PreviousProcessUtilityHook = ProcessUtility_hook;
-    ProcessUtility_hook = KVProcessUtility;
+void
+_PG_init(void)
+{
+	PreviousProcessUtilityHook = ProcessUtility_hook;
+	ProcessUtility_hook = KVProcessUtility;
 
-    PreviousShmemStartupHook = shmem_startup_hook;
-    shmem_startup_hook = KVShmemStartup;
+	PreviousShmemStartupHook = shmem_startup_hook;
+	shmem_startup_hook = KVShmemStartup;
 }
 
 /*
  * _PG_fini is called when the module is unloaded. This function uninstalls the
  * extension's hooks.
  */
-void _PG_fini(void) {
-    ProcessUtility_hook = PreviousProcessUtilityHook;
+void
+_PG_fini(void)
+{
+	ProcessUtility_hook = PreviousProcessUtilityHook;
 
-    shmem_startup_hook = PreviousShmemStartupHook;
+	shmem_startup_hook = PreviousShmemStartupHook;
 }
 
 /* Checks if a directory exists for the given directory name. */
-static bool KVDirectoryExists(StringInfo directoryName) {
-    bool directoryExists = true;
-    struct stat directoryStat;
-    if (stat(directoryName->data, &directoryStat) == 0) {
-        /* file already exists; check that it is a directory */
-        if (!S_ISDIR(directoryStat.st_mode)) {
-            ereport(ERROR,
-                    (errmsg("\"%s\" is not a directory", directoryName->data),
-                     errhint("You need to remove or rename the file \"%s\".",
-                             directoryName->data)));
-        }
-    } else {
-        if (errno == ENOENT) {
-            directoryExists = false;
-        } else {
-            ereport(ERROR,
-                    (errcode_for_file_access(),
-                     errmsg("could not stat directory \"%s\": %m",
-                            directoryName->data)));
-        }
-    }
+static bool
+KVDirectoryExists(StringInfo directoryName)
+{
+	bool		directoryExists = true;
+	struct stat directoryStat;
 
-    return directoryExists;
+	if (stat(directoryName->data, &directoryStat) == 0)
+	{
+		/* file already exists; check that it is a directory */
+		if (!S_ISDIR(directoryStat.st_mode))
+		{
+			ereport(ERROR,
+					(errmsg("\"%s\" is not a directory", directoryName->data),
+					 errhint("You need to remove or rename the file \"%s\".",
+							 directoryName->data)));
+		}
+	}
+	else
+	{
+		if (errno == ENOENT)
+		{
+			directoryExists = false;
+		}
+		else
+		{
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("could not stat directory \"%s\": %m",
+							directoryName->data)));
+		}
+	}
+
+	return directoryExists;
 }
 
 /*
@@ -109,61 +123,78 @@ static bool KVDirectoryExists(StringInfo directoryName) {
  * used to store automatically managed kv_fdw files. The path to
  * the directory is $PGDATA/kv_fdw/{databaseOid}.
  */
-static void KVCreateDatabaseDirectory(Oid databaseOid) {
-    StringInfo directoryPath = makeStringInfo();
-    appendStringInfo(directoryPath, "%s/%s", DataDir, KVFDWNAME);
-    if (!KVDirectoryExists(directoryPath)) {
-        if (mkdir(directoryPath->data, S_IRWXU) != 0) {
-            ereport(ERROR, (errcode_for_file_access(),
-                            errmsg("could not create directory \"%s\": %m",
-                                   directoryPath->data)));
-        }
-    }
+static void
+KVCreateDatabaseDirectory(Oid databaseOid)
+{
+	StringInfo	directoryPath = makeStringInfo();
 
-    StringInfo databaseDirectoryPath = makeStringInfo();
-    appendStringInfo(databaseDirectoryPath,
-                     "%s/%s/%u",
-                     DataDir,
-                     KVFDWNAME,
-                     databaseOid);
-    if (!KVDirectoryExists(databaseDirectoryPath)) {
-        if (mkdir(databaseDirectoryPath->data, S_IRWXU) != 0) {
-            ereport(ERROR, (errcode_for_file_access(),
-                            errmsg("could not create directory \"%s\": %m",
-                                   databaseDirectoryPath->data)));
-        }
-    }
+	appendStringInfo(directoryPath, "%s/%s", DataDir, KVFDWNAME);
+	if (!KVDirectoryExists(directoryPath))
+	{
+		if (mkdir(directoryPath->data, S_IRWXU) != 0)
+		{
+			ereport(ERROR, (errcode_for_file_access(),
+							errmsg("could not create directory \"%s\": %m",
+								   directoryPath->data)));
+		}
+	}
+
+	StringInfo	databaseDirectoryPath = makeStringInfo();
+
+	appendStringInfo(databaseDirectoryPath,
+					 "%s/%s/%u",
+					 DataDir,
+					 KVFDWNAME,
+					 databaseOid);
+	if (!KVDirectoryExists(databaseDirectoryPath))
+	{
+		if (mkdir(databaseDirectoryPath->data, S_IRWXU) != 0)
+		{
+			ereport(ERROR, (errcode_for_file_access(),
+							errmsg("could not create directory \"%s\": %m",
+								   databaseDirectoryPath->data)));
+		}
+	}
 }
 
 /*
  * Checks if the given foreign server belongs to kv_fdw. If it
  * does, the function returns true. Otherwise, it returns false.
  */
-static bool KVServer(ForeignServer *server) {
-    char *fdwName = GetForeignDataWrapper(server->fdwid)->fdwname;
-    return strncmp(fdwName, KVFDWNAME, NAMEDATALEN) == 0;
+static bool
+KVServer(ForeignServer *server)
+{
+	char	   *fdwName = GetForeignDataWrapper(server->fdwid)->fdwname;
+
+	return strncmp(fdwName, KVFDWNAME, NAMEDATALEN) == 0;
 }
 
 /*
  * Checks if the given table name belongs to a foreign KV table.
  * If it does, the function returns true. Otherwise, it returns false.
  */
-static bool KVTable(Oid relationId) {
-    if (relationId == InvalidOid) {
-        return false;
-    }
+static bool
+KVTable(Oid relationId)
+{
+	if (relationId == InvalidOid)
+	{
+		return false;
+	}
 
-    char relationKind = get_rel_relkind(relationId);
-    if (relationKind == RELKIND_FOREIGN_TABLE) {
-        ForeignTable *foreignTable = GetForeignTable(relationId);
-        ForeignServer *server = GetForeignServer(foreignTable->serverid);
+	char		relationKind = get_rel_relkind(relationId);
 
-        if (KVServer(server)) {
-            return true;
-        }
-    }
+	if (relationKind == RELKIND_FOREIGN_TABLE)
+	{
+		ForeignTable *foreignTable = GetForeignTable(relationId);
+		ForeignServer *server = GetForeignServer(foreignTable->serverid);
 
-    return false;
+		if (KVServer(server))
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 /*
@@ -171,64 +202,76 @@ static bool KVTable(Oid relationId) {
  * ddl_command_end event. This function creates required directories after the
  * CREATE SERVER statement and after the CREATE FOREIGN TABLE statement.
  */
-Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
-    /* error if event trigger manager did not call this function */
-    if (!CALLED_AS_EVENT_TRIGGER(fcinfo)) {
-        ereport(ERROR, (errmsg("trigger not fired by event trigger manager")));
-    }
+Datum
+kv_ddl_event_end_trigger(PG_FUNCTION_ARGS)
+{
+	/* error if event trigger manager did not call this function */
+	if (!CALLED_AS_EVENT_TRIGGER(fcinfo))
+	{
+		ereport(ERROR, (errmsg("trigger not fired by event trigger manager")));
+	}
 
-    EventTriggerData *triggerData = (EventTriggerData *) fcinfo->context;
-    Node *parseTree = triggerData->parsetree;
+	EventTriggerData *triggerData = (EventTriggerData *) fcinfo->context;
+	Node	   *parseTree = triggerData->parsetree;
 
-    if (nodeTag(parseTree) == T_CreateForeignServerStmt) {
-        CreateForeignServerStmt *serverStmt = (CreateForeignServerStmt *) parseTree;
-        if (strncmp(serverStmt->fdwname, KVFDWNAME, NAMEDATALEN) == 0) {
-            KVCreateDatabaseDirectory(MyDatabaseId);
-        }
-    } else if (nodeTag(parseTree) == T_CreateForeignTableStmt) {
-        CreateForeignTableStmt *tableStmt = (CreateForeignTableStmt *) parseTree;
-        ForeignServer *server = GetForeignServerByName(tableStmt->servername,
-                                                       false);
-        if (KVServer(server)) {
-            Oid relationId = RangeVarGetRelid(tableStmt->base.relation,
-                                              AccessShareLock,
-                                              false);
+	if (nodeTag(parseTree) == T_CreateForeignServerStmt)
+	{
+		CreateForeignServerStmt *serverStmt = (CreateForeignServerStmt *) parseTree;
 
-            Relation relation = heap_open(relationId, AccessExclusiveLock);
-            /*
-             * Make sure database directory exists before creating a table.
-             * This is necessary when a foreign server is created inside
-             * a template database and a new database is created out of it.
-             * We have no chance to hook into server creation to create data
-             * directory for it during database creation time.
-             */
-            KVCreateDatabaseDirectory(MyDatabaseId);
+		if (strncmp(serverStmt->fdwname, KVFDWNAME, NAMEDATALEN) == 0)
+		{
+			KVCreateDatabaseDirectory(MyDatabaseId);
+		}
+	}
+	else if (nodeTag(parseTree) == T_CreateForeignTableStmt)
+	{
+		CreateForeignTableStmt *tableStmt = (CreateForeignTableStmt *) parseTree;
+		ForeignServer *server = GetForeignServerByName(tableStmt->servername,
+													   false);
 
-            StringInfo kvPath = makeStringInfo();
-            appendStringInfo(kvPath,
-                             "%s/%s/%u/%u",
-                             DataDir,
-                             KVFDWNAME,
-                             MyDatabaseId,
-                             relationId);
+		if (KVServer(server))
+		{
+			Oid			relationId = RangeVarGetRelid(tableStmt->base.relation,
+													  AccessShareLock,
+													  false);
 
-            /* Initialize the database */
-            #ifdef VIDARDB
-            char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
-            bool useColumn = (option != NULL) ?
-                (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
-            TupleDesc tupleDescriptor = RelationGetDescr(relation);
-            void *kvDB = Open(kvPath->data, useColumn, tupleDescriptor->natts);
-            #else
-            void *kvDB = Open(kvPath->data);
-            #endif
-            Close(kvDB);
+			Relation	relation = heap_open(relationId, AccessExclusiveLock);
 
-            heap_close(relation, AccessExclusiveLock);
-        }
-    }
+			/*
+			 * Make sure database directory exists before creating a table.
+			 * This is necessary when a foreign server is created inside a
+			 * template database and a new database is created out of it. We
+			 * have no chance to hook into server creation to create data
+			 * directory for it during database creation time.
+			 */
+			KVCreateDatabaseDirectory(MyDatabaseId);
 
-    PG_RETURN_NULL();
+			StringInfo	kvPath = makeStringInfo();
+
+			appendStringInfo(kvPath,
+							 "%s/%s/%u/%u",
+							 DataDir,
+							 KVFDWNAME,
+							 MyDatabaseId,
+							 relationId);
+
+			/* Initialize the database */
+#ifdef VIDARDB
+			char	   *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
+			bool		useColumn = (option != NULL) ?
+			(0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))) : false;
+			TupleDesc	tupleDescriptor = RelationGetDescr(relation);
+			void	   *kvDB = Open(kvPath->data, useColumn, tupleDescriptor->natts);
+#else
+			void	   *kvDB = Open(kvPath->data);
+#endif
+			Close(kvDB);
+
+			heap_close(relation, AccessExclusiveLock);
+		}
+	}
+
+	PG_RETURN_NULL();
 }
 
 /*
@@ -236,38 +279,45 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
  * However it does not remove 'kv_fdw' directory even if there
  * are no other databases left.
  */
-static void KVRemoveDatabaseDirectory(Oid databaseOid) {
-    StringInfo databaseDirectoryPath = makeStringInfo();
-    appendStringInfo(databaseDirectoryPath,
-                     "%s/%s/%u",
-                     DataDir,
-                     KVFDWNAME,
-                     databaseOid);
+static void
+KVRemoveDatabaseDirectory(Oid databaseOid)
+{
+	StringInfo	databaseDirectoryPath = makeStringInfo();
 
-    if (KVDirectoryExists(databaseDirectoryPath)) {
-        rmtree(databaseDirectoryPath->data, true);
-    }
+	appendStringInfo(databaseDirectoryPath,
+					 "%s/%s/%u",
+					 DataDir,
+					 KVFDWNAME,
+					 databaseOid);
+
+	if (KVDirectoryExists(databaseDirectoryPath))
+	{
+		rmtree(databaseDirectoryPath->data, true);
+	}
 }
 
 /*
  * Constructs the default file path to use for a kv_fdw table.
  * The path is of the form $PGDATA/cstore_fdw/{databaseOid}/{relfilenode}.
  */
-static char *KVDefaultFilePath(Oid foreignTableId) {
-    Relation relation = relation_open(foreignTableId, AccessShareLock);
-    RelFileNode relationFileNode = relation->rd_node;
+static char *
+KVDefaultFilePath(Oid foreignTableId)
+{
+	Relation	relation = relation_open(foreignTableId, AccessShareLock);
+	RelFileNode relationFileNode = relation->rd_node;
 
-    StringInfo filePath = makeStringInfo();
-    appendStringInfo(filePath,
-                     "%s/%s/%u/%u",
-                     DataDir,
-                     KVFDWNAME,
-                     relationFileNode.dbNode,
-                     relationFileNode.relNode);
+	StringInfo	filePath = makeStringInfo();
 
-    relation_close(relation, AccessShareLock);
+	appendStringInfo(filePath,
+					 "%s/%s/%u/%u",
+					 DataDir,
+					 KVFDWNAME,
+					 relationFileNode.dbNode,
+					 relationFileNode.relNode);
 
-    return filePath->data;
+	relation_close(relation, AccessShareLock);
+
+	return filePath->data;
 }
 
 /*
@@ -275,25 +325,31 @@ static char *KVDefaultFilePath(Oid foreignTableId) {
  * looks for the option with the given name. If found, the function returns the
  * option's value. This function is unchanged from mongo_fdw.
  */
-char *KVGetOptionValue(Oid foreignTableId, const char *optionName) {
-    ForeignTable *foreignTable = GetForeignTable(foreignTableId);
-    ForeignServer *foreignServer = GetForeignServer(foreignTable->serverid);
+char *
+KVGetOptionValue(Oid foreignTableId, const char *optionName)
+{
+	ForeignTable *foreignTable = GetForeignTable(foreignTableId);
+	ForeignServer *foreignServer = GetForeignServer(foreignTable->serverid);
 
-    List *optionList = NIL;
-    optionList = list_concat(optionList, foreignTable->options);
-    optionList = list_concat(optionList, foreignServer->options);
+	List	   *optionList = NIL;
 
-    ListCell *optionCell = NULL;
-    foreach(optionCell, optionList) {
-        DefElem *optionDef = (DefElem *) lfirst(optionCell);
-        char *optionDefName = optionDef->defname;
+	optionList = list_concat(optionList, foreignTable->options);
+	optionList = list_concat(optionList, foreignServer->options);
 
-        if (strncmp(optionDefName, optionName, NAMEDATALEN) == 0) {
-            return defGetString(optionDef);
-        }
-    }
+	ListCell   *optionCell = NULL;
 
-    return NULL;
+	foreach(optionCell, optionList)
+	{
+		DefElem    *optionDef = (DefElem *) lfirst(optionCell);
+		char	   *optionDefName = optionDef->defname;
+
+		if (strncmp(optionDefName, optionName, NAMEDATALEN) == 0)
+		{
+			return defGetString(optionDef);
+		}
+	}
+
+	return NULL;
 }
 
 /*
@@ -302,42 +358,54 @@ char *KVGetOptionValue(Oid foreignTableId, const char *optionName) {
  * foreign table, and if not present, falls back to default values. This function
  * errors out if given option values are considered invalid.
  */
-KVFdwOptions *KVGetOptions(Oid foreignTableId) {
-    char *filename = KVGetOptionValue(foreignTableId, "filename");
+KVFdwOptions *
+KVGetOptions(Oid foreignTableId)
+{
+	char	   *filename = KVGetOptionValue(foreignTableId, "filename");
 
-    /* set default filename if it is not provided */
-    if (filename == NULL) {
-        filename = KVDefaultFilePath(foreignTableId);
-    }
+	/* set default filename if it is not provided */
+	if (filename == NULL)
+	{
+		filename = KVDefaultFilePath(foreignTableId);
+	}
 
-    KVFdwOptions *options = palloc0(sizeof(KVFdwOptions));
-    options->filename = filename;
+	KVFdwOptions *options = palloc0(sizeof(KVFdwOptions));
 
-    return options;
+	options->filename = filename;
+
+	return options;
 }
 
 /*
  * Extracts and returns the list of kv file (directory) names from DROP table
  * statement.
  */
-static List *KVDroppedFilenameList(DropStmt *dropStmt) {
-    List *droppedFileList = NIL;
-    if (dropStmt->removeType == OBJECT_FOREIGN_TABLE) {
+static List *
+KVDroppedFilenameList(DropStmt *dropStmt)
+{
+	List	   *droppedFileList = NIL;
 
-        ListCell *dropObjectCell = NULL;
-        foreach(dropObjectCell, dropStmt->objects) {
+	if (dropStmt->removeType == OBJECT_FOREIGN_TABLE)
+	{
 
-            List *tableNameList = (List *) lfirst(dropObjectCell);
-            RangeVar *rangeVar = makeRangeVarFromNameList(tableNameList);
-            Oid relationId = RangeVarGetRelid(rangeVar, AccessShareLock, true);
+		ListCell   *dropObjectCell = NULL;
 
-            if (KVTable(relationId)) {
-                char *defaultFilename = KVDefaultFilePath(relationId);
-                droppedFileList = lappend(droppedFileList, defaultFilename);
-            }
-        }
-    }
-    return droppedFileList;
+		foreach(dropObjectCell, dropStmt->objects)
+		{
+
+			List	   *tableNameList = (List *) lfirst(dropObjectCell);
+			RangeVar   *rangeVar = makeRangeVarFromNameList(tableNameList);
+			Oid			relationId = RangeVarGetRelid(rangeVar, AccessShareLock, true);
+
+			if (KVTable(relationId))
+			{
+				char	   *defaultFilename = KVDefaultFilePath(relationId);
+
+				droppedFileList = lappend(droppedFileList, defaultFilename);
+			}
+		}
+	}
+	return droppedFileList;
 }
 
 /*
@@ -345,98 +413,126 @@ static List *KVDroppedFilenameList(DropStmt *dropStmt) {
  * "COPY kv_table TO ...." statement. If it is then the function returns
  * true. The function returns false otherwise.
  */
-static bool KVCopyTableStatement(CopyStmt* copyStmt) {
-    if (!copyStmt->relation) {
-        return false;
-    }
+static bool
+KVCopyTableStatement(CopyStmt *copyStmt)
+{
+	if (!copyStmt->relation)
+	{
+		return false;
+	}
 
-    Oid relationId = RangeVarGetRelid(copyStmt->relation,
-                                      AccessShareLock,
-                                      true);
-    return KVTable(relationId);
+	Oid			relationId = RangeVarGetRelid(copyStmt->relation,
+											  AccessShareLock,
+											  true);
+
+	return KVTable(relationId);
 }
 
 /*
  * Checks if superuser privilege is required by copy operation and reports
  * error if user does not have superuser rights.
  */
-static void KVCheckSuperuserPrivilegesForCopy(const CopyStmt* copyStmt) {
-    /*
-     * We disallow copy from file or program except to superusers. These checks
-     * are based on the checks in DoCopy() function of copy.c.
-     */
-    if (copyStmt->filename != NULL && !superuser()) {
-        if (copyStmt->is_program) {
-            ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-                     errmsg("must be superuser to COPY to or from a program"),
-                     errhint("Anyone can COPY to stdout or from stdin. "
-                             "psql's \\copy command also works for anyone.")));
-        } else {
-            ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-                     errmsg("must be superuser to COPY to or from a file"),
-                     errhint("Anyone can COPY to stdout or from stdin. "
-                             "psql's \\copy command also works for anyone.")));
-        }
-    }
+static void
+KVCheckSuperuserPrivilegesForCopy(const CopyStmt *copyStmt)
+{
+	/*
+	 * We disallow copy from file or program except to superusers. These
+	 * checks are based on the checks in DoCopy() function of copy.c.
+	 */
+	if (copyStmt->filename != NULL && !superuser())
+	{
+		if (copyStmt->is_program)
+		{
+			ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+							errmsg("must be superuser to COPY to or from a program"),
+							errhint("Anyone can COPY to stdout or from stdin. "
+									"psql's \\copy command also works for anyone.")));
+		}
+		else
+		{
+			ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+							errmsg("must be superuser to COPY to or from a file"),
+							errhint("Anyone can COPY to stdout or from stdin. "
+									"psql's \\copy command also works for anyone.")));
+		}
+	}
 }
 
-Datum ShortVarlena(Datum datum, int typeLength, char storage) {
-    /* Make sure item to be inserted is not toasted */
-    if (typeLength == -1) {
-        datum = PointerGetDatum(PG_DETOAST_DATUM_PACKED(datum));
-    }
+Datum
+ShortVarlena(Datum datum, int typeLength, char storage)
+{
+	/* Make sure item to be inserted is not toasted */
+	if (typeLength == -1)
+	{
+		datum = PointerGetDatum(PG_DETOAST_DATUM_PACKED(datum));
+	}
 
-    if (typeLength == -1 && storage != 'p' && VARATT_CAN_MAKE_SHORT(datum)) {
-        /* convert to short varlena -- no alignment */
-        Pointer val = DatumGetPointer(datum);
-        uint32 shortSize = VARATT_CONVERTED_SHORT_SIZE(val);
-        Pointer temp = palloc0(shortSize);
-        SET_VARSIZE_SHORT(temp, shortSize);
-        memcpy(temp + 1, VARDATA(val), shortSize - 1);
-        datum = PointerGetDatum(temp);
-    }
+	if (typeLength == -1 && storage != 'p' && VARATT_CAN_MAKE_SHORT(datum))
+	{
+		/* convert to short varlena -- no alignment */
+		Pointer		val = DatumGetPointer(datum);
+		uint32		shortSize = VARATT_CONVERTED_SHORT_SIZE(val);
+		Pointer		temp = palloc0(shortSize);
 
-    PG_RETURN_DATUM(datum);
+		SET_VARSIZE_SHORT(temp, shortSize);
+		memcpy(temp + 1, VARDATA(val), shortSize - 1);
+		datum = PointerGetDatum(temp);
+	}
+
+	PG_RETURN_DATUM(datum);
 }
 
-void SerializeAttribute(TupleDesc tupleDescriptor,
-                        Index index,
-                        Datum datum,
-                        StringInfo buffer,
-                        bool useDelimiter) {
-    Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
-    bool byValue = attributeForm->attbyval;
-    int typeLength = attributeForm->attlen;
-    char storage = attributeForm->attstorage;
+void
+SerializeAttribute(TupleDesc tupleDescriptor,
+				   Index index,
+				   Datum datum,
+				   StringInfo buffer,
+				   bool useDelimiter)
+{
+	Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
+	bool		byValue = attributeForm->attbyval;
+	int			typeLength = attributeForm->attlen;
+	char		storage = attributeForm->attstorage;
 
-    /* copy utility gets varlena with 4B header, same with constant */
-    datum = ShortVarlena(datum, typeLength, storage);
+	/* copy utility gets varlena with 4B header, same with constant */
+	datum = ShortVarlena(datum, typeLength, storage);
 
-    int offset = buffer->len;
-    int datumLength = att_addlength_datum(offset, typeLength, datum);
+	int			offset = buffer->len;
+	int			datumLength = att_addlength_datum(offset, typeLength, datum);
 
-    enlargeStringInfo(buffer, datumLength + (useDelimiter? 1: 0));
+	enlargeStringInfo(buffer, datumLength + (useDelimiter ? 1 : 0));
 
-    char *current = buffer->data + buffer->len;
-    memset(current, 0, datumLength - offset + (useDelimiter? 1: 0));
+	char	   *current = buffer->data + buffer->len;
 
-    if (typeLength > 0) {
-        if (byValue) {
-            store_att_byval(current, datum, typeLength);
-        } else {
-            memcpy(current, DatumGetPointer(datum), typeLength);
-        }
-    } else {
-        memcpy(current, DatumGetPointer(datum), datumLength - offset);
-    }
+	memset(current, 0, datumLength - offset + (useDelimiter ? 1 : 0));
 
-    if (useDelimiter) {
-        char delimiter = '|';
-        memcpy(current + datumLength - offset, &delimiter, sizeof(delimiter));
-        buffer->len = datumLength + 1;
-    } else {
-        buffer->len = datumLength;
-    }
+	if (typeLength > 0)
+	{
+		if (byValue)
+		{
+			store_att_byval(current, datum, typeLength);
+		}
+		else
+		{
+			memcpy(current, DatumGetPointer(datum), typeLength);
+		}
+	}
+	else
+	{
+		memcpy(current, DatumGetPointer(datum), datumLength - offset);
+	}
+
+	if (useDelimiter)
+	{
+		char		delimiter = '|';
+
+		memcpy(current + datumLength - offset, &delimiter, sizeof(delimiter));
+		buffer->len = datumLength + 1;
+	}
+	else
+	{
+		buffer->len = datumLength;
+	}
 }
 
 /*
@@ -446,130 +542,147 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
  * specified in the foreign table options. Finally, the function returns the
  * number of copied rows.
  */
-static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
-                              const char *queryString) {
-    /* TODO copy specified columns */
-    if (copyStmt->attlist != NIL) {
-        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                        errmsg("copy column list is not supported"),
-                        errhint("use 'copy (select <columns> from <table>) to "
-                                "...' instead")));
-    }
+static uint64
+KVCopyIntoTable(const CopyStmt *copyStmt,
+				const char *queryString)
+{
+	/* TODO copy specified columns */
+	if (copyStmt->attlist != NIL)
+	{
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("copy column list is not supported"),
+						errhint("use 'copy (select <columns> from <table>) to "
+								"...' instead")));
+	}
 
-    /* Only superuser can copy from or to local file */
-    KVCheckSuperuserPrivilegesForCopy(copyStmt);
+	/* Only superuser can copy from or to local file */
+	KVCheckSuperuserPrivilegesForCopy(copyStmt);
 
-    /*
-     * Open and lock the relation. We acquire ShareUpdateExclusiveLock to allow
-     * concurrent reads, but block concurrent writes.
-     */
-    Relation relation = heap_openrv(copyStmt->relation,
-                                    ShareUpdateExclusiveLock);
+	/*
+	 * Open and lock the relation. We acquire ShareUpdateExclusiveLock to
+	 * allow concurrent reads, but block concurrent writes.
+	 */
+	Relation	relation = heap_openrv(copyStmt->relation,
+									   ShareUpdateExclusiveLock);
 
-    /* init state to read from COPY data source */
-    ParseState *pstate = make_parsestate(NULL);
-    pstate->p_sourcetext = queryString;
-    CopyState copyState = BeginCopyFrom(pstate,
-                                        relation,
-                                        copyStmt->filename,
-                                        copyStmt->is_program,
-                                        NULL,
-                                        NIL/*copyStatement->attlist*/,
-                                        copyStmt->options);
-    free_parsestate(pstate);
+	/* init state to read from COPY data source */
+	ParseState *pstate = make_parsestate(NULL);
 
-    /*
-     * We create a new memory context called tuple context, and read and write
-     * each row's values within this memory context. After each read and write,
-     * we reset the memory context. That way, we immediately release memory
-     * allocated for each row, and don't bloat memory usage with large input
-     * files.
-     */
-    MemoryContext tupleContext = AllocSetContextCreate(CurrentMemoryContext,
-                                                       "KV COPY Row Context",
-                                                       ALLOCSET_DEFAULT_SIZES);
+	pstate->p_sourcetext = queryString;
+	CopyState	copyState = BeginCopyFrom(pstate,
+										  relation,
+										  copyStmt->filename,
+										  copyStmt->is_program,
+										  NULL,
+										  NIL /* copyStatement->attlist */ ,
+										  copyStmt->options);
 
-    Oid relationId = RelationGetRelid(relation);
-    TupleDesc tupleDescriptor = RelationGetDescr(relation);
-    int attrCount = tupleDescriptor->natts;
+	free_parsestate(pstate);
 
-    #ifdef VIDARDB
-    char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
-    bool useColumn = (option != NULL) ?
-        (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
-    ptr = OpenRequest(relationId, ptr, useColumn, attrCount);
-    #else
-    ptr = OpenRequest(relationId, ptr);
-    #endif
+	/*
+	 * We create a new memory context called tuple context, and read and write
+	 * each row's values within this memory context. After each read and
+	 * write, we reset the memory context. That way, we immediately release
+	 * memory allocated for each row, and don't bloat memory usage with large
+	 * input files.
+	 */
+	MemoryContext tupleContext = AllocSetContextCreate(CurrentMemoryContext,
+													   "KV COPY Row Context",
+													   ALLOCSET_DEFAULT_SIZES);
 
-    Datum *values = palloc0(attrCount * sizeof(Datum));
-    bool *nulls = palloc0(attrCount * sizeof(bool));
+	Oid			relationId = RelationGetRelid(relation);
+	TupleDesc	tupleDescriptor = RelationGetDescr(relation);
+	int			attrCount = tupleDescriptor->natts;
 
-    /* first attr must exist */
-    int bufLen = (attrCount - 1 + 7) / 8;
-    StringInfo buffer = makeStringInfo();
-    enlargeStringInfo(buffer, bufLen);
-    buffer->len = bufLen;
+#ifdef VIDARDB
+	char	   *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
+	bool		useColumn = (option != NULL) ?
+	(0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))) : false;
 
-    uint64 rowCount = 0;
-    bool found = true;
-    while (found) {
-        /* read the next row in tupleContext */
-        MemoryContext oldContext = MemoryContextSwitchTo(tupleContext);
-        found = NextCopyFrom(copyState, NULL, values, nulls, NULL);
-        /* write the row to the kv file */
-        if (found) {
-            memset(buffer->data, 0, bufLen);
-            StringInfo key = makeStringInfo();
-            StringInfo val = makeStringInfo();
-            val->len += bufLen;
+	ptr = OpenRequest(relationId, ptr, useColumn, attrCount);
+#else
+	ptr = OpenRequest(relationId, ptr);
+#endif
 
-            for (int index = 0; index < attrCount; index++) {
+	Datum	   *values = palloc0(attrCount * sizeof(Datum));
+	bool	   *nulls = palloc0(attrCount * sizeof(bool));
 
-                if (nulls[index]) {
-                    if (index == 0) {
-                        ereport(ERROR, (errmsg("first column cannot be null!")));
-                    }
-                    int byteIndex = (index - 1) / 8;
-                    int bitIndex = (index - 1) % 8;
-                    uint8 bitmask = (1 << bitIndex);
-                    buffer->data[byteIndex] |= bitmask;
-                    continue;
-                }
-                Datum datum = values[index];
-                #ifdef VIDARDB
-                bool useDelimiter = ((index == attrCount - 1)? false: useColumn)
-                                    && (index > 0);
-                SerializeAttribute(tupleDescriptor,
-                                   index,
-                                   datum,
-                                   index==0? key: val,
-                                   useDelimiter);
-                #else
-                SerializeAttribute(tupleDescriptor,
-                                   index,
-                                   datum,
-                                   index==0? key: val,
-                                   false);
-                #endif
-            }
-            memcpy(val->data, buffer->data, bufLen);
+	/* first attr must exist */
+	int			bufLen = (attrCount - 1 + 7) / 8;
+	StringInfo	buffer = makeStringInfo();
 
-            PutRequest(relationId, ptr, key->data, key->len, val->data, val->len);
-            rowCount++;
-        }
+	enlargeStringInfo(buffer, bufLen);
+	buffer->len = bufLen;
 
-        MemoryContextSwitchTo(oldContext);
-        MemoryContextReset(tupleContext);
-        CHECK_FOR_INTERRUPTS();
-    }
+	uint64		rowCount = 0;
+	bool		found = true;
 
-    /* end read/write sessions and close the relation */
-    EndCopyFrom(copyState);
-    CloseRequest(relationId, ptr);
-    heap_close(relation, ShareUpdateExclusiveLock);
+	while (found)
+	{
+		/* read the next row in tupleContext */
+		MemoryContext oldContext = MemoryContextSwitchTo(tupleContext);
 
-    return rowCount;
+		found = NextCopyFrom(copyState, NULL, values, nulls, NULL);
+		/* write the row to the kv file */
+		if (found)
+		{
+			memset(buffer->data, 0, bufLen);
+			StringInfo	key = makeStringInfo();
+			StringInfo	val = makeStringInfo();
+
+			val->len += bufLen;
+
+			for (int index = 0; index < attrCount; index++)
+			{
+
+				if (nulls[index])
+				{
+					if (index == 0)
+					{
+						ereport(ERROR, (errmsg("first column cannot be null!")));
+					}
+					int			byteIndex = (index - 1) / 8;
+					int			bitIndex = (index - 1) % 8;
+					uint8		bitmask = (1 << bitIndex);
+
+					buffer->data[byteIndex] |= bitmask;
+					continue;
+				}
+				Datum		datum = values[index];
+#ifdef VIDARDB
+				bool		useDelimiter = ((index == attrCount - 1) ? false : useColumn)
+				&& (index > 0);
+
+				SerializeAttribute(tupleDescriptor,
+								   index,
+								   datum,
+								   index == 0 ? key : val,
+								   useDelimiter);
+#else
+				SerializeAttribute(tupleDescriptor,
+								   index,
+								   datum,
+								   index == 0 ? key : val,
+								   false);
+#endif
+			}
+			memcpy(val->data, buffer->data, bufLen);
+
+			PutRequest(relationId, ptr, key->data, key->len, val->data, val->len);
+			rowCount++;
+		}
+
+		MemoryContextSwitchTo(oldContext);
+		MemoryContextReset(tupleContext);
+		CHECK_FOR_INTERRUPTS();
+	}
+
+	/* end read/write sessions and close the relation */
+	EndCopyFrom(copyState);
+	CloseRequest(relationId, ptr);
+	heap_close(relation, ShareUpdateExclusiveLock);
+
+	return rowCount;
 }
 
 /*
@@ -577,46 +690,52 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
  * "COPY (SELECT * FROM kv_table) TO ..." and forwarded to Postgres native
  * COPY handler. Function returns number of files copied to external stream.
  */
-static uint64 KVCopyOutTable(CopyStmt *copyStmt, const char *queryString) {
+static uint64
+KVCopyOutTable(CopyStmt *copyStmt, const char *queryString)
+{
 
-    if (copyStmt->attlist != NIL) {
-        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                        errmsg("copy column list is not supported"),
-                        errhint("use 'copy (select <columns> from <table>) to "
-                                "...' instead")));
-    }
+	if (copyStmt->attlist != NIL)
+	{
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("copy column list is not supported"),
+						errhint("use 'copy (select <columns> from <table>) to "
+								"...' instead")));
+	}
 
-    RangeVar *relation = copyStmt->relation;
-    char *qualifiedName = quote_qualified_identifier(relation->schemaname,
-                                                     relation->relname);
-    StringInfo newQuerySubstring = makeStringInfo();
-    appendStringInfo(newQuerySubstring, "select * from %s", qualifiedName);
-    List *queryList = raw_parser(newQuerySubstring->data);
+	RangeVar   *relation = copyStmt->relation;
+	char	   *qualifiedName = quote_qualified_identifier(relation->schemaname,
+														   relation->relname);
+	StringInfo	newQuerySubstring = makeStringInfo();
 
-    /* take the first parse tree */
-    Node *rawQuery = linitial(queryList);
+	appendStringInfo(newQuerySubstring, "select * from %s", qualifiedName);
+	List	   *queryList = raw_parser(newQuerySubstring->data);
 
-    /*
-     * Set the relation field to NULL so that COPY command works on
-     * query field instead.
-     */
-    copyStmt->relation = NULL;
+	/* take the first parse tree */
+	Node	   *rawQuery = linitial(queryList);
 
-    /*
-     * raw_parser returns list of RawStmt* in PG 10+ we need to
-     * extract actual query from it.
-     */
-    RawStmt *rawStmt = (RawStmt *) rawQuery;
+	/*
+	 * Set the relation field to NULL so that COPY command works on query
+	 * field instead.
+	 */
+	copyStmt->relation = NULL;
 
-    ParseState *pstate = make_parsestate(NULL);
-    pstate->p_sourcetext = newQuerySubstring->data;
-    copyStmt->query = rawStmt->stmt;
+	/*
+	 * raw_parser returns list of RawStmt* in PG 10+ we need to extract actual
+	 * query from it.
+	 */
+	RawStmt    *rawStmt = (RawStmt *) rawQuery;
 
-    uint64 count = 0;
-    DoCopy(pstate, copyStmt, -1, -1, &count);
-    free_parsestate(pstate);
+	ParseState *pstate = make_parsestate(NULL);
 
-    return count;
+	pstate->p_sourcetext = newQuerySubstring->data;
+	copyStmt->query = rawStmt->stmt;
+
+	uint64		count = 0;
+
+	DoCopy(pstate, copyStmt, -1, -1, &count);
+	free_parsestate(pstate);
+
+	return count;
 }
 
 /*
@@ -626,56 +745,72 @@ static uint64 KVCopyOutTable(CopyStmt *copyStmt, const char *queryString) {
  * change existing data. However, it is not strict enough to prevent cast like
  * float <--> integer, which does not deserialize successfully in our case.
  */
-static void KVCheckAlterTable(AlterTableStmt *alterStmt) {
-    ObjectType objectType = alterStmt->relkind;
-    /* we are only interested in foreign table changes */
-    if (objectType != OBJECT_TABLE && objectType != OBJECT_FOREIGN_TABLE) {
-        return;
-    }
+static void
+KVCheckAlterTable(AlterTableStmt *alterStmt)
+{
+	ObjectType	objectType = alterStmt->relkind;
 
-    RangeVar *rangeVar = alterStmt->relation;
-    Oid relationId = RangeVarGetRelid(rangeVar, AccessShareLock, true);
-    if (!KVTable(relationId)) {
-        return;
-    }
+	/* we are only interested in foreign table changes */
+	if (objectType != OBJECT_TABLE && objectType != OBJECT_FOREIGN_TABLE)
+	{
+		return;
+	}
 
-    ListCell *cmdCell = NULL;
-    List *cmdList = alterStmt->cmds;
-    foreach (cmdCell, cmdList) {
+	RangeVar   *rangeVar = alterStmt->relation;
+	Oid			relationId = RangeVarGetRelid(rangeVar, AccessShareLock, true);
 
-        AlterTableCmd *alterCmd = (AlterTableCmd *) lfirst(cmdCell);
-        if (alterCmd->subtype == AT_AlterColumnType) {
+	if (!KVTable(relationId))
+	{
+		return;
+	}
 
-            char *columnName = alterCmd->name;
-            AttrNumber attributeNumber = get_attnum(relationId, columnName);
-            if (attributeNumber <= 0) {
-                /* let standard utility handle this */
-                continue;
-            }
+	ListCell   *cmdCell = NULL;
+	List	   *cmdList = alterStmt->cmds;
 
-            Oid currentTypeId = get_atttype(relationId, attributeNumber);
+	foreach(cmdCell, cmdList)
+	{
 
-            /*
-             * We are only interested in implicit coersion type compatibility.
-             * Erroring out here to prevent further processing.
-             */
-            ColumnDef *columnDef = (ColumnDef *) alterCmd->def;
-            Oid targetTypeId = typenameTypeId(NULL, columnDef->typeName);
-            if (!can_coerce_type(1,
-                                 &currentTypeId,
-                                 &targetTypeId,
-                                 COERCION_IMPLICIT)) {
-                char *typeName = TypeNameToString(columnDef->typeName);
-                ereport(ERROR, (errmsg("Column %s cannot be cast automatically "
-                                       "to type %s", columnName, typeName)));
-            }
-        }
+		AlterTableCmd *alterCmd = (AlterTableCmd *) lfirst(cmdCell);
 
-        if (alterCmd->subtype == AT_AddColumn) {
-            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                            errmsg("No support for adding column currently")));
-        }
-    }
+		if (alterCmd->subtype == AT_AlterColumnType)
+		{
+
+			char	   *columnName = alterCmd->name;
+			AttrNumber	attributeNumber = get_attnum(relationId, columnName);
+
+			if (attributeNumber <= 0)
+			{
+				/* let standard utility handle this */
+				continue;
+			}
+
+			Oid			currentTypeId = get_atttype(relationId, attributeNumber);
+
+			/*
+			 * We are only interested in implicit coersion type compatibility.
+			 * Erroring out here to prevent further processing.
+			 */
+			ColumnDef  *columnDef = (ColumnDef *) alterCmd->def;
+			Oid			targetTypeId = typenameTypeId(NULL, columnDef->typeName);
+
+			if (!can_coerce_type(1,
+								 &currentTypeId,
+								 &targetTypeId,
+								 COERCION_IMPLICIT))
+			{
+				char	   *typeName = TypeNameToString(columnDef->typeName);
+
+				ereport(ERROR, (errmsg("Column %s cannot be cast automatically "
+									   "to type %s", columnName, typeName)));
+			}
+		}
+
+		if (alterCmd->subtype == AT_AddColumn)
+		{
+			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							errmsg("No support for adding column currently")));
+		}
+	}
 }
 
 /*
@@ -684,108 +819,142 @@ static void KVCheckAlterTable(AlterTableStmt *alterStmt) {
  * statements, the function calls the previous utility hook or the standard
  * utility command via macro CALL_PREVIOUS_UTILITY.
  */
-static void KVProcessUtility(PlannedStmt *plannedStmt,
-                             const char *queryString,
-                             ProcessUtilityContext context,
-                             ParamListInfo paramListInfo,
-                             QueryEnvironment *queryEnvironment,
-                             DestReceiver *destReceiver,
-                             char *completionTag) {
-    Node *parseTree = plannedStmt->utilityStmt;
-    if (nodeTag(parseTree) == T_CopyStmt) {
+static void
+KVProcessUtility(PlannedStmt *plannedStmt,
+				 const char *queryString,
+				 ProcessUtilityContext context,
+				 ParamListInfo paramListInfo,
+				 QueryEnvironment *queryEnvironment,
+				 DestReceiver *destReceiver,
+				 char *completionTag)
+{
+	Node	   *parseTree = plannedStmt->utilityStmt;
 
-        CopyStmt *copyStmt = (CopyStmt *) parseTree;
-        if (KVCopyTableStatement(copyStmt)) {
+	if (nodeTag(parseTree) == T_CopyStmt)
+	{
 
-            uint64 rowCount = 0;
-            if (copyStmt->is_from) {
-                rowCount = KVCopyIntoTable(copyStmt, queryString);
-            } else {
-                rowCount = KVCopyOutTable(copyStmt, queryString);
-            }
+		CopyStmt   *copyStmt = (CopyStmt *) parseTree;
 
-            if (completionTag != NULL) {
-                snprintf(completionTag,
-                         COMPLETION_TAG_BUFSIZE,
-                         "COPY " UINT64_FORMAT,
-                          rowCount);
-            }
-        } else {
-            CALL_PREVIOUS_UTILITY(parseTree,
-                                  queryString,
-                                  context,
-                                  paramListInfo,
-                                  destReceiver,
-                                  completionTag);
-        }
-    } else if (nodeTag(parseTree) == T_DropStmt) {
+		if (KVCopyTableStatement(copyStmt))
+		{
 
-        DropStmt *dropStmt = (DropStmt *) parseTree;
-        if (dropStmt->removeType == OBJECT_EXTENSION) {
-            /* drop extension */
-            bool removeDirectory = false;
-            ListCell *objectCell = NULL;
-            foreach(objectCell, dropStmt->objects) {
+			uint64		rowCount = 0;
 
-                Node *object = (Node *) lfirst(objectCell);
-                Assert(IsA(object, String));
-                char *objectName = strVal(object);
-                if (strncmp(KVFDWNAME, objectName, NAMEDATALEN) == 0) {
-                    removeDirectory = true;
-                }
-            }
+			if (copyStmt->is_from)
+			{
+				rowCount = KVCopyIntoTable(copyStmt, queryString);
+			}
+			else
+			{
+				rowCount = KVCopyOutTable(copyStmt, queryString);
+			}
 
-            CALL_PREVIOUS_UTILITY(parseTree,
-                                  queryString,
-                                  context,
-                                  paramListInfo,
-                                  destReceiver,
-                                  completionTag);
+			if (completionTag != NULL)
+			{
+				snprintf(completionTag,
+						 COMPLETION_TAG_BUFSIZE,
+						 "COPY " UINT64_FORMAT,
+						 rowCount);
+			}
+		}
+		else
+		{
+			CALL_PREVIOUS_UTILITY(parseTree,
+								  queryString,
+								  context,
+								  paramListInfo,
+								  destReceiver,
+								  completionTag);
+		}
+	}
+	else if (nodeTag(parseTree) == T_DropStmt)
+	{
 
-            if (removeDirectory) {
-                KVRemoveDatabaseDirectory(MyDatabaseId);
-            }
-        } else {
-            /* drop table & drop server */
-            List *droppedTables = KVDroppedFilenameList((DropStmt *) parseTree);
+		DropStmt   *dropStmt = (DropStmt *) parseTree;
 
-            /* delete metadata */
-            CALL_PREVIOUS_UTILITY(parseTree,
-                                  queryString,
-                                  context,
-                                  paramListInfo,
-                                  destReceiver,
-                                  completionTag);
+		if (dropStmt->removeType == OBJECT_EXTENSION)
+		{
+			/* drop extension */
+			bool		removeDirectory = false;
+			ListCell   *objectCell = NULL;
 
-            /* delete real data */
-            ListCell *fileCell = NULL;
-            foreach(fileCell, droppedTables) {
-                char *path = lfirst(fileCell);
-                StringInfo tablePath = makeStringInfo();
-                appendStringInfo(tablePath, "%s", path);
-                if (KVDirectoryExists(tablePath)) {
-                    rmtree(path, true);
-                }
-            }
-        }
-    } else if (nodeTag(parseTree) == T_AlterTableStmt) {
-        AlterTableStmt *alterStmt = (AlterTableStmt *) parseTree;
-        KVCheckAlterTable(alterStmt);
-        CALL_PREVIOUS_UTILITY(parseTree,
-                              queryString,
-                              context,
-                              paramListInfo,
-                              destReceiver,
-                              completionTag);
-    } else {
-        /* handle other utility statements */
-        CALL_PREVIOUS_UTILITY(parseTree,
-                              queryString,
-                              context,
-                              paramListInfo,
-                              destReceiver,
-                              completionTag);
-    }
+			foreach(objectCell, dropStmt->objects)
+			{
+
+				Node	   *object = (Node *) lfirst(objectCell);
+
+				Assert(IsA(object, String));
+				char	   *objectName = strVal(object);
+
+				if (strncmp(KVFDWNAME, objectName, NAMEDATALEN) == 0)
+				{
+					removeDirectory = true;
+				}
+			}
+
+			CALL_PREVIOUS_UTILITY(parseTree,
+								  queryString,
+								  context,
+								  paramListInfo,
+								  destReceiver,
+								  completionTag);
+
+			if (removeDirectory)
+			{
+				KVRemoveDatabaseDirectory(MyDatabaseId);
+			}
+		}
+		else
+		{
+			/* drop table & drop server */
+			List	   *droppedTables = KVDroppedFilenameList((DropStmt *) parseTree);
+
+			/* delete metadata */
+			CALL_PREVIOUS_UTILITY(parseTree,
+								  queryString,
+								  context,
+								  paramListInfo,
+								  destReceiver,
+								  completionTag);
+
+			/* delete real data */
+			ListCell   *fileCell = NULL;
+
+			foreach(fileCell, droppedTables)
+			{
+				char	   *path = lfirst(fileCell);
+				StringInfo	tablePath = makeStringInfo();
+
+				appendStringInfo(tablePath, "%s", path);
+				if (KVDirectoryExists(tablePath))
+				{
+					rmtree(path, true);
+				}
+			}
+		}
+	}
+	else if (nodeTag(parseTree) == T_AlterTableStmt)
+	{
+		AlterTableStmt *alterStmt = (AlterTableStmt *) parseTree;
+
+		KVCheckAlterTable(alterStmt);
+		CALL_PREVIOUS_UTILITY(parseTree,
+							  queryString,
+							  context,
+							  paramListInfo,
+							  destReceiver,
+							  completionTag);
+	}
+	else
+	{
+		/* handle other utility statements */
+		CALL_PREVIOUS_UTILITY(parseTree,
+							  queryString,
+							  context,
+							  paramListInfo,
+							  destReceiver,
+							  completionTag);
+	}
 }
 
 /*
@@ -794,35 +963,45 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
  * Note: we don't bother with acquiring lock, because there should be no
  * other processes running when this is called.
  */
-static void KVShmemShutdown(int code, Datum arg) {
-    printf("\n============%s=============\n", __func__);
-    PthreadCancel(kvStorageThread, __func__);
+static void
+KVShmemShutdown(int code, Datum arg)
+{
+	printf("\n============%s=============\n", __func__);
+	PthreadCancel(kvStorageThread, __func__);
 
-    void *retVal;
-    PthreadJoin(kvStorageThread, &retVal, __func__);
-    if (retVal == PTHREAD_CANCELED) {
-        printf("\nkvStorageThread cancelled!\n");
-    } else {
-        printf("\nkvStorageThread is not cancelled!\n");
-    }
+	void	   *retVal;
+
+	PthreadJoin(kvStorageThread, &retVal, __func__);
+	if (retVal == PTHREAD_CANCELED)
+	{
+		printf("\nkvStorageThread cancelled!\n");
+	}
+	else
+	{
+		printf("\nkvStorageThread is not cancelled!\n");
+	}
 }
 
 /*
  * Allocate or attach to shared memory while the module is enabled.
  */
-static void KVShmemStartup(void) {
-    printf("\n============%s=============\n", __func__);
-    if (PreviousShmemStartupHook) {
-        PreviousShmemStartupHook();
-    }
+static void
+KVShmemStartup(void)
+{
+	printf("\n============%s=============\n", __func__);
+	if (PreviousShmemStartupHook)
+	{
+		PreviousShmemStartupHook();
+	}
 
-    /*
-     * If we're in the postmaster (or a standalone backend...), set up a shmem
-     * exit hook to release memory. I wonder what else we can in?
-     */
-    if (!IsUnderPostmaster) {
-        before_shmem_exit(KVShmemShutdown, (Datum) 0);
-    }
+	/*
+	 * If we're in the postmaster (or a standalone backend...), set up a shmem
+	 * exit hook to release memory. I wonder what else we can in?
+	 */
+	if (!IsUnderPostmaster)
+	{
+		before_shmem_exit(KVShmemShutdown, (Datum) 0);
+	}
 
-    PthreadCreate(&kvStorageThread, NULL, KVStorageThreadFun, NULL, __func__);
+	PthreadCreate(&kvStorageThread, NULL, KVStorageThreadFun, NULL, __func__);
 }

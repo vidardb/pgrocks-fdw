@@ -13,4 +13,5 @@ before_script:
   - docker version
 
 script:
+  - sh src/tools/pgindent/check-indent.sh
   - make docker-image

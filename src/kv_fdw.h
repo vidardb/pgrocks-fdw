@@ -46,7 +46,7 @@
 #endif
 
 
-/* Shared memory for function requests: 
+/* Shared memory for function requests:
  * mutex: mutual exclusion of the request buffer;
  * full: tell whether the request buffer is full;
  * agent[2]: synchronize the creation of the worker process;
@@ -56,24 +56,27 @@
  * responseSync[RESPONSEQUEUELENGTH]:
  *     notify child processes after the response is ready.
  */
-typedef struct SharedMem {
-    sem_t mutex;
-    sem_t full;
-    sem_t agent[2];
-    sem_t worker;
-    sem_t responseMutex[RESPONSEQUEUELENGTH];
-    sem_t responseSync[RESPONSEQUEUELENGTH];
-    bool workerProcessCreated;
-    char area[BUFSIZE];  // assume ~64K for a tuple is enough
-} SharedMem;
+typedef struct SharedMem
+{
+	sem_t		mutex;
+	sem_t		full;
+	sem_t		agent[2];
+	sem_t		worker;
+	sem_t		responseMutex[RESPONSEQUEUELENGTH];
+	sem_t		responseSync[RESPONSEQUEUELENGTH];
+	bool		workerProcessCreated;
+	char		area[BUFSIZE];
+	/* assume ~ 64 K for a tuple is enough */
+}			SharedMem;
 
 /* Holds the option values to be used when reading or writing files.
  * To resolve these values, we first check foreign table's options,
  * and if not present, we then fall back to the default values.
  */
-typedef struct KVFdwOptions {
-    char *filename;
-} KVFdwOptions;
+typedef struct KVFdwOptions
+{
+	char	   *filename;
+}			KVFdwOptions;
 
 /*
  * The scan state is for maintaining state for a scan, either for a
@@ -82,19 +85,24 @@ typedef struct KVFdwOptions {
  * It is set up in BeginForeignScan and stashed in node->fdw_state and
  * subsequently used in IterateForeignScan, EndForeignScan and ReScanForeignScan.
  */
-typedef struct TableReadState {
-    bool isKeyBased;
-    bool done;
-    StringInfo key;
+typedef struct TableReadState
+{
+	bool		isKeyBased;
+	bool		done;
+	StringInfo	key;
 
-    #ifdef VIDARDB
-    RangeQueryOptions options;
-    char *buf;      // buffer for data returned by RangeQuery
-    size_t bufLen;  // buffer length
-    char *next;     // pointer to the next data entry for IterateForeignScan
-    bool hasNext;   // whether there will be a next batch from RangeQuery
-    #endif
-} TableReadState;
+#ifdef VIDARDB
+	RangeQueryOptions options;
+	char	   *buf;
+	/* buffer for data returned by RangeQuery */
+	size_t		bufLen;
+	/* buffer length */
+	char	   *next;
+	/* pointer to the next data entry for IterateForeignScan */
+	bool		hasNext;
+	/* whether there will be a next batch from RangeQuery */
+#endif
+}			TableReadState;
 
 /*
  * The modify state is for maintaining state of modify operations.
@@ -103,26 +111,28 @@ typedef struct TableReadState {
  * rinfo->ri_FdwState and subsequently used in ExecForeignInsert,
  * ExecForeignUpdate, ExecForeignDelete and EndForeignModify.
  */
-typedef struct TableWriteState {
-    CmdType operation;
-    AttrNumber keyJunkNo;
-} TableWriteState;
+typedef struct TableWriteState
+{
+	CmdType		operation;
+	AttrNumber	keyJunkNo;
+}			TableWriteState;
 
-typedef enum FuncName {
-    OPEN = 0,
-    CLOSE,
-    COUNT,
-    GETITER,
-    DELITER,
-    NEXT,
-    GET,
-    PUT,
-    DELETE,
-    #ifdef VIDARDB
-    RANGEQUERY,
-    #endif
-    TERMINATE
-} FuncName;
+typedef enum FuncName
+{
+	OPEN = 0,
+	CLOSE,
+	COUNT,
+	GETITER,
+	DELITER,
+	NEXT,
+	GET,
+	PUT,
+	DELETE,
+#ifdef VIDARDB
+	RANGEQUERY,
+#endif
+	TERMINATE
+}			FuncName;
 
 
 /* Function declarations for extension loading and unloading */
@@ -132,13 +142,13 @@ extern void _PG_fini(void);
 
 
 /* Functions used across files in kv_fdw */
-extern KVFdwOptions *KVGetOptions(Oid foreignTableId);
+extern KVFdwOptions * KVGetOptions(Oid foreignTableId);
 
 extern void SerializeAttribute(TupleDesc tupleDescriptor,
-                               Index index,
-                               Datum datum,
-                               StringInfo buffer,
-                               bool useDelimiter);
+							   Index index,
+							   Datum datum,
+							   StringInfo buffer,
+							   bool useDelimiter);
 
 extern char *KVGetOptionValue(Oid foreignTableId, const char *optionName);
 
@@ -146,53 +156,53 @@ extern Datum ShortVarlena(Datum datum, int typeLength, char storage);
 
 extern void *KVStorageThreadFun(void *arg);
 
-extern SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...);
+extern SharedMem * OpenRequest(Oid relationId, SharedMem * ptr,...);
 
-extern void CloseRequest(Oid relationId, SharedMem *ptr);
+extern void CloseRequest(Oid relationId, SharedMem * ptr);
 
-extern uint64 CountRequest(Oid relationId, SharedMem *ptr);
+extern uint64 CountRequest(Oid relationId, SharedMem * ptr);
 
-extern void GetIterRequest(Oid relationId, SharedMem *ptr);
+extern void GetIterRequest(Oid relationId, SharedMem * ptr);
 
-extern void DelIterRequest(Oid relationId, SharedMem *ptr);
+extern void DelIterRequest(Oid relationId, SharedMem * ptr);
 
 extern bool NextRequest(Oid relationId,
-                        SharedMem *ptr,
-                        char **key,
-                        size_t *keyLen,
-                        char **val,
-                        size_t *valLen);
+						SharedMem * ptr,
+						char **key,
+						size_t *keyLen,
+						char **val,
+						size_t *valLen);
 
 extern bool GetRequest(Oid relationId,
-                       SharedMem *ptr,
-                       char *key,
-                       size_t keyLen,
-                       char **val,
-                       size_t *valLen);
+					   SharedMem * ptr,
+					   char *key,
+					   size_t keyLen,
+					   char **val,
+					   size_t *valLen);
 
 extern void PutRequest(Oid relationId,
-                       SharedMem *ptr,
-                       char *key,
-                       size_t keyLen,
-                       char *val,
-                       size_t valLen);
+					   SharedMem * ptr,
+					   char *key,
+					   size_t keyLen,
+					   char *val,
+					   size_t valLen);
 
 extern void DeleteRequest(Oid relationId,
-                          SharedMem *ptr,
-                          char *key,
-                          size_t keyLen);
+						  SharedMem * ptr,
+						  char *key,
+						  size_t keyLen);
 
 #ifdef VIDARDB
 extern bool RangeQueryRequest(Oid relationId,
-                              SharedMem *ptr,
-                              RangeQueryOptions *options,
-                              char **buf,
-                              size_t *bufLen);
+							  SharedMem * ptr,
+							  RangeQueryOptions * options,
+							  char **buf,
+							  size_t *bufLen);
 #endif
 
 /* global variables */
 
-pthread_t kvStorageThread;
+pthread_t	kvStorageThread;
 
 
 #endif

@@ -19,19 +19,19 @@ typedef struct KVHashEntry {
     void *db;
 } KVHashEntry;
 
-typedef struct KVIterHashKey {
+typedef struct KVTableProcHashKey {
     Oid relationId;
     pid_t pid;
-} KVIterHashKey;
+} KVTableProcHashKey;
 
 typedef struct KVIterHashEntry {
-    KVIterHashKey key;
+    KVTableProcHashKey key;
     void *iter;
 } KVIterHashEntry;
 
 #ifdef VIDARDB
 typedef struct KVReadOptionsEntry {
-    KVIterHashKey key;
+    KVTableProcHashKey key;
     void *readOptions;
 } KVReadOptionsEntry;
 
@@ -191,8 +191,8 @@ static void OpenResponseArea() {
 static inline int CompareKVIterHashKey(const void *key1,
                                        const void *key2,
                                        Size keysize) {
-    const KVIterHashKey *k1 = (const KVIterHashKey *)key1;
-    const KVIterHashKey *k2 = (const KVIterHashKey *)key2;
+    const KVTableProcHashKey *k1 = (const KVTableProcHashKey *)key1;
+    const KVTableProcHashKey *k2 = (const KVTableProcHashKey *)key2;
 
     if (k1 == NULL || k2 == NULL) {
         return -1;
@@ -286,7 +286,7 @@ static void KVWorkerMain(int argc, char *argv[]) {
 
     HASHCTL iter_hash_ctl;
     memset(&iter_hash_ctl, 0, sizeof(iter_hash_ctl));
-    iter_hash_ctl.keysize = sizeof(KVIterHashKey);
+    iter_hash_ctl.keysize = sizeof(KVTableProcHashKey);
     iter_hash_ctl.entrysize = sizeof(KVIterHashEntry);
     iter_hash_ctl.match = CompareKVIterHashKey;
     kvIterHash = hash_create("kvIterHash",
@@ -297,7 +297,7 @@ static void KVWorkerMain(int argc, char *argv[]) {
     #ifdef VIDARDB
     HASHCTL option_hash_ctl;
     memset(&option_hash_ctl, 0, sizeof(option_hash_ctl));
-    option_hash_ctl.keysize = sizeof(KVIterHashKey);
+    option_hash_ctl.keysize = sizeof(KVTableProcHashKey);
     option_hash_ctl.entrysize = sizeof(KVReadOptionsEntry);
     option_hash_ctl.match = CompareKVIterHashKey;
     kvReadOptionsHash = hash_create("kvReadOptionsHash",
@@ -604,7 +604,7 @@ void GetIterRequest(Oid relationId, SharedMem *ptr) {
 static void GetIterResponse(char *area) {
     printf("\n============%s============\n", __func__);
 
-    KVIterHashKey iterKey;    
+    KVTableProcHashKey iterKey;    
     memcpy(&iterKey.relationId, area, sizeof(iterKey.relationId));
     memcpy(&iterKey.pid, area + sizeof(iterKey.relationId), sizeof(pid_t));
 
@@ -657,7 +657,7 @@ void DelIterRequest(Oid relationId, SharedMem *ptr) {
 static void DelIterResponse(char *area) {
     printf("\n============%s============\n", __func__);
 
-    KVIterHashKey iterKey;
+    KVTableProcHashKey iterKey;
     memcpy(&iterKey.relationId, area, sizeof(iterKey.relationId));
     memcpy(&iterKey.pid, area + sizeof(iterKey.relationId), sizeof(pid_t));
 
@@ -733,7 +733,7 @@ void NextResponse(char *area) {
     uint32 responseId;
     memcpy(&responseId, area, sizeof(responseId));
 
-    KVIterHashKey iterKey;
+    KVTableProcHashKey iterKey;
     memcpy(&iterKey.relationId,
            area + sizeof(responseId),
            sizeof(iterKey.relationId));
@@ -1104,40 +1104,12 @@ static void RangeQueryResponse(char *area) {
     memcpy(&responseId, area, sizeof(responseId));
     area += sizeof(responseId);
 
-    KVIterHashKey optionKey;
+    KVTableProcHashKey optionKey;
     memcpy(&optionKey.relationId, area, sizeof(optionKey.relationId));
     area += sizeof(optionKey.relationId);
 
     memcpy(&optionKey.pid, area, sizeof(pid_t));
     area += sizeof(pid_t);
-
-    RangeQueryOptions options;
-    memcpy(&(options.startLen), area, sizeof(options.startLen));
-    area += sizeof(options.startLen);
-    if (options.startLen > 0) {
-        char *start = palloc(options.startLen);
-        memcpy(start, area, options.startLen);
-        area += options.startLen;
-    }
-
-    memcpy(&(options.limitLen), area, sizeof(options.limitLen));
-    area += sizeof(options.limitLen);
-    if (options.limitLen > 0) {
-        char *limit = palloc(options.limitLen);
-        memcpy(limit, area, options.limitLen);
-        area += options.limitLen;
-    }
-
-    memcpy(&(options.batchCapacity), area, sizeof(options.batchCapacity));
-    area += sizeof(options.batchCapacity);
-
-    memcpy(&(options.attrCount), area, sizeof(options.attrCount));
-    area += sizeof(options.attrCount);
-    if (options.attrCount > 0) {
-        uint32 bytes = options.attrCount * sizeof(*(options.attrs));
-        options.attrs = palloc(bytes);
-        memcpy(options.attrs, area, bytes);
-    }
 
     bool found = false;
     KVHashEntry *entry = hash_search(kvTableHash,
@@ -1147,6 +1119,35 @@ static void RangeQueryResponse(char *area) {
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
+        RangeQueryOptions options;
+
+        memcpy(&(options.startLen), area, sizeof(options.startLen));
+        area += sizeof(options.startLen);
+        if (options.startLen > 0) {
+            options.start = palloc(options.startLen);
+            memcpy(options.start, area, options.startLen);
+            area += options.startLen;
+        }
+
+        memcpy(&(options.limitLen), area, sizeof(options.limitLen));
+        area += sizeof(options.limitLen);
+        if (options.limitLen > 0) {
+            options.limit = palloc(options.limitLen);
+            memcpy(options.limit, area, options.limitLen);
+            area += options.limitLen;
+        }
+
+        memcpy(&(options.batchCapacity), area, sizeof(options.batchCapacity));
+        area += sizeof(options.batchCapacity);
+
+        memcpy(&(options.attrCount), area, sizeof(options.attrCount));
+        area += sizeof(options.attrCount);
+        if (options.attrCount > 0) {
+            uint32 bytes = options.attrCount * sizeof(*(options.attrs));
+            options.attrs = palloc(bytes);
+            memcpy(options.attrs, area, bytes);
+        }
+
         bool optionFound = false;
         KVReadOptionsEntry *optionEntry = hash_search(kvReadOptionsHash,
                                                       &optionKey,
@@ -1157,18 +1158,43 @@ static void RangeQueryResponse(char *area) {
             optionEntry->readOptions = NULL;
         }
 
+        void *range = NULL;
+        ParseRangeQueryOptions(&options, &range, &(optionEntry->readOptions));
+
+        void *result = NULL;
         size_t bufLen = 0;
         bool ret = RangeQuery(entry->db,
-                              &(optionEntry->readOptions),
-                              &options,
-                              optionKey.pid,
-                              &bufLen);
+                              range,
+                              optionEntry->readOptions,
+                              &bufLen,
+                              &result);
+
+        char filename[FILENAMELENGTH];
+        snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, optionKey.pid);
+        ShmUnlink(filename, __func__);
+        int fd = ShmOpen(filename,
+                         O_CREAT | O_RDWR | O_EXCL,
+                         PERMISSION,
+                         __func__);
+
+        char *buf = Mmap(NULL,
+                         bufLen,
+                         PROT_READ | PROT_WRITE,
+                         MAP_SHARED,
+                         fd,
+                         0,
+                         __func__);
+        Ftruncate(fd, bufLen, __func__);
+        Fclose(fd, __func__);
+
+        ParseRangeQueryResult(result, buf);
+
+        Munmap(buf, bufLen, __func__);
+        /* TODO: check ShmUnlink is issued, and shm is released*/
+
         char *current = ResponseQueue[responseId];
         memcpy(current, &bufLen, sizeof(bufLen));
 
-        if (bufLen == 0) {
-            return;
-        }
         current += sizeof(bufLen);
         memcpy(current, &ret, sizeof(ret));
     }

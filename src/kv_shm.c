@@ -74,6 +74,7 @@ static void PutResponse(char *area);
 static void DeleteResponse(char *area);
 
 #ifdef VIDARDB
+static void ClearRangeQueryDataResponse(char *area);
 static void RangeQueryResponse(char *area);
 #endif
 
@@ -353,6 +354,9 @@ static void KVWorkerMain(int argc, char *argv[]) {
                 DeleteResponse(buf + sizeof(responseId));
                 break;
             #ifdef VIDARDB
+            case CLEARRQDATA:
+                ClearRangeQueryDataResponse(buf + sizeof(responseId));
+                break;
             case RANGEQUERY:
                 RangeQueryResponse(buf);
                 break;
@@ -1012,6 +1016,52 @@ static void DeleteResponse(char *area) {
 }
 
 #ifdef VIDARDB
+void ClearRangeQueryDataRequest(Oid relationId, SharedMem *ptr) {
+    printf("\n============%s============\n", __func__);
+    
+    SemWait(&ptr->mutex, __func__);
+    SemWait(&ptr->full, __func__);
+    
+    FuncName func = CLEARRQDATA;
+    memcpy(ptr->area, &func, sizeof(FuncName));
+    uint32 responseId = GetResponseQueueIndex(ptr);
+    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
+
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
+           &relationId,
+           sizeof(relationId));
+    pid_t pid = getpid();
+    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId) + sizeof(relationId),
+           &pid,
+           sizeof(pid_t));
+    SemPost(&ptr->worker, __func__);
+    SemPost(&ptr->mutex, __func__);
+
+    SemWait(&ptr->responseSync[responseId], __func__);
+    SemPost(&ptr->responseMutex[responseId], __func__);    
+}
+
+static void ClearRangeQueryDataResponse(char *area) {
+    printf("\n============%s============\n", __func__);
+
+    KVTableProcHashKey optionKey;
+    memcpy(&optionKey.relationId, area, sizeof(optionKey.relationId));
+    memcpy(&optionKey.pid, area + sizeof(optionKey.relationId), sizeof(pid_t));
+    bool found;
+    KVReadOptionsEntry *entry = hash_search(kvReadOptionsHash, &optionKey, HASH_FIND, &found);
+    if (!found) {
+        ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
+    } else {
+        if (entry->readOptions) {
+            entry->readOptions = NULL;
+        }
+    }
+    
+    char filename[FILENAMELENGTH];
+    snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, optionKey.pid);
+    ShmUnlink(filename, __func__);
+}
+
 /*
  * return whether there is a remaining batch
  */
@@ -1177,21 +1227,24 @@ static void RangeQueryResponse(char *area) {
                          PERMISSION,
                          __func__);
 
-        char *buf = Mmap(NULL,
+        char *buf = NULL;
+        if (bufLen > 0) {
+            buf = Mmap(NULL,
                          bufLen,
                          PROT_READ | PROT_WRITE,
                          MAP_SHARED,
                          fd,
                          0,
                          __func__);
-        Ftruncate(fd, bufLen, __func__);
-        Fclose(fd, __func__);
+            Ftruncate(fd, bufLen, __func__);
+            Fclose(fd, __func__);
 
-        ParseRangeQueryResult(result, buf);
+            ParseRangeQueryResult(result, buf);
 
-        Munmap(buf, bufLen, __func__);
-        /* TODO: check ShmUnlink is issued, and shm is released*/
-
+            Munmap(buf, bufLen, __func__);
+            /* TODO: check ShmUnlink is issued, and shm is released*/
+        }
+        
         char *current = ResponseQueue[responseId];
         memcpy(current, &bufLen, sizeof(bufLen));
 

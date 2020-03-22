@@ -74,8 +74,9 @@ static void PutResponse(char *area);
 static void DeleteResponse(char *area);
 
 #ifdef VIDARDB
-static void ClearRangeQueryDataResponse(char *area);
 static void RangeQueryResponse(char *area);
+
+static void ClearRangeQueryMetaResponse(char *area);
 #endif
 
 
@@ -354,11 +355,11 @@ static void KVWorkerMain(int argc, char *argv[]) {
                 DeleteResponse(buf + sizeof(responseId));
                 break;
             #ifdef VIDARDB
-            case CLEARRQDATA:
-                ClearRangeQueryDataResponse(buf + sizeof(responseId));
-                break;
             case RANGEQUERY:
                 RangeQueryResponse(buf);
+                break;
+            case CLEARRQMETA:
+                ClearRangeQueryMetaResponse(buf + sizeof(responseId));
                 break;
             #endif
             default:
@@ -437,8 +438,10 @@ SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...) {
     FuncName func = OPEN;
     memcpy(ptr->area, &func, sizeof(FuncName));
     uint32 responseId = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
-    char* current = ptr->area + sizeof(FuncName) + sizeof(responseId);
+    char *current = ptr->area + sizeof(FuncName);
+
+    memcpy(current, &responseId, sizeof(responseId));
+    current += sizeof(responseId);
 
     #ifdef VIDARDB
     va_list vl;
@@ -505,14 +508,17 @@ void CloseRequest(Oid relationId, SharedMem *ptr) {
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
-    
+
     FuncName func = CLOSE;
     memcpy(ptr->area, &func, sizeof(FuncName));
     uint32 responseId = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
-           &relationId,
-           sizeof(relationId));
+    char *current = ptr->area + sizeof(FuncName);
+
+    memcpy(current, &responseId, sizeof(responseId));
+    current += sizeof(responseId);
+
+    memcpy(current, &relationId, sizeof(relationId));
+
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
 
@@ -545,11 +551,13 @@ uint64 CountRequest(Oid relationId, SharedMem *ptr) {
     FuncName func = COUNT;
     memcpy(ptr->area, &func, sizeof(FuncName));
     uint32 responseId = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
+    char *current = ptr->area + sizeof(FuncName);
 
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
-           &relationId,
-           sizeof(relationId));
+    memcpy(current, &responseId, sizeof(responseId));
+    current += sizeof(responseId);
+
+    memcpy(current, &relationId, sizeof(relationId));
+
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
 
@@ -587,16 +595,16 @@ void GetIterRequest(Oid relationId, SharedMem *ptr) {
     FuncName func = GETITER;
     memcpy(ptr->area, &func, sizeof(FuncName)); 
     uint32 responseId = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
+    char *current = ptr->area + sizeof(FuncName);
 
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
-           &relationId,
-           sizeof(relationId));
+    memcpy(current, &responseId, sizeof(responseId));
+    current += sizeof(responseId);
+
+    memcpy(current, &relationId, sizeof(relationId));
+    current += sizeof(relationId);
 
     pid_t pid = getpid();
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId) + sizeof(relationId),
-           &pid,
-           sizeof(pid));
+    memcpy(current, &pid, sizeof(pid));
 
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
@@ -635,22 +643,24 @@ static void GetIterResponse(char *area) {
 
 void DelIterRequest(Oid relationId, SharedMem *ptr) {
     printf("\n============%s============\n", __func__);
-    
+
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
-    
+
     FuncName func = DELITER;
     memcpy(ptr->area, &func, sizeof(FuncName));
     uint32 responseId = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
+    char *current = ptr->area + sizeof(FuncName);
 
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
-           &relationId,
-           sizeof(relationId));
+    memcpy(current, &responseId, sizeof(responseId));
+    current += sizeof(responseId);
+
+    memcpy(current, &relationId, sizeof(relationId));
+    current += sizeof(relationId);
+
     pid_t pid = getpid();
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId) + sizeof(relationId),
-           &pid,
-           sizeof(pid_t));
+    memcpy(current, &pid, sizeof(pid_t));
+
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
 
@@ -666,14 +676,13 @@ static void DelIterResponse(char *area) {
     memcpy(&iterKey.pid, area + sizeof(iterKey.relationId), sizeof(pid_t));
 
     bool found;
-    KVIterHashEntry *entry = hash_search(kvIterHash, &iterKey, HASH_FIND, &found);
+    KVIterHashEntry *entry = hash_search(kvIterHash, &iterKey, HASH_REMOVE, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
-        if (entry->iter) {
-            DelIter(entry->iter);
-            entry->iter = NULL;
-        }
+        DelIter(entry->iter);
+        /* might reuse, so must set NULL */
+        entry->iter = NULL;
     }
 }
 
@@ -690,24 +699,24 @@ bool NextRequest(Oid relationId,
     
     FuncName func = NEXT;
     memcpy(ptr->area, &func, sizeof(FuncName));
-    
     uint32 responseId = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
+    char *current = ptr->area + sizeof(FuncName);
 
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
-           &relationId,
-           sizeof(relationId));
+    memcpy(current, &responseId, sizeof(responseId));
+    current += sizeof(responseId);
+
+    memcpy(current, &relationId, sizeof(relationId));
+    current += sizeof(relationId);
+
     pid_t pid = getpid();
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId) + sizeof(relationId),
-           &pid,
-           sizeof(pid));
+    memcpy(current, &pid, sizeof(pid));
 
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
   
     SemWait(&ptr->responseSync[responseId], __func__);
 
-    char *current = ResponseQueue[responseId];
+    current = ResponseQueue[responseId];
     memcpy(keyLen, current, sizeof(*keyLen));
     
     /* no next item */
@@ -736,14 +745,13 @@ void NextResponse(char *area) {
 
     uint32 responseId;
     memcpy(&responseId, area, sizeof(responseId));
+    area += sizeof(responseId);
 
     KVTableProcHashKey iterKey;
-    memcpy(&iterKey.relationId,
-           area + sizeof(responseId),
-           sizeof(iterKey.relationId));
-    memcpy(&iterKey.pid,
-           area + sizeof(responseId) + sizeof(iterKey.relationId),
-           sizeof(pid_t));
+    memcpy(&iterKey.relationId, area, sizeof(iterKey.relationId));
+    area += sizeof(iterKey.relationId);
+
+    memcpy(&iterKey.pid, area, sizeof(pid_t));
 
     bool found;
     KVHashEntry *entry = hash_search(kvTableHash,
@@ -809,20 +817,18 @@ bool GetRequest(Oid relationId,
 
     FuncName func = GET;
     memcpy(ptr->area, &func, sizeof(FuncName));
-
     uint32 responseId = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
-           &relationId,
-           sizeof(relationId));
+    char *current = ptr->area + sizeof(FuncName);
 
-    char *current = ptr->area +
-                    sizeof(FuncName) +
-                    sizeof(responseId) +
-                    sizeof(relationId);
+    memcpy(current, &responseId, sizeof(responseId));
+    current += sizeof(responseId);
+
+    memcpy(current, &relationId, sizeof(relationId));
+    current += sizeof(relationId);
+
     memcpy(current, &keyLen, sizeof(keyLen));
-
     current += sizeof(keyLen);
+
     memcpy(current, key, keyLen);
 
     SemPost(&ptr->worker, __func__);
@@ -839,9 +845,8 @@ bool GetRequest(Oid relationId,
 
     current += sizeof(res);
     memcpy(valLen, current, sizeof(*valLen));
-
     current += sizeof(*valLen);
-    
+
     *val = palloc(*valLen);
     memcpy(*val, current, *valLen);
 
@@ -855,9 +860,11 @@ static void GetResponse(char *area) {
 
     int responseId;
     memcpy(&responseId, area, sizeof(responseId));
+    area += sizeof(responseId);
 
     Oid relationId;
-    memcpy(&relationId, area + sizeof(responseId), sizeof(relationId));
+    memcpy(&relationId, area, sizeof(relationId));
+    area += sizeof(relationId);
 
     bool found;
     KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
@@ -865,10 +872,11 @@ static void GetResponse(char *area) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
         size_t keyLen, valLen;
-        char *current = area + sizeof(responseId) + sizeof(relationId);
 
-        memcpy(&keyLen, current, sizeof(keyLen));
-        char *key = current + sizeof(keyLen);
+        memcpy(&keyLen, area, sizeof(keyLen));
+        area += sizeof(keyLen);
+
+        char *key = area;
 
         char *val = NULL;
         bool res = Get(entry->db, key, keyLen, &val, &valLen);
@@ -877,7 +885,7 @@ static void GetResponse(char *area) {
             return;
         }
 
-        current = ResponseQueue[responseId] + sizeof(res);
+        char *current = ResponseQueue[responseId] + sizeof(res);
         memcpy(current, &valLen, sizeof(valLen));
 
         current += sizeof(valLen);
@@ -901,27 +909,27 @@ void PutRequest(Oid relationId,
     FuncName func = PUT;
     memcpy(ptr->area, &func, sizeof(FuncName));
     uint32 responseId = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
-           &relationId,
-           sizeof(relationId));
+    char *current = ptr->area + sizeof(FuncName);
 
-    char *current = ptr->area +
-                    sizeof(FuncName) +
-                    sizeof(responseId) +
-                    sizeof(relationId);
+    memcpy(current, &responseId, sizeof(responseId));
+    current += sizeof(responseId);
+
+    memcpy(current, &relationId, sizeof(relationId));
+    current += sizeof(relationId);
+
     memcpy(current, &keyLen, sizeof(keyLen));
-
     current += sizeof(keyLen);
+
     memcpy(current, key, keyLen);
-
     current += keyLen;
+
     memcpy(current, &valLen, sizeof(valLen));
-
     current += sizeof(valLen);
-    memcpy(current, val, valLen);
 
-    if (current + valLen - ptr->area > BUFSIZE) {
+    memcpy(current, val, valLen);
+    current += valLen;
+
+    if (current - ptr->area > BUFSIZE) {
         SemPost(&ptr->mutex, __func__);
         SemPost(&ptr->responseMutex[responseId], __func__);
         ereport(ERROR,
@@ -940,6 +948,7 @@ static void PutResponse(char *area) {
 
     Oid relationId;
     memcpy(&relationId, area, sizeof(relationId));
+    area += sizeof(relationId);
 
     bool found;
     KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
@@ -947,14 +956,17 @@ static void PutResponse(char *area) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
         size_t keyLen, valLen;
-        char *current = area + sizeof(relationId);
 
-        memcpy(&keyLen, current, sizeof(keyLen));
-        char *key = current + sizeof(keyLen);
+        memcpy(&keyLen, area, sizeof(keyLen));
+        area += sizeof(keyLen);
 
-        current += sizeof(keyLen) + keyLen;
-        memcpy(&valLen, current, sizeof(valLen));
-        char *val = current + sizeof(valLen);
+        char *key = area;
+        area += keyLen;
+
+        memcpy(&valLen, area, sizeof(valLen));
+        area += sizeof(valLen);
+
+        char *val = area;
 
         if (!Put(entry->db, key, keyLen, val, valLen)) {
             ereport(ERROR, (errmsg("error from %s", __func__)));
@@ -971,18 +983,17 @@ void DeleteRequest(Oid relationId, SharedMem *ptr, char *key, size_t keyLen) {
     FuncName func = DELETE;
     memcpy(ptr->area, &func, sizeof(FuncName));
     uint32 responseId = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
-           &relationId,
-           sizeof(relationId));
+    char *current = ptr->area + sizeof(FuncName);
 
-    char *current = ptr->area +
-                    sizeof(FuncName) +
-                    sizeof(responseId) +
-                    sizeof(relationId);
+    memcpy(current, &responseId, sizeof(responseId));
+    current += sizeof(responseId);
+
+    memcpy(current, &relationId, sizeof(relationId));
+    current += sizeof(relationId);
+
     memcpy(current, &keyLen, sizeof(keyLen));
-
     current += sizeof(keyLen);
+
     memcpy(current, key, keyLen);
 
     SemPost(&ptr->worker, __func__);
@@ -997,6 +1008,7 @@ static void DeleteResponse(char *area) {
 
     Oid relationId;
     memcpy(&relationId, area, sizeof(relationId));
+    area += sizeof(relationId);
 
     bool found;
     KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
@@ -1004,10 +1016,10 @@ static void DeleteResponse(char *area) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
         size_t keyLen;
-        char *current = area + sizeof(relationId);
+        memcpy(&keyLen, area, sizeof(keyLen));
+        area += sizeof(keyLen);
 
-        memcpy(&keyLen, current, sizeof(keyLen));
-        char *key = current + sizeof(keyLen);
+        char *key = area;
 
         if (!Delete(entry->db, key, keyLen)) {
             ereport(ERROR, (errmsg("error from %s", __func__)));
@@ -1016,52 +1028,6 @@ static void DeleteResponse(char *area) {
 }
 
 #ifdef VIDARDB
-void ClearRangeQueryDataRequest(Oid relationId, SharedMem *ptr) {
-    printf("\n============%s============\n", __func__);
-    
-    SemWait(&ptr->mutex, __func__);
-    SemWait(&ptr->full, __func__);
-    
-    FuncName func = CLEARRQDATA;
-    memcpy(ptr->area, &func, sizeof(FuncName));
-    uint32 responseId = GetResponseQueueIndex(ptr);
-    memcpy(ptr->area + sizeof(FuncName), &responseId, sizeof(responseId));
-
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId),
-           &relationId,
-           sizeof(relationId));
-    pid_t pid = getpid();
-    memcpy(ptr->area + sizeof(FuncName) + sizeof(responseId) + sizeof(relationId),
-           &pid,
-           sizeof(pid_t));
-    SemPost(&ptr->worker, __func__);
-    SemPost(&ptr->mutex, __func__);
-
-    SemWait(&ptr->responseSync[responseId], __func__);
-    SemPost(&ptr->responseMutex[responseId], __func__);    
-}
-
-static void ClearRangeQueryDataResponse(char *area) {
-    printf("\n============%s============\n", __func__);
-
-    KVTableProcHashKey optionKey;
-    memcpy(&optionKey.relationId, area, sizeof(optionKey.relationId));
-    memcpy(&optionKey.pid, area + sizeof(optionKey.relationId), sizeof(pid_t));
-    bool found;
-    KVReadOptionsEntry *entry = hash_search(kvReadOptionsHash, &optionKey, HASH_FIND, &found);
-    if (!found) {
-        ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    } else {
-        if (entry->readOptions) {
-            entry->readOptions = NULL;
-        }
-    }
-    
-    char filename[FILENAMELENGTH];
-    snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, optionKey.pid);
-    ShmUnlink(filename, __func__);
-}
-
 /*
  * return whether there is a remaining batch
  */
@@ -1230,26 +1196,76 @@ static void RangeQueryResponse(char *area) {
         char *buf = NULL;
         if (bufLen > 0) {
             buf = Mmap(NULL,
-                         bufLen,
-                         PROT_READ | PROT_WRITE,
-                         MAP_SHARED,
-                         fd,
-                         0,
-                         __func__);
+                       bufLen,
+                       PROT_READ | PROT_WRITE,
+                       MAP_SHARED,
+                       fd,
+                       0,
+                       __func__);
             Ftruncate(fd, bufLen, __func__);
             Fclose(fd, __func__);
 
             ParseRangeQueryResult(result, buf);
 
             Munmap(buf, bufLen, __func__);
-            /* TODO: check ShmUnlink is issued, and shm is released*/
         }
-        
+
         char *current = ResponseQueue[responseId];
         memcpy(current, &bufLen, sizeof(bufLen));
 
         current += sizeof(bufLen);
         memcpy(current, &ret, sizeof(ret));
     }
+}
+
+void ClearRangeQueryMetaRequest(Oid relationId, SharedMem *ptr) {
+    printf("\n============%s============\n", __func__);
+
+    SemWait(&ptr->mutex, __func__);
+    SemWait(&ptr->full, __func__);
+
+    FuncName func = CLEARRQMETA;
+    memcpy(ptr->area, &func, sizeof(FuncName));
+    char *current = ptr->area + sizeof(FuncName);
+
+    uint32 responseId = GetResponseQueueIndex(ptr);
+    memcpy(current, &responseId, sizeof(responseId));
+    current += sizeof(responseId);
+
+    memcpy(current, &relationId, sizeof(relationId));
+    current += sizeof(relationId);
+
+    pid_t pid = getpid();
+    memcpy(current, &pid, sizeof(pid_t));
+
+    SemPost(&ptr->worker, __func__);
+    SemPost(&ptr->mutex, __func__);
+
+    SemWait(&ptr->responseSync[responseId], __func__);
+    SemPost(&ptr->responseMutex[responseId], __func__);
+}
+
+static void ClearRangeQueryMetaResponse(char *area) {
+    printf("\n============%s============\n", __func__);
+
+    KVTableProcHashKey optionKey;
+    memcpy(&optionKey.relationId, area, sizeof(optionKey.relationId));
+    memcpy(&optionKey.pid, area + sizeof(optionKey.relationId), sizeof(pid_t));
+    bool found;
+    KVReadOptionsEntry *entry = hash_search(kvReadOptionsHash,
+                                            &optionKey,
+                                            HASH_REMOVE,
+                                            &found);
+    if (!found) {
+        ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
+    } else {
+        pfree(entry->readOptions);
+        /* might reuse, so must set NULL */
+        entry->readOptions = NULL;
+    }
+
+    char filename[FILENAMELENGTH];
+    snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, optionKey.pid);
+    ShmUnlink(filename, __func__);
 }
 #endif

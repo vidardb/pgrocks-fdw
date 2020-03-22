@@ -148,9 +148,9 @@ void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
         if (containsOne == false) {
             options->columns.push_back(1);
         }
+
+        options->batch_capacity = queryOptions->batchCapacity;
     }
-    
-    options->batch_capacity = queryOptions->batchCapacity;
 
     *readOptions = options;
 }

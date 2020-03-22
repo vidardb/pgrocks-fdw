@@ -1227,21 +1227,24 @@ static void RangeQueryResponse(char *area) {
                          PERMISSION,
                          __func__);
 
-        char *buf = Mmap(NULL,
+        char *buf = NULL;
+        if (bufLen > 0) {
+            buf = Mmap(NULL,
                          bufLen,
                          PROT_READ | PROT_WRITE,
                          MAP_SHARED,
                          fd,
                          0,
                          __func__);
-        Ftruncate(fd, bufLen, __func__);
-        Fclose(fd, __func__);
+            Ftruncate(fd, bufLen, __func__);
+            Fclose(fd, __func__);
 
-        ParseRangeQueryResult(result, buf);
+            ParseRangeQueryResult(result, buf);
 
-        Munmap(buf, bufLen, __func__);
-        /* TODO: check ShmUnlink is issued, and shm is released*/
-
+            Munmap(buf, bufLen, __func__);
+            /* TODO: check ShmUnlink is issued, and shm is released*/
+        }
+        
         char *current = ResponseQueue[responseId];
         memcpy(current, &bufLen, sizeof(bufLen));
 

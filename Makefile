@@ -36,8 +36,12 @@ DOCKER ?= docker
 src/kv_storage.bc:
 	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_storage.cc
 
-
 .PHONY: docker-image
 docker-image:
 	@echo "Building docker image..."
 	$(DOCKER) build --no-cache --pull -t $(REGISTRY)/$(IMAGE):$(TAG) docker_image
+
+.PHONY: indent
+indent:
+	@echo "Runing pgindent for format code..."
+	./src/tools/pgindent/check-indent.sh

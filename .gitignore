@@ -8,3 +8,5 @@
 .*.swp
 .*.swo
 *.code-workspace
+
+src/tools/pgindent/typedefs.list

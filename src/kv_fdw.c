@@ -558,6 +558,8 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
 
                     found = true;
                 }
+            } else {
+                Munmap(readState->buf, readState->bufLen, __func__);
             }
         } else {
             found = NextRequest(relationId, ptr, &k, &kLen, &v, &vLen);
@@ -617,7 +619,10 @@ static void EndForeignScan(ForeignScanState *scanState) {
 
         #ifdef VIDARDB
         bool useColumn = IsColumnUsed(relationId);
-        if (useColumn == false) {
+        if (useColumn == true) {
+
+            ClearRangeQueryDataRequest(relationId, ptr);
+        } else {
             DelIterRequest(relationId, ptr);
         }
         #else

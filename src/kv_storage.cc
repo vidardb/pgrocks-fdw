@@ -111,19 +111,24 @@ bool Delete(void* db, char* key, size_t keyLen) {
 }
 
 #ifdef VIDARDB
-bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
-                pid_t pid, size_t* bufLen) {
-    printf("\n-----------------%s----------------------\n", __func__);
-    Range range;
+void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
+                            void** readOptions) {
+    /* Parse Range */
+    Range* r = static_cast<Range*>(*range);
+    if (*range == NULL) {
+        r = static_cast<Range*>(palloc0(sizeof(Range)));
+    }
     if (queryOptions != NULL) {
         if (queryOptions->startLen > 0) {
-            range.start = Slice(queryOptions->start, queryOptions->startLen);
+            r->start = Slice(queryOptions->start, queryOptions->startLen);
         }
         if (queryOptions->limitLen > 0) {
-            range.limit = Slice(queryOptions->limit, queryOptions->limitLen);
+            r->limit = Slice(queryOptions->limit, queryOptions->limitLen);
         }
     }
+    *range = r;
 
+    /* Parse ReadOptions */
     ReadOptions* options = static_cast<ReadOptions*>(*readOptions);
     if (options == NULL) {
         options = static_cast<ReadOptions*>(palloc0(sizeof(ReadOptions)));
@@ -148,39 +153,40 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
     options->batch_capacity = queryOptions->batchCapacity;
 
     *readOptions = options;
+}
 
-    std::list<RangeQueryKeyVal> res;
+bool RangeQuery(void* db, void* range, void* readOptions, size_t* bufLen,
+                void** result) {
+    ReadOptions* ro = static_cast<ReadOptions*>(readOptions);
+    Range* r = static_cast<Range*>(range);
+    list<RangeQueryKeyVal>* res = new list<RangeQueryKeyVal>;
     Status s;
-    bool ret = static_cast<DB*>(db)->RangeQuery(*options, range, res, &s);
+    bool ret = static_cast<DB*>(db)->RangeQuery(*ro, *r, *res, &s);
+
+    delete r;
     if (!s.ok()) {
         *bufLen = 0;
         return false;
     }
-    if (res.size() == 0) return ret;
+    if (res->size() == 0) {
+        /*
+         * low possibility with only deleted keys in this batch,
+         * but potentially remains more batches
+         */
+        *bufLen = 0;
+    } else {
+        *bufLen = ro->result_key_size +
+                  ro->result_val_size +
+                  sizeof(size_t) * 2 * res->size();
+    }
 
-    char filename[FILENAMELENGTH];
-    snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, pid);
-    ShmUnlink(filename, __func__);
-    int fd = ShmOpen(filename,
-                     O_CREAT | O_RDWR | O_EXCL,
-                     PERMISSION,
-                     __func__);
+    *result = res;
+    return ret;
+}
 
-    *bufLen = options->result_key_size
-            + options->result_val_size
-            + sizeof(size_t) * 2 * res.size();
-
-    char *buf = static_cast<char*>(Mmap(NULL,
-                                   *bufLen,
-                                   PROT_READ | PROT_WRITE,
-                                   MAP_SHARED,
-                                   fd,
-                                   0,
-                                   __func__));
-    Ftruncate(fd, *bufLen, __func__);
-    Fclose(fd, __func__);
-
-    for (auto it = res.begin(); it != res.end(); ++it) {
+void ParseRangeQueryResult(void* result, char* buf) {
+    list<RangeQueryKeyVal>* res = static_cast<list<RangeQueryKeyVal>*>(result);
+    for (auto it = res->begin(); it != res->end(); ++it) {
         size_t keyLen = it->user_key.size();
         memcpy(buf, &keyLen, sizeof(keyLen));
         buf += sizeof(keyLen);
@@ -193,11 +199,6 @@ bool RangeQuery(void* db, void** readOptions, RangeQueryOptions* queryOptions,
         memcpy(buf, it->user_val.c_str(), valLen);
         buf += valLen;
     }
-
-    Munmap(buf, *bufLen, __func__);
-    /* TODO: check ShmUnlink is issued in another side, and shm is released*/
-
-    return ret;
 }
 #endif
 

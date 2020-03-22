@@ -120,6 +120,7 @@ typedef enum FuncName {
     DELETE,
     #ifdef VIDARDB
     RANGEQUERY,
+    CLEARRQDATA,
     #endif
     TERMINATE
 } FuncName;
@@ -183,6 +184,7 @@ extern void DeleteRequest(Oid relationId,
                           size_t keyLen);
 
 #ifdef VIDARDB
+extern void ClearRangeQueryDataRequest(Oid relationId, SharedMem *ptr);
 extern bool RangeQueryRequest(Oid relationId,
                               SharedMem *ptr,
                               RangeQueryOptions *options,

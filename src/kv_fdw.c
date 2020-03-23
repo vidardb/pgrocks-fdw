@@ -624,9 +624,8 @@ static void EndForeignScan(ForeignScanState *scanState) {
 
         #ifdef VIDARDB
         bool useColumn = IsColumnUsed(relationId);
-        if (useColumn == true) {
-
-            ClearRangeQueryDataRequest(relationId, ptr);
+        if (useColumn) {
+            ClearRangeQueryMetaRequest(relationId, ptr);
         } else {
             DelIterRequest(relationId, ptr);
         }

@@ -521,9 +521,10 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
         }
     } else {
         #ifdef VIDARDB
-        if (useColumn && readState->bufLen > 0) {
-
-            if (readState->next < readState->buf + readState->bufLen) {
+        if (useColumn) {
+            if (readState->bufLen > 0 && 
+                readState->next < readState->buf + readState->bufLen) {
+                    
                 memcpy(&kLen, readState->next, sizeof(kLen));
                 readState->next += sizeof(kLen);
                 k = readState->next;
@@ -536,14 +537,16 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
 
                 found = true;
             } else if (readState->hasNext) {
-                Munmap(readState->buf, readState->bufLen, __func__);
-                readState->hasNext = RangeQueryRequest(relationId,
-                                                       ptr,
-                                                       &readState->options,
-                                                       &readState->buf,
-                                                       &readState->bufLen);
-
-                readState->next = readState->buf;
+                do
+                {
+                    Munmap(readState->buf, readState->bufLen, __func__);
+                    readState->hasNext = RangeQueryRequest(relationId,
+                                                        ptr,
+                                                        &readState->options,
+                                                        &readState->buf,
+                                                        &readState->bufLen);
+                    readState->next = readState->buf;
+                } while (readState->bufLen == 0 && readState->hasNext);
 
                 if (readState->bufLen != 0) {
                     memcpy(&kLen, readState->next, sizeof(kLen));
@@ -557,6 +560,8 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
                     readState->next += vLen;
 
                     found = true;
+                } else { /*readState->hasNext ==  false*/
+                    Munmap(readState->buf, readState->bufLen, __func__);
                 }
             } else {
                 Munmap(readState->buf, readState->bufLen, __func__);

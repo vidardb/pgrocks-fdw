@@ -89,8 +89,8 @@ typedef struct TableReadState {
 
     #ifdef VIDARDB
     RangeQueryOptions options;
-    char *buf;      // buffer for data returned by RangeQuery
-    size_t bufLen;  // buffer length
+    char *buf;      // shared mem for data returned by RangeQuery
+    size_t bufLen;  // shared mem length
     char *next;     // pointer to the next data entry for IterateForeignScan
     bool hasNext;   // whether there will be a next batch from RangeQuery
     #endif

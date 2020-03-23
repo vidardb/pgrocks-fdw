@@ -307,30 +307,29 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         bool useColumn = IsColumnUsed(relationId);
         if (useColumn) {
 
-            RangeQueryOptions options;
-            options.batchCapacity = GetBatchCapacity(relationId);
-            options.startLen = 0;
-            options.limitLen = 0;
+            readState->options.batchCapacity = GetBatchCapacity(relationId);
+            readState->options.startLen = 0;
+            readState->options.limitLen = 0;
 
-            options.attrCount = list_length(scanState->ss.ps.plan->targetlist);
-            if (options.attrCount > 0) {
-                options.attrs = palloc(options.attrCount * sizeof(*(options.attrs)));
+            readState->options.attrCount = list_length(scanState->ss.ps.plan->targetlist);
+            if (readState->options.attrCount > 0) {
+                Size bytes = readState->options.attrCount *
+                             sizeof(*(readState->options.attrs));
+                readState->options.attrs = palloc0(bytes);
                 int i = 0;
                 ListCell *targetCell;
                 foreach (targetCell, scanState->ss.ps.plan->targetlist) {
                     TargetEntry *targetEntry = lfirst(targetCell);
-                    *(options.attrs + i) = targetEntry->resorigcol - 1;
+                    *(readState->options.attrs + i) = targetEntry->resorigcol - 1;
                     i++;
                 }
             }
 
             readState->hasNext = RangeQueryRequest(relationId,
                                                    ptr,
-                                                   &options,
+                                                   &readState->options,
                                                    &readState->buf,
                                                    &readState->bufLen);
-
-            readState->options = options;
             readState->next = readState->buf;
         } else {
             GetIterRequest(relationId, ptr);
@@ -375,7 +374,7 @@ static void DeserializeTupleByColumn(StringInfo key,
     AttrNumber *attrs = NULL;
     int targetListLen = list_length(targetList);
     if (targetListLen > 0) {
-        attrs = (AttrNumber *) palloc(targetListLen * sizeof(*attrs));
+        attrs = (AttrNumber *) palloc0(targetListLen * sizeof(*attrs));
         int i = 0;
         ListCell *targetCell;
         foreach (targetCell, targetList) {
@@ -522,9 +521,11 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
     } else {
         #ifdef VIDARDB
         if (useColumn) {
-            if (readState->bufLen > 0 && 
-                readState->next < readState->buf + readState->bufLen) {
-                    
+
+            if (readState->next < readState->buf + readState->bufLen) {
+                /* still in reading */
+                Assert(readState->bufLen > 0);
+
                 memcpy(&kLen, readState->next, sizeof(kLen));
                 readState->next += sizeof(kLen);
                 k = readState->next;
@@ -537,18 +538,27 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
 
                 found = true;
             } else if (readState->hasNext) {
-                do
-                {
-                    Munmap(readState->buf, readState->bufLen, __func__);
+                /*
+                 * finish reading from shared mem,
+                 * or merely bufLen==0 but hasNext
+                 */
+                do {
+                    /*
+                     * The loop handles the special case,
+                     * where the current batch reads all delete keys
+                     */
+                    if (readState->bufLen > 0) {
+                        Munmap(readState->buf, readState->bufLen, __func__);
+                    }
                     readState->hasNext = RangeQueryRequest(relationId,
-                                                        ptr,
-                                                        &readState->options,
-                                                        &readState->buf,
-                                                        &readState->bufLen);
+                                                           ptr,
+                                                           &readState->options,
+                                                           &readState->buf,
+                                                           &readState->bufLen);
                     readState->next = readState->buf;
                 } while (readState->bufLen == 0 && readState->hasNext);
 
-                if (readState->bufLen != 0) {
+                if (readState->bufLen > 0) {
                     memcpy(&kLen, readState->next, sizeof(kLen));
                     readState->next += sizeof(kLen);
                     k = readState->next;
@@ -560,11 +570,11 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
                     readState->next += vLen;
 
                     found = true;
-                } else { /*readState->hasNext ==  false*/
-                    Munmap(readState->buf, readState->bufLen, __func__);
                 }
             } else {
-                Munmap(readState->buf, readState->bufLen, __func__);
+                if (readState->bufLen > 0) {
+                    Munmap(readState->buf, readState->bufLen, __func__);
+                }
             }
         } else {
             found = NextRequest(relationId, ptr, &k, &kLen, &v, &vLen);

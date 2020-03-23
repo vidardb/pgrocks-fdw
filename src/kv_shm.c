@@ -1086,28 +1086,26 @@ bool RangeQueryRequest(Oid relationId,
 
     current = ResponseQueue[responseId];
     memcpy(bufLen, current, sizeof(*bufLen));
+    current += sizeof(*bufLen);
+
+    bool hasNext;
+    memcpy(&hasNext, current, sizeof(hasNext));
 
     if (*bufLen == 0) {
         *buf = NULL;
-        SemPost(&ptr->responseMutex[responseId], __func__);
-        return false;
+    } else {
+        char filename[FILENAMELENGTH];
+        snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, pid);
+        int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
+        *buf = Mmap(NULL,
+                    *bufLen,  /* must larger than 0 */
+                    PROT_READ | PROT_WRITE,
+                    MAP_SHARED,
+                    fd,
+                    0,
+                    __func__);
+        Fclose(fd, __func__);
     }
-
-    bool hasNext;
-    current += sizeof(*bufLen);
-    memcpy(&hasNext, current, sizeof(hasNext));
-
-    char queryFilename[FILENAMELENGTH];
-    snprintf(queryFilename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, pid);
-    int fd = ShmOpen(queryFilename, O_RDWR, PERMISSION, __func__);
-    *buf = Mmap(NULL,
-                *bufLen,
-                PROT_READ | PROT_WRITE,
-                MAP_SHARED,
-                fd,
-                0,
-                __func__);
-    Fclose(fd, __func__);
 
     SemPost(&ptr->responseMutex[responseId], __func__);
     return hasNext;
@@ -1185,36 +1183,37 @@ static void RangeQueryResponse(char *area) {
                               &bufLen,
                               &result);
 
+        char *current = ResponseQueue[responseId];
+        memcpy(current, &bufLen, sizeof(bufLen));
+        current += sizeof(bufLen);
+        memcpy(current, &ret, sizeof(ret));
+
         char filename[FILENAMELENGTH];
         snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, optionKey.pid);
+        /* might throw out warning if no object to unlink, but it is fine */
         ShmUnlink(filename, __func__);
-        int fd = ShmOpen(filename,
-                         O_CREAT | O_RDWR | O_EXCL,
-                         PERMISSION,
-                         __func__);
 
-        char *buf = NULL;
         if (bufLen > 0) {
-            buf = Mmap(NULL,
-                       bufLen,
-                       PROT_READ | PROT_WRITE,
-                       MAP_SHARED,
-                       fd,
-                       0,
-                       __func__);
+            int fd = ShmOpen(filename,
+                             O_CREAT | O_RDWR | O_EXCL,
+                             PERMISSION,
+                             __func__);
+
+            char *buf = Mmap(NULL,
+                             bufLen,  /* must larger than 0 */
+                             PROT_READ | PROT_WRITE,
+                             MAP_SHARED,
+                             fd,
+                             0,
+                             __func__);
             Ftruncate(fd, bufLen, __func__);
             Fclose(fd, __func__);
 
             ParseRangeQueryResult(result, buf);
 
+            /* TODO: is it safe to unmap before request side reading? */
             Munmap(buf, bufLen, __func__);
         }
-
-        char *current = ResponseQueue[responseId];
-        memcpy(current, &bufLen, sizeof(bufLen));
-
-        current += sizeof(bufLen);
-        memcpy(current, &ret, sizeof(ret));
     }
 }
 
@@ -1258,12 +1257,13 @@ static void ClearRangeQueryMetaResponse(char *area) {
                                             &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    } else {
-        pfree(entry->readOptions);
-        /* might reuse, so must set NULL */
-        entry->readOptions = NULL;
     }
 
+    pfree(entry->readOptions);
+    /* might reuse, so must set NULL */
+    entry->readOptions = NULL;
+
+    /* TODO: munmap here? */
     char filename[FILENAMELENGTH];
     snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, optionKey.pid);
     ShmUnlink(filename, __func__);

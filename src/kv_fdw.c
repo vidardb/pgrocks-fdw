@@ -386,18 +386,18 @@ static void DeserializeTupleByColumn(StringInfo key,
 
     int offset = 0;
     char *current = key->data;
-    /* If the key is in the target list, it must be the first attribute*/
+    /* If the key is in the target list, it must be the first attribute */
     AttrNumber attr0 = *attrs;
-    if (attr0 == 1) /*resorigcol starts from 1*/
-    {
-        /*The index of tuple descriptors starts from 0*/
+    /* resorigcol starts from 1 */
+    if (attr0 == 1) {
+        /* The index of tuple descriptors starts from 0 */
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 0);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
         values[0] = fetch_att(current, byValue, typeLength);
     }
     
-    /*Deserialize the first attribute in the value to update the offset*/
+    /* Deserialize the first attribute in the value to update the offset */
     offset = bufLen;
     current = val->data + offset;
     if (nulls[1]) {
@@ -419,7 +419,7 @@ static void DeserializeTupleByColumn(StringInfo key,
             continue;
         }
 
-        /* update attr and skip the null attribute*/
+        /* update attr and skip the null attribute */
         if (nulls[--attr]) {
             continue;
         }

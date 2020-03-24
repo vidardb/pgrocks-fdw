@@ -139,7 +139,6 @@ void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
     if (queryOptions != NULL) {
         for (int i = 0; i < queryOptions->attrCount; i++) {
             AttrNumber attr = *(queryOptions->attrs + i);
-            /* TODO: primary key is 1 according to AttrNumber, should we? */
             options->columns.push_back(attr);
             if (attr == 1) {
                 containsOne = true;

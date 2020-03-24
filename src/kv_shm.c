@@ -153,6 +153,7 @@ static void InitResponseArea() {
                          O_CREAT | O_RDWR | O_EXCL,
                          PERMISSION,
                          __func__);
+        Ftruncate(fd, BUFSIZE, __func__);
         ResponseQueue[i] = Mmap(NULL, 
                                 BUFSIZE,
                                 PROT_READ | PROT_WRITE,
@@ -160,7 +161,6 @@ static void InitResponseArea() {
                                 fd,
                                 0,
                                 __func__);
-        Ftruncate(fd, BUFSIZE, __func__);
         Fclose(fd, __func__);
     }
 }
@@ -216,6 +216,7 @@ void *KVStorageThreadFun(void *arg) {
 
     ShmUnlink(BACKFILE, __func__);
     int fd = ShmOpen(BACKFILE, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
+    Ftruncate(fd, sizeof(SharedMem), __func__);
     ptr = Mmap(NULL,
                sizeof(SharedMem),
                PROT_READ | PROT_WRITE,
@@ -223,7 +224,6 @@ void *KVStorageThreadFun(void *arg) {
                fd,
                0,
                __func__);
-    Ftruncate(fd, sizeof(SharedMem), __func__);
     Fclose(fd, __func__);
 
     // Initialize the response area
@@ -410,6 +410,11 @@ SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...) {
     printf("\n============%s============\n", __func__);
 
     if (!ptr) {
+        /*
+         * Client process connects to the shared mem created by server.
+         * We don't do unmap in the client side, because the of cost of
+         * mapped area is just one-time for the whole life of client.
+         */
         int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
         ptr = Mmap(NULL,
                    sizeof(SharedMem),
@@ -1029,7 +1034,11 @@ static void DeleteResponse(char *area) {
 
 #ifdef VIDARDB
 /*
- * return whether there is a remaining batch
+ * The communication model for range query is different from other queries.
+ * shared mem will be created and opened multiple times even in the user level
+ * of the same range query. unmap must be issued in both sides, not once in a
+ * life anymore.
+ * Return whether there is a remaining batch.
  */
 bool RangeQueryRequest(Oid relationId,
                        SharedMem *ptr,
@@ -1190,15 +1199,22 @@ static void RangeQueryResponse(char *area) {
 
         char filename[FILENAMELENGTH];
         snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, optionKey.pid);
-        /* might throw out warning if no object to unlink, but it is fine */
+        /*
+         * clear last call's shared data structure,
+         * might throw out warning if no object to unlink, but it is fine.
+         */
         ShmUnlink(filename, __func__);
 
+        /*
+         * TODO: to further improve performance, we can query the
+         * storage engine again until bufLen!=0 or no more batch
+         */
         if (bufLen > 0) {
             int fd = ShmOpen(filename,
                              O_CREAT | O_RDWR | O_EXCL,
                              PERMISSION,
                              __func__);
-
+            Ftruncate(fd, bufLen, __func__);
             char *buf = Mmap(NULL,
                              bufLen,  /* must larger than 0 */
                              PROT_READ | PROT_WRITE,
@@ -1206,12 +1222,14 @@ static void RangeQueryResponse(char *area) {
                              fd,
                              0,
                              __func__);
-            Ftruncate(fd, bufLen, __func__);
             Fclose(fd, __func__);
 
             ParseRangeQueryResult(result, buf);
 
-            /* TODO: is it safe to unmap before request side reading? */
+            /*
+             * It is safe to unmap before request side reading
+             * as long as shm_unlink is not issued.
+             */
             Munmap(buf, bufLen, __func__);
         }
     }
@@ -1263,7 +1281,6 @@ static void ClearRangeQueryMetaResponse(char *area) {
     /* might reuse, so must set NULL */
     entry->readOptions = NULL;
 
-    /* TODO: munmap here? */
     char filename[FILENAMELENGTH];
     snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, optionKey.pid);
     ShmUnlink(filename, __func__);

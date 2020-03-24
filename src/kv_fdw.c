@@ -657,6 +657,10 @@ static void EndForeignScan(ForeignScanState *scanState) {
         #ifdef VIDARDB
         bool useColumn = IsColumnUsed(relationId);
         if (useColumn) {
+            /*
+             * unmap for this client process should already be done in
+             * IterateForeignScan. Now release resource of server process.
+             */
             ClearRangeQueryMetaRequest(relationId, ptr);
         } else {
             DelIterRequest(relationId, ptr);

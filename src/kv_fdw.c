@@ -386,26 +386,45 @@ static void DeserializeTupleByColumn(StringInfo key,
 
     int offset = 0;
     char *current = key->data;
-    for (int index = 0; index < 2; index++) {
-        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
+    /* If the key is in the target list, it must be the first attribute*/
+    AttrNumber attr0 = *attrs;
+    if (attr0 == 1) /*resorigcol starts from 1*/
+    {
+        /*The index of tuple descriptors starts from 0*/
+        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 0);
+        bool byValue = attributeForm->attbyval;
+        int typeLength = attributeForm->attlen;
+        values[0] = fetch_att(current, byValue, typeLength);
+    }
+    
+    /*Deserialize the first attribute in the value to update the offset*/
+    offset = bufLen;
+    current = val->data + offset;
+    if (nulls[1]) {
+        offset++;
+    } else {
+        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 1);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
 
-        values[index] = fetch_att(current, byValue, typeLength);
+        values[1] = fetch_att(current, byValue, typeLength);
         offset = att_addlength_datum(offset, typeLength, current) + 1;
-        if (index == 0) {
-            offset = bufLen;
-        }
-        current = val->data + offset;
     }
+    current = val->data + offset;  
 
     for (int index = 0; index < targetListLen; index++) {
         AttrNumber attr = *(attrs + index);
-        /* after key and first value */
+        /* skip key and first value */
         if (attr <= 2) {
             continue;
         }
-        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, --attr);
+
+        /* update attr and skip the null attribute*/
+        if (nulls[--attr]) {
+            continue;
+        }
+
+        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, attr);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
 

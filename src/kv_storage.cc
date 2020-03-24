@@ -155,9 +155,9 @@ void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
     *readOptions = options;
 }
 
-bool RangeQuery(void* db, void* range, void* readOptions, size_t* bufLen,
+bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
                 void** result) {
-    ReadOptions* ro = static_cast<ReadOptions*>(readOptions);
+    ReadOptions* ro = static_cast<ReadOptions*>(*readOptions);
     Range* r = static_cast<Range*>(range);
     list<RangeQueryKeyVal>* res = new list<RangeQueryKeyVal>;
     Status s;

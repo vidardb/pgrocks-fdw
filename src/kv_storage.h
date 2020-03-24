@@ -54,7 +54,7 @@ typedef struct RangeQueryOptions {
 void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
                             void** readOptions);
 
-bool RangeQuery(void* db, void* range, void* readOptions, size_t* bufLen,
+bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
                 void** result);
 
 void ParseRangeQueryResult(void* result, char* buf);

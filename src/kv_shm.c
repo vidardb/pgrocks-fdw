@@ -1179,7 +1179,7 @@ static void RangeQueryResponse(char *area) {
         size_t bufLen = 0;
         bool ret = RangeQuery(entry->db,
                               range,
-                              optionEntry->readOptions,
+                              &(optionEntry->readOptions),
                               &bufLen,
                               &result);
 

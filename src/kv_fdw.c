@@ -396,11 +396,12 @@ static void DeserializeTupleByColumn(StringInfo key,
         int typeLength = attributeForm->attlen;
         values[0] = fetch_att(current, byValue, typeLength);
     }
-    
+
     /* Deserialize the first attribute in the value to update the offset */
     offset = bufLen;
     current = val->data + offset;
     if (nulls[1]) {
+        /* jump the delimiter */
         offset++;
     } else {
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 1);
@@ -421,6 +422,8 @@ static void DeserializeTupleByColumn(StringInfo key,
 
         /* update attr and skip the null attribute */
         if (nulls[--attr]) {
+            /* jump the delimiter */
+            offset++;
             continue;
         }
 

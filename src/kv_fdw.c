@@ -320,7 +320,11 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
                 ListCell *targetCell;
                 foreach (targetCell, scanState->ss.ps.plan->targetlist) {
                     TargetEntry *targetEntry = lfirst(targetCell);
-                    *(readState->options.attrs + i) = targetEntry->resorigcol - 1;
+                    if (targetEntry->resorigcol != 0) {
+                        *(readState->options.attrs + i) = targetEntry->resorigcol - 1;
+                    } else {
+                        *(readState->options.attrs + i) = i + 1;
+                    }
                     i++;
                 }
             }
@@ -379,7 +383,11 @@ static void DeserializeTupleByColumn(StringInfo key,
         ListCell *targetCell;
         foreach (targetCell, targetList) {
             TargetEntry *targetEntry = lfirst(targetCell);
-            *(attrs + i) = targetEntry->resorigcol;
+            if (targetEntry->resorigcol != 0) {
+                *(attrs + i) = targetEntry->resorigcol;
+            } else {
+                *(attrs + i) = i + 1;
+            }
             i++;
         }
     }

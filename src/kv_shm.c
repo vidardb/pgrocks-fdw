@@ -1180,10 +1180,10 @@ static void RangeQueryResponse(char *area) {
             optionEntry->key = optionKey;
             optionEntry->readOptions = NULL;
         }
-        
+
         void *range = NULL;
         ParseRangeQueryOptions(&options, &range, &(optionEntry->readOptions));
-        
+
         void *result = NULL;
         size_t bufLen = 0;
         bool ret = RangeQuery(entry->db,

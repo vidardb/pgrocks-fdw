@@ -121,9 +121,13 @@ void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
     if (queryOptions != NULL) {
         if (queryOptions->startLen > 0) {
             r->start = Slice(queryOptions->start, queryOptions->startLen);
+        } else {
+            r->start = kRangeQueryMin;
         }
         if (queryOptions->limitLen > 0) {
             r->limit = Slice(queryOptions->limit, queryOptions->limitLen);
+        } else {
+            r->limit = kRangeQueryMax;
         }
     }
     *range = r;
@@ -161,8 +165,9 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
     list<RangeQueryKeyVal>* res = new list<RangeQueryKeyVal>;
     Status s;
     bool ret = static_cast<DB*>(db)->RangeQuery(*ro, *r, *res, &s);
-
-    delete r;
+    
+    pfree(range);
+    
     if (!s.ok()) {
         *bufLen = 0;
         return false;

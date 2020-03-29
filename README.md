@@ -98,33 +98,33 @@ A simple example is as follows (*you can run '`sudo -u postgres psql -U postgres
 
 
 ```
-    CREATE DATABASE kvtest;  
-    \c kvtest  
+    CREATE DATABASE example;  
+    \c example  
 
     CREATE EXTENSION kv_fdw;  
     CREATE SERVER kv_server FOREIGN DATA WRAPPER kv_fdw;  
 
-    CREATE FOREIGN TABLE test(key TEXT, value TEXT) SERVER kv_server;  
+    CREATE FOREIGN TABLE student(id INTEGER, name TEXT) SERVER kv_server;  
 
-    INSERT INTO test VALUES('YC', 'VidarDB');  
-    SELECT * FROM test;  
+    INSERT INTO student VALUES(20757123, 'Rafferty');  
+    SELECT * FROM student;  
 
-    INSERT INTO test VALUES('California', 'Waterloo');  
-    SELECT * FROM test;  
+    INSERT INTO student VALUES(20767234, 'Jones');  
+    SELECT * FROM student;  
 
-    DELETE FROM test WHERE key='California';  
-    SELECT * FROM test;  
+    DELETE FROM student WHERE name='Jones';  
+    SELECT * FROM student;  
 
-    UPDATE test SET value='VidarSQL';  
-    SELECT * FROM test;  
+    UPDATE student SET name='Tom' where id=20757123;  
+    SELECT * FROM student;  
 
-    DROP FOREIGN TABLE test;  
+    DROP FOREIGN TABLE student;  
 
     DROP SERVER kv_server;  
     DROP EXTENSION kv_fdw;  
   
     \c postgres  
-    DROP DATABASE kvtest;  
+    DROP DATABASE example;  
 
 ``` 
 

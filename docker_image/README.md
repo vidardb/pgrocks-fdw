@@ -37,7 +37,7 @@ psql -h 127.0.0.1 -p 5432 -U postgres
 You may want to create your custom Docker image. Do it by '1-click' in the root directory of `PostgresForeignDataWrapper` repository:
 
 ```sh
-# Build a Docker image with the default name 'vidardb/postgresql:rocksdb-6.2.4'
+# Build a docker image with the default name 'vidardb/postgresql:rocksdb-6.2.4'
 make docker-image
 ```
 

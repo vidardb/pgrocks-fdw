@@ -671,10 +671,14 @@ static void EndForeignScan(ForeignScanState *scanState) {
              */
             ClearRangeQueryMetaRequest(relationId, ptr);
         } else {
-            DelIterRequest(relationId, ptr);
+            if (readState->isKeyBased == false) {
+                DelIterRequest(relationId, ptr);
+            }
         }
         #else
-        DelIterRequest(relationId, ptr);
+        if (readState->isKeyBased == false) {
+            DelIterRequest(relationId, ptr);
+        }
         #endif
 
         CloseRequest(relationId, ptr);

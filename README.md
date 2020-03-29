@@ -115,7 +115,7 @@ A simple example is as follows (*you can run '`sudo -u postgres psql -U postgres
     DELETE FROM student WHERE name='Jones';  
     SELECT * FROM student;  
 
-    UPDATE student SET name='Tom' where id=20757123;  
+    UPDATE student SET name='Tom' WHERE id=20757123;  
     SELECT * FROM student;  
 
     DROP FOREIGN TABLE student;  

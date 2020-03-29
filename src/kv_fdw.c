@@ -847,7 +847,7 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
 static void SerializeTuple(StringInfo key,
                            StringInfo val,
                            TupleTableSlot *tupleSlot,
-                           bool useDelimiter) {
+                           bool useColumn) {
 
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
     int count = tupleDescriptor->natts;
@@ -878,10 +878,7 @@ static void SerializeTuple(StringInfo key,
         Datum datum = tupleSlot->tts_values[index];
 
         /*The last column does not require a delimiter*/
-        if (index == count - 1) {
-            useDelimiter = false;
-        }
-        useDelimiter = (useDelimiter && index > 0);
+        bool useDelimiter = (useColumn && index > 0 && index < count-1);
         SerializeAttribute(tupleDescriptor, index, datum, index==0? key: val, useDelimiter);
     }
 
@@ -937,8 +934,8 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
     Oid foreignTableId = RelationGetRelid(relation);
 
     #ifdef VIDARDB
-    bool useDelimiter = IsColumnUsed(foreignTableId);
-    SerializeTuple(key, val, tupleSlot, useDelimiter);
+    bool useColumn = IsColumnUsed(foreignTableId);
+    SerializeTuple(key, val, tupleSlot, useColumn);
     #else
     SerializeTuple(key, val, tupleSlot, false);
     #endif
@@ -997,8 +994,8 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
     Oid foreignTableId = RelationGetRelid(relation);
 
     #ifdef VIDARDB
-    bool useDelimiter = IsColumnUsed(foreignTableId);
-    SerializeTuple(key, val, tupleSlot, useDelimiter);
+    bool useColumn = IsColumnUsed(foreignTableId);
+    SerializeTuple(key, val, tupleSlot, useColumn);
     #else
     SerializeTuple(key, val, tupleSlot, false);
     #endif
@@ -1056,8 +1053,8 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     Oid foreignTableId = RelationGetRelid(relation);
 
     #ifdef VIDARDB
-    bool useDelimiter = IsColumnUsed(foreignTableId);
-    SerializeTuple(key, val, planSlot, useDelimiter);
+    bool useColumn = IsColumnUsed(foreignTableId);
+    SerializeTuple(key, val, planSlot, useColumn);
     #else
     SerializeTuple(key, val, planSlot, false);
     #endif

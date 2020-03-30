@@ -658,10 +658,10 @@ static void EndForeignScan(ForeignScanState *scanState) {
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     TableReadState *readState = (TableReadState *) scanState->fdw_state;
+    Assert(readState);
 
-    if (readState) {
-        Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
-
+    Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
+    if (!readState->isKeyBased) {
         #ifdef VIDARDB
         bool useColumn = IsColumnUsed(relationId);
         if (useColumn) {
@@ -671,20 +671,15 @@ static void EndForeignScan(ForeignScanState *scanState) {
              */
             ClearRangeQueryMetaRequest(relationId, ptr);
         } else {
-            if (readState->isKeyBased == false) {
-                DelIterRequest(relationId, ptr);
-            }
-        }
-        #else
-        if (readState->isKeyBased == false) {
             DelIterRequest(relationId, ptr);
         }
+        #else
+        DelIterRequest(relationId, ptr);
         #endif
-
-        CloseRequest(relationId, ptr);
-
-        pfree(readState);
     }
+
+    CloseRequest(relationId, ptr);
+    pfree(readState);
 }
 
 static void AddForeignUpdateTargets(Query *parsetree,

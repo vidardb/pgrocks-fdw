@@ -27,6 +27,7 @@ void* Open(char* path, bool useColumn, int attrCount) {
     shared_ptr<TableFactory> column_table(NewColumnTableFactory());
     ColumnTableOptions* column_opts =
         static_cast<ColumnTableOptions*>(column_table->GetOptions());
+    column_opts->splitter.reset(new PipeSplitter());
     /* TODO: currently, we assume 1 attribute primary key */
     column_opts->column_count = attrCount - 1;
 

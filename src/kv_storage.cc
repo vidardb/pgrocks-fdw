@@ -5,6 +5,7 @@
 #include "vidardb/table.h"
 using namespace vidardb;
 #include <list>
+#include <algorithm>
 #else
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -153,6 +154,8 @@ void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
             options->columns.push_back(1);
         }
 
+        sort(options->columns.begin(), options->columns.end());
+
         options->batch_capacity = queryOptions->batchCapacity;
     }
 
@@ -165,10 +168,11 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
     Range* r = static_cast<Range*>(range);
     list<RangeQueryKeyVal>* res = new list<RangeQueryKeyVal>;
     Status s;
+    ro->splitter = new PipeSplitter();
     bool ret = static_cast<DB*>(db)->RangeQuery(*ro, *r, *res, &s);
-    
+    delete ro->splitter;
     pfree(range);
-    
+
     if (!s.ok()) {
         *bufLen = 0;
         return false;

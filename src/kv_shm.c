@@ -33,6 +33,7 @@ typedef struct KVIterHashEntry {
 typedef struct KVReadOptionsEntry {
     KVTableProcHashKey key;
     void *readOptions;
+    void *range;
 } KVReadOptionsEntry;
 
 HTAB *kvReadOptionsHash = NULL;
@@ -1038,6 +1039,7 @@ static void DeleteResponse(char *area) {
  * shared mem will be created and opened multiple times even in the user level
  * of the same range query. unmap must be issued in both sides, not once in a
  * life anymore.
+ * options != NULL means first time trigger this function.
  * Return whether there is a remaining batch.
  */
 bool RangeQueryRequest(Oid relationId,
@@ -1064,29 +1066,32 @@ bool RangeQueryRequest(Oid relationId,
     memcpy(current, &pid, sizeof(pid));
     current += sizeof(pid);
 
-    memcpy(current, &(options->startLen), sizeof(options->startLen));
-    current += sizeof(options->startLen);
-    if (options->startLen > 0) {
-        memcpy(current, options->start, options->startLen);
-        current += options->startLen;
-    }
+    /* options != NULL means first time trigger this function */
+    if (options) {
+        memcpy(current, &(options->startLen), sizeof(options->startLen));
+        current += sizeof(options->startLen);
+        if (options->startLen > 0) {
+            memcpy(current, options->start, options->startLen);
+            current += options->startLen;
+        }
 
-    memcpy(current, &(options->limitLen), sizeof(options->limitLen));
-    current += sizeof(options->limitLen);
-    if (options->limitLen > 0) {
-        memcpy(current, options->limit, options->limitLen);
-        current += options->limitLen;
-    }
+        memcpy(current, &(options->limitLen), sizeof(options->limitLen));
+        current += sizeof(options->limitLen);
+        if (options->limitLen > 0) {
+            memcpy(current, options->limit, options->limitLen);
+            current += options->limitLen;
+        }
 
-    memcpy(current, &(options->batchCapacity), sizeof(options->batchCapacity));
-    current += sizeof(options->batchCapacity);
+        memcpy(current, &(options->batchCapacity), sizeof(options->batchCapacity));
+        current += sizeof(options->batchCapacity);
 
-    memcpy(current, &(options->attrCount), sizeof(options->attrCount));
-    current += sizeof(options->attrCount);
-    if (options->attrCount > 0) {
-        memcpy(current,
-               options->attrs,
-               options->attrCount * sizeof(*(options->attrs)));
+        memcpy(current, &(options->attrCount), sizeof(options->attrCount));
+        current += sizeof(options->attrCount);
+        if (options->attrCount > 0) {
+            memcpy(current,
+                   options->attrs,
+                   options->attrCount * sizeof(*(options->attrs)));
+        }
     }
 
     SemPost(&ptr->worker, __func__);
@@ -1142,52 +1147,58 @@ static void RangeQueryResponse(char *area) {
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     } else {
-        RangeQueryOptions options;
-
-        memcpy(&(options.startLen), area, sizeof(options.startLen));
-        area += sizeof(options.startLen);
-        if (options.startLen > 0) {
-            options.start = palloc(options.startLen);
-            memcpy(options.start, area, options.startLen);
-            area += options.startLen;
-        }
-
-        memcpy(&(options.limitLen), area, sizeof(options.limitLen));
-        area += sizeof(options.limitLen);
-        if (options.limitLen > 0) {
-            options.limit = palloc(options.limitLen);
-            memcpy(options.limit, area, options.limitLen);
-            area += options.limitLen;
-        }
-
-        memcpy(&(options.batchCapacity), area, sizeof(options.batchCapacity));
-        area += sizeof(options.batchCapacity);
-
-        memcpy(&(options.attrCount), area, sizeof(options.attrCount));
-        area += sizeof(options.attrCount);
-        if (options.attrCount > 0) {
-            uint32 bytes = options.attrCount * sizeof(*(options.attrs));
-            options.attrs = palloc(bytes);
-            memcpy(options.attrs, area, bytes);
-        }
-
         bool optionFound = false;
         KVReadOptionsEntry *optionEntry = hash_search(kvReadOptionsHash,
                                                       &optionKey,
                                                       HASH_ENTER,
                                                       &optionFound);
         if (!optionFound) {
+            /*
+             * first time to trigger this func for the range query
+             * so pass rangequeryOptions, and build range and readOptions
+             */
             optionEntry->key = optionKey;
             optionEntry->readOptions = NULL;
-        }
+            optionEntry->range = NULL;
 
-        void *range = NULL;
-        ParseRangeQueryOptions(&options, &range, &(optionEntry->readOptions));
+            RangeQueryOptions options;
+
+            memcpy(&(options.startLen), area, sizeof(options.startLen));
+            area += sizeof(options.startLen);
+            if (options.startLen > 0) {
+                options.start = palloc(options.startLen);
+                memcpy(options.start, area, options.startLen);
+                area += options.startLen;
+            }
+
+            memcpy(&(options.limitLen), area, sizeof(options.limitLen));
+            area += sizeof(options.limitLen);
+            if (options.limitLen > 0) {
+                options.limit = palloc(options.limitLen);
+                memcpy(options.limit, area, options.limitLen);
+                area += options.limitLen;
+            }
+
+            memcpy(&(options.batchCapacity), area, sizeof(options.batchCapacity));
+            area += sizeof(options.batchCapacity);
+
+            memcpy(&(options.attrCount), area, sizeof(options.attrCount));
+            area += sizeof(options.attrCount);
+            if (options.attrCount > 0) {
+                uint32 bytes = options.attrCount * sizeof(*(options.attrs));
+                options.attrs = palloc(bytes);
+                memcpy(options.attrs, area, bytes);
+            }
+
+            ParseRangeQueryOptions(&options,
+                                   &(optionEntry->range),
+                                   &(optionEntry->readOptions));
+        }
 
         void *result = NULL;
         size_t bufLen = 0;
         bool ret = RangeQuery(entry->db,
-                              range,
+                              optionEntry->range,
                               &(optionEntry->readOptions),
                               &bufLen,
                               &result);
@@ -1278,8 +1289,10 @@ static void ClearRangeQueryMetaResponse(char *area) {
     }
 
     pfree(entry->readOptions);
+    pfree(entry->range);
     /* might reuse, so must set NULL */
     entry->readOptions = NULL;
+    entry->range = NULL;
 
     char filename[FILENAMELENGTH];
     snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, optionKey.pid);

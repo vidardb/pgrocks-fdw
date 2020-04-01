@@ -307,31 +307,27 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         bool useColumn = IsColumnUsed(relationId);
         if (useColumn) {
 
-            readState->options.batchCapacity = GetBatchCapacity(relationId);
-            readState->options.startLen = 0;
-            readState->options.limitLen = 0;
+            RangeQueryOptions options;
+            options.batchCapacity = GetBatchCapacity(relationId);
+            options.startLen = 0;
+            options.limitLen = 0;
 
-            readState->options.attrCount = list_length(scanState->ss.ps.plan->targetlist);
-            if (readState->options.attrCount > 0) {
-                Size bytes = readState->options.attrCount *
-                             sizeof(*(readState->options.attrs));
-                readState->options.attrs = palloc0(bytes);
+            options.attrCount = list_length(scanState->ss.ps.plan->targetlist);
+            if (options.attrCount > 0) {
+                options.attrs = palloc0(options.attrCount * sizeof(*options.attrs));
                 int i = 0;
                 ListCell *targetCell;
                 foreach (targetCell, scanState->ss.ps.plan->targetlist) {
                     TargetEntry *targetEntry = lfirst(targetCell);
-                    if (targetEntry->resorigcol != 0) {
-                        *(readState->options.attrs + i) = targetEntry->resorigcol - 1;
-                    } else {
-                        *(readState->options.attrs + i) = i + 1;
-                    }
+                    *(options.attrs + i) = targetEntry->resorigcol != 0 ?
+                                           targetEntry->resorigcol - 1 : i + 1;
                     i++;
                 }
             }
 
             readState->hasNext = RangeQueryRequest(relationId,
                                                    ptr,
-                                                   &readState->options,
+                                                   &options,
                                                    &readState->buf,
                                                    &readState->bufLen);
             readState->next = readState->buf;
@@ -383,11 +379,8 @@ static void DeserializeTupleByColumn(StringInfo key,
         ListCell *targetCell;
         foreach (targetCell, targetList) {
             TargetEntry *targetEntry = lfirst(targetCell);
-            if (targetEntry->resorigcol != 0) {
-                *(attrs + i) = targetEntry->resorigcol;
-            } else {
-                *(attrs + i) = i + 1;
-            }
+            *(attrs + i) = targetEntry->resorigcol != 0 ?
+                           targetEntry->resorigcol : i + 1;
             i++;
         }
     }
@@ -582,7 +575,7 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
                     }
                     readState->hasNext = RangeQueryRequest(relationId,
                                                            ptr,
-                                                           &readState->options,
+                                                           NULL,
                                                            &readState->buf,
                                                            &readState->bufLen);
                     readState->next = readState->buf;

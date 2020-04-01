@@ -171,7 +171,6 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
     ro->splitter = new PipeSplitter();
     bool ret = static_cast<DB*>(db)->RangeQuery(*ro, *r, *res, &s);
     delete ro->splitter;
-    pfree(range);
 
     if (!s.ok()) {
         *bufLen = 0;

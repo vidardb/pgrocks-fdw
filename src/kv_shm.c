@@ -542,10 +542,10 @@ static void CloseResponse(char *area) {
     KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    } else {
-        entry->ref--;
-        printf("\n%s ref %d\n", __func__, entry->ref);
     }
+
+    entry->ref--;
+    printf("\n%s ref %d\n", __func__, entry->ref);
 }
 
 uint64 CountRequest(Oid relationId, SharedMem *ptr) {
@@ -586,10 +586,10 @@ static void CountResponse(char *area) {
     KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    } else {
-        uint64 count = Count(entry->db);
-        memcpy(ResponseQueue[responseId], &count, sizeof(count));
     }
+
+    uint64 count = Count(entry->db);
+    memcpy(ResponseQueue[responseId], &count, sizeof(count));
 }
 
 void GetIterRequest(Oid relationId, SharedMem *ptr) {
@@ -634,17 +634,17 @@ static void GetIterResponse(char *area) {
  
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    } else {
-        bool iterFound;
-        KVIterHashEntry *iterEntry = hash_search(kvIterHash,
-                                                 &iterKey,
-                                                 HASH_ENTER,
-                                                 &iterFound);
-        if (!iterFound) {
-            iterEntry->key = iterKey;
-        }
-        iterEntry->iter = GetIter(entry->db);
     }
+
+    bool iterFound;
+    KVIterHashEntry *iterEntry = hash_search(kvIterHash,
+                                             &iterKey,
+                                             HASH_ENTER,
+                                             &iterFound);
+    if (!iterFound) {
+        iterEntry->key = iterKey;
+    }
+    iterEntry->iter = GetIter(entry->db);
 }
 
 void DelIterRequest(Oid relationId, SharedMem *ptr) {
@@ -685,11 +685,11 @@ static void DelIterResponse(char *area) {
     KVIterHashEntry *entry = hash_search(kvIterHash, &iterKey, HASH_REMOVE, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    } else {
-        DelIter(entry->iter);
-        /* might reuse, so must set NULL */
-        entry->iter = NULL;
     }
+
+    DelIter(entry->iter);
+    /* might reuse, so must set NULL */
+    entry->iter = NULL;
 }
 
 bool NextRequest(Oid relationId,
@@ -766,48 +766,41 @@ void NextResponse(char *area) {
                                      &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    } else {
-        bool iterFound;
-        KVIterHashEntry *iterEntry = hash_search(kvIterHash,
-                                                 &iterKey,
-                                                 HASH_FIND,
-                                                 &iterFound);
-        if (!iterFound) {
-            ereport(ERROR,
-                    (errmsg("%s failed in hash search for iterator", __func__)));
-        } else {
-            char *key = NULL, *val = NULL;
-            size_t keyLen = 0, valLen = 0;
-   
-            bool res = Next(entry->db,
-                            iterEntry->iter,
-                            &key,
-                            &keyLen,
-                            &val,
-                            &valLen);
-
-            if (!res) {
-                /* no next item */
-                memcpy(ResponseQueue[responseId], &keyLen, sizeof(keyLen));
-                return;
-            }
-
-            char *current = ResponseQueue[responseId];
-            memcpy(current, &keyLen, sizeof(keyLen));
-
-            current += sizeof(keyLen);
-            memcpy(current, key, keyLen);
-
-            current += keyLen;
-            memcpy(current, &valLen, sizeof(valLen));
-
-            current += sizeof(valLen);
-            memcpy(current, val, valLen);
-
-            pfree(key);
-            pfree(val);
-        }
     }
+
+    bool iterFound;
+    KVIterHashEntry *iterEntry = hash_search(kvIterHash,
+                                             &iterKey,
+                                             HASH_FIND,
+                                             &iterFound);
+    if (!iterFound) {
+        ereport(ERROR, (errmsg("%s failed in hash search for iterator", __func__)));
+    }
+
+    char *key = NULL, *val = NULL;
+    size_t keyLen = 0, valLen = 0;
+    bool res = Next(entry->db, iterEntry->iter, &key, &keyLen, &val, &valLen);
+
+    if (!res) {
+        /* no next item */
+        memcpy(ResponseQueue[responseId], &keyLen, sizeof(keyLen));
+        return;
+    }
+
+    char *current = ResponseQueue[responseId];
+    memcpy(current, &keyLen, sizeof(keyLen));
+
+    current += sizeof(keyLen);
+    memcpy(current, key, keyLen);
+
+    current += keyLen;
+    memcpy(current, &valLen, sizeof(valLen));
+
+    current += sizeof(valLen);
+    memcpy(current, val, valLen);
+
+    pfree(key);
+    pfree(val);
 }
 
 bool GetRequest(Oid relationId,
@@ -876,29 +869,27 @@ static void GetResponse(char *area) {
     KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    } else {
-        size_t keyLen, valLen;
-
-        memcpy(&keyLen, area, sizeof(keyLen));
-        area += sizeof(keyLen);
-
-        char *key = area;
-
-        char *val = NULL;
-        bool res = Get(entry->db, key, keyLen, &val, &valLen);
-        memcpy(ResponseQueue[responseId], &res, sizeof(res));
-        if (!res) {
-            return;
-        }
-
-        char *current = ResponseQueue[responseId] + sizeof(res);
-        memcpy(current, &valLen, sizeof(valLen));
-
-        current += sizeof(valLen);
-        memcpy(current, val, valLen);
-
-        pfree(val);
     }
+
+    size_t keyLen, valLen;
+
+    memcpy(&keyLen, area, sizeof(keyLen));
+    area += sizeof(keyLen);
+
+    char *key = area, *val = NULL;
+    bool res = Get(entry->db, key, keyLen, &val, &valLen);
+    memcpy(ResponseQueue[responseId], &res, sizeof(res));
+    if (!res) {
+        return;
+    }
+
+    char *current = ResponseQueue[responseId] + sizeof(res);
+    memcpy(current, &valLen, sizeof(valLen));
+
+    current += sizeof(valLen);
+    memcpy(current, val, valLen);
+
+    pfree(val);
 }
 
 void PutRequest(Oid relationId,
@@ -960,23 +951,22 @@ static void PutResponse(char *area) {
     KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    } else {
-        size_t keyLen, valLen;
+    }
 
-        memcpy(&keyLen, area, sizeof(keyLen));
-        area += sizeof(keyLen);
+    size_t keyLen, valLen;
 
-        char *key = area;
-        area += keyLen;
+    memcpy(&keyLen, area, sizeof(keyLen));
+    area += sizeof(keyLen);
 
-        memcpy(&valLen, area, sizeof(valLen));
-        area += sizeof(valLen);
+    char *key = area;
+    area += keyLen;
 
-        char *val = area;
+    memcpy(&valLen, area, sizeof(valLen));
+    area += sizeof(valLen);
 
-        if (!Put(entry->db, key, keyLen, val, valLen)) {
-            ereport(ERROR, (errmsg("error from %s", __func__)));
-        }
+    char *val = area;
+    if (!Put(entry->db, key, keyLen, val, valLen)) {
+        ereport(ERROR, (errmsg("error from %s", __func__)));
     }
 }
 
@@ -1020,16 +1010,15 @@ static void DeleteResponse(char *area) {
     KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    } else {
-        size_t keyLen;
-        memcpy(&keyLen, area, sizeof(keyLen));
-        area += sizeof(keyLen);
+    }
 
-        char *key = area;
+    size_t keyLen;
+    memcpy(&keyLen, area, sizeof(keyLen));
+    area += sizeof(keyLen);
 
-        if (!Delete(entry->db, key, keyLen)) {
-            ereport(ERROR, (errmsg("error from %s", __func__)));
-        }
+    char *key = area;
+    if (!Delete(entry->db, key, keyLen)) {
+        ereport(ERROR, (errmsg("error from %s", __func__)));
     }
 }
 
@@ -1146,103 +1135,110 @@ static void RangeQueryResponse(char *area) {
                                      &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    } else {
-        bool optionFound = false;
-        KVReadOptionsEntry *optionEntry = hash_search(kvReadOptionsHash,
-                                                      &optionKey,
-                                                      HASH_ENTER,
-                                                      &optionFound);
-        if (!optionFound) {
-            /*
-             * first time to trigger this func for the range query
-             * so pass rangequeryOptions, and build range and readOptions
-             */
-            optionEntry->key = optionKey;
-            optionEntry->readOptions = NULL;
-            optionEntry->range = NULL;
+    }
 
-            RangeQueryOptions options;
+    bool optionFound = false;
+    KVReadOptionsEntry *optionEntry = hash_search(kvReadOptionsHash,
+                                                  &optionKey,
+                                                  HASH_ENTER,
+                                                  &optionFound);
+    if (!optionFound) {
+        /*
+         * first time to trigger this func for the range query
+         * so pass rangequeryOptions, and build range and readOptions
+         */
+        optionEntry->key = optionKey;
+        optionEntry->readOptions = NULL;
+        optionEntry->range = NULL;
 
-            memcpy(&(options.startLen), area, sizeof(options.startLen));
-            area += sizeof(options.startLen);
-            if (options.startLen > 0) {
-                options.start = palloc(options.startLen);
-                memcpy(options.start, area, options.startLen);
-                area += options.startLen;
-            }
+        RangeQueryOptions options;
 
-            memcpy(&(options.limitLen), area, sizeof(options.limitLen));
-            area += sizeof(options.limitLen);
-            if (options.limitLen > 0) {
-                options.limit = palloc(options.limitLen);
-                memcpy(options.limit, area, options.limitLen);
-                area += options.limitLen;
-            }
-
-            memcpy(&(options.batchCapacity), area, sizeof(options.batchCapacity));
-            area += sizeof(options.batchCapacity);
-
-            memcpy(&(options.attrCount), area, sizeof(options.attrCount));
-            area += sizeof(options.attrCount);
-            if (options.attrCount > 0) {
-                uint32 bytes = options.attrCount * sizeof(*(options.attrs));
-                options.attrs = palloc(bytes);
-                memcpy(options.attrs, area, bytes);
-            }
-
-            ParseRangeQueryOptions(&options,
-                                   &(optionEntry->range),
-                                   &(optionEntry->readOptions));
+        memcpy(&(options.startLen), area, sizeof(options.startLen));
+        area += sizeof(options.startLen);
+        if (options.startLen > 0) {
+            options.start = palloc(options.startLen);
+            memcpy(options.start, area, options.startLen);
+            area += options.startLen;
         }
 
-        void *result = NULL;
-        size_t bufLen = 0;
-        bool ret = RangeQuery(entry->db,
-                              optionEntry->range,
-                              &(optionEntry->readOptions),
-                              &bufLen,
-                              &result);
-
-        char *current = ResponseQueue[responseId];
-        memcpy(current, &bufLen, sizeof(bufLen));
-        current += sizeof(bufLen);
-        memcpy(current, &ret, sizeof(ret));
-
-        char filename[FILENAMELENGTH];
-        snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, optionKey.pid);
-        /*
-         * clear last call's shared data structure,
-         * might throw out warning if no object to unlink, but it is fine.
-         */
-        ShmUnlink(filename, __func__);
-
-        /*
-         * TODO: to further improve performance, we can query the
-         * storage engine again until bufLen!=0 or no more batch
-         */
-        if (bufLen > 0) {
-            int fd = ShmOpen(filename,
-                             O_CREAT | O_RDWR | O_EXCL,
-                             PERMISSION,
-                             __func__);
-            Ftruncate(fd, bufLen, __func__);
-            char *buf = Mmap(NULL,
-                             bufLen,  /* must larger than 0 */
-                             PROT_READ | PROT_WRITE,
-                             MAP_SHARED,
-                             fd,
-                             0,
-                             __func__);
-            Fclose(fd, __func__);
-
-            ParseRangeQueryResult(result, buf);
-
-            /*
-             * It is safe to unmap before request side reading
-             * as long as shm_unlink is not issued.
-             */
-            Munmap(buf, bufLen, __func__);
+        memcpy(&(options.limitLen), area, sizeof(options.limitLen));
+        area += sizeof(options.limitLen);
+        if (options.limitLen > 0) {
+            options.limit = palloc(options.limitLen);
+            memcpy(options.limit, area, options.limitLen);
+            area += options.limitLen;
         }
+
+        memcpy(&(options.batchCapacity), area, sizeof(options.batchCapacity));
+        area += sizeof(options.batchCapacity);
+
+        memcpy(&(options.attrCount), area, sizeof(options.attrCount));
+        area += sizeof(options.attrCount);
+        if (options.attrCount > 0) {
+            Size bytes = options.attrCount * sizeof(*(options.attrs));
+            options.attrs = palloc(bytes);
+            memcpy(options.attrs, area, bytes);
+        }
+
+        ParseRangeQueryOptions(&options,
+                               &(optionEntry->range),
+                               &(optionEntry->readOptions));
+
+        if (options.attrCount > 0) {
+            pfree(options.attrs);
+        }
+    }
+
+    void *result = NULL;
+    size_t bufLen = 0;
+    bool ret = false;
+    do {
+        ret = RangeQuery(entry->db,
+                         optionEntry->range,
+                         &(optionEntry->readOptions),
+                         &bufLen,
+                         &result);
+    } while (ret && bufLen == 0);
+
+    char *current = ResponseQueue[responseId];
+    memcpy(current, &bufLen, sizeof(bufLen));
+    current += sizeof(bufLen);
+    memcpy(current, &ret, sizeof(ret));
+
+    char filename[FILENAMELENGTH];
+    snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, optionKey.pid);
+    /*
+     * clear last call's shared data structure,
+     * might throw out warning if no object to unlink, but it is fine.
+     */
+    ShmUnlink(filename, __func__);
+
+    char *buf = NULL;
+    if (bufLen > 0) {
+        int fd = ShmOpen(filename,
+                         O_CREAT | O_RDWR | O_EXCL,
+                         PERMISSION,
+                         __func__);
+        Ftruncate(fd, bufLen, __func__);
+        buf = Mmap(NULL,
+                   bufLen,  /* must larger than 0 */
+                   PROT_READ | PROT_WRITE,
+                   MAP_SHARED,
+                   fd,
+                   0,
+                   __func__);
+        Fclose(fd, __func__);
+    }
+
+    /* even bufLen==0, call it to delete result */
+    ParseRangeQueryResult(result, buf);
+
+    /*
+     * It is safe to unmap before request side reading
+     * as long as shm_unlink is not issued.
+     */
+    if (bufLen > 0) {
+        Munmap(buf, bufLen, __func__);
     }
 }
 
@@ -1288,8 +1284,7 @@ static void ClearRangeQueryMetaResponse(char *area) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     }
 
-    pfree(entry->readOptions);
-    pfree(entry->range);
+    ClearRangeQueryMeta(entry->range, entry->readOptions);
     /* might reuse, so must set NULL */
     entry->readOptions = NULL;
     entry->range = NULL;

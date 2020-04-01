@@ -561,25 +561,14 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
 
                 found = true;
             } else if (readState->hasNext) {
-                /*
-                 * finish reading from shared mem,
-                 * or merely bufLen==0 but hasNext
-                 */
-                do {
-                    /*
-                     * The loop handles the special case,
-                     * where the current batch reads all delete keys
-                     */
-                    if (readState->bufLen > 0) {
-                        Munmap(readState->buf, readState->bufLen, __func__);
-                    }
-                    readState->hasNext = RangeQueryRequest(relationId,
-                                                           ptr,
-                                                           NULL,
-                                                           &readState->buf,
-                                                           &readState->bufLen);
-                    readState->next = readState->buf;
-                } while (readState->bufLen == 0 && readState->hasNext);
+                /* finish reading from shared mem */
+                Munmap(readState->buf, readState->bufLen, __func__);
+                readState->hasNext = RangeQueryRequest(relationId,
+                                                       ptr,
+                                                       NULL,
+                                                       &readState->buf,
+                                                       &readState->bufLen);
+                readState->next = readState->buf;
 
                 if (readState->bufLen > 0) {
                     memcpy(&kLen, readState->next, sizeof(kLen));

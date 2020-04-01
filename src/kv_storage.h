@@ -58,6 +58,8 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
                 void** result);
 
 void ParseRangeQueryResult(void* result, char* buf);
+
+void ClearRangeQueryMeta(void* range, void* readOptions);
 #endif
 
 #if defined(__cplusplus)

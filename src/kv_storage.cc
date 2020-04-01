@@ -115,23 +115,17 @@ bool Delete(void* db, char* key, size_t keyLen) {
 #ifdef VIDARDB
 void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
                             void** readOptions) {
+    Assert(queryOptions != NULL);
+
     /* Parse Range */
     Range* r = static_cast<Range*>(*range);
     if (*range == NULL) {
         r = static_cast<Range*>(palloc0(sizeof(Range)));
     }
-    if (queryOptions != NULL) {
-        if (queryOptions->startLen > 0) {
-            r->start = Slice(queryOptions->start, queryOptions->startLen);
-        } else {
-            r->start = kRangeQueryMin;
-        }
-        if (queryOptions->limitLen > 0) {
-            r->limit = Slice(queryOptions->limit, queryOptions->limitLen);
-        } else {
-            r->limit = kRangeQueryMax;
-        }
-    }
+    r->start = queryOptions->startLen > 0 ?
+               Slice(queryOptions->start, queryOptions->startLen) : kRangeQueryMin;
+    r->limit = queryOptions->limitLen > 0 ?
+               Slice(queryOptions->limit, queryOptions->limitLen) : kRangeQueryMax;
     *range = r;
 
     /* Parse ReadOptions */
@@ -141,23 +135,20 @@ void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
     }
 
     /* TODO: currently, first attribute in the value must be returned */   
-    bool containsOne = false;
-    if (queryOptions != NULL) {
-        for (int i = 0; i < queryOptions->attrCount; i++) {
-            AttrNumber attr = *(queryOptions->attrs + i);
-            options->columns.push_back(attr);
-            if (attr == 1) {
-                containsOne = true;
-            }
+    bool hasFirstValAttr = false;
+    for (int i = 0; i < queryOptions->attrCount; i++) {
+        AttrNumber attr = *(queryOptions->attrs + i);
+        options->columns.push_back(attr);
+        if (attr == 1) {
+            hasFirstValAttr = true;
         }
-        if (containsOne == false) {
-            options->columns.push_back(1);
-        }
-
-        sort(options->columns.begin(), options->columns.end());
-
-        options->batch_capacity = queryOptions->batchCapacity;
     }
+    if (hasFirstValAttr == false) {
+        options->columns.push_back(1);
+    }
+    sort(options->columns.begin(), options->columns.end());
+
+    options->batch_capacity = queryOptions->batchCapacity;
 
     *readOptions = options;
 }
@@ -166,7 +157,10 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
                 void** result) {
     ReadOptions* ro = static_cast<ReadOptions*>(*readOptions);
     Range* r = static_cast<Range*>(range);
-    list<RangeQueryKeyVal>* res = new list<RangeQueryKeyVal>;
+    list<RangeQueryKeyVal>* res = static_cast<list<RangeQueryKeyVal>*>(*result);
+    if (res == NULL) {
+        res = new list<RangeQueryKeyVal>;
+    }
     Status s;
     ro->splitter = new PipeSplitter();
     bool ret = static_cast<DB*>(db)->RangeQuery(*ro, *r, *res, &s);
@@ -193,6 +187,7 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
 }
 
 void ParseRangeQueryResult(void* result, char* buf) {
+    Assert(result != NULL);
     list<RangeQueryKeyVal>* res = static_cast<list<RangeQueryKeyVal>*>(result);
     for (auto it = res->begin(); it != res->end(); ++it) {
         size_t keyLen = it->user_key.size();
@@ -207,6 +202,19 @@ void ParseRangeQueryResult(void* result, char* buf) {
         memcpy(buf, it->user_val.c_str(), valLen);
         buf += valLen;
     }
+    delete res;
+}
+
+void ClearRangeQueryMeta(void* range, void* readOptions) {
+    Range* r = static_cast<Range*>(range);
+    if (r->start != kRangeQueryMin) {
+        pfree(const_cast<void*>(static_cast<const void*>(r->start.data())));
+    }
+    if (r->limit != kRangeQueryMax) {
+        pfree(const_cast<void*>(static_cast<const void*>(r->limit.data())));
+    }
+    pfree(range);
+    pfree(readOptions);
 }
 #endif
 

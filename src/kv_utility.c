@@ -299,19 +299,25 @@ char *KVGetOptionValue(Oid foreignTableId, const char *optionName) {
 /*
  * Returns the option values to be used when reading and writing
  * the files. To resolve these values, the function checks options for the
- * foreign table, and if not present, falls back to default values. This function
- * errors out if given option values are considered invalid.
+ * foreign table, and if not present, falls back to default values.
+ * This function errors out if given option values are considered invalid.
  */
 KVFdwOptions *KVGetOptions(Oid foreignTableId) {
-    char *filename = KVGetOptionValue(foreignTableId, "filename");
-
-    /* set default filename if it is not provided */
-    if (filename == NULL) {
-        filename = KVDefaultFilePath(foreignTableId);
-    }
-
     KVFdwOptions *options = palloc0(sizeof(KVFdwOptions));
-    options->filename = filename;
+
+    char *filename = KVGetOptionValue(foreignTableId, OPTION_FILENAME);
+    /* set default filename if it is not provided */
+    options->filename = filename ? filename : KVDefaultFilePath(foreignTableId);
+
+    #ifdef VIDARDB
+    char *storage = KVGetOptionValue(foreignTableId, OPTION_STORAGE_FORMAT);
+    options->useColumn = storage ?
+        (0 == strncmp(storage, COLUMNSTORE, sizeof(COLUMNSTORE))) : false;
+
+    char *capacity = KVGetOptionValue(foreignTableId, OPTION_BATCH_CAPACITY);
+    options->batchCapacity = capacity ?
+        pg_atoi(capacity, sizeof(int32), 0) : BATCHCAPACITY;
+    #endif
 
     return options;
 }

@@ -35,6 +35,8 @@
 #define RESPONSEQUEUELENGTH 2
 
 /* Defines for valid options and the default values */
+#define OPTION_FILENAME "filename"
+
 #ifdef VIDARDB
 #define OPTION_STORAGE_FORMAT "storage"
 
@@ -73,7 +75,19 @@ typedef struct SharedMem {
  */
 typedef struct KVFdwOptions {
     char *filename;
+
+    #ifdef VIDARDB
+    bool useColumn;
+    int32 batchCapacity;
+    #endif
 } KVFdwOptions;
+
+#ifdef VIDARDB
+typedef struct TablePlanState {
+    KVFdwOptions *fdwOptions;
+    int attrCount;
+} TablePlanState;
+#endif
 
 /*
  * The scan state is for maintaining state for a scan, either for a
@@ -88,6 +102,7 @@ typedef struct TableReadState {
     StringInfo key;
 
     #ifdef VIDARDB
+    bool useColumn;
     char *buf;      // shared mem for data returned by RangeQuery
     size_t bufLen;  // shared mem length
     char *next;     // pointer to the next data entry for IterateForeignScan
@@ -105,6 +120,10 @@ typedef struct TableReadState {
 typedef struct TableWriteState {
     CmdType operation;
     AttrNumber keyJunkNo;
+
+    #ifdef VIDARDB
+    bool useColumn;
+    #endif
 } TableWriteState;
 
 typedef enum FuncName {

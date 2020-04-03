@@ -46,7 +46,7 @@ DELETE FROM test WHERE key='a';
 -----------------EndForeignModify----------------------
 -----------------EndForeignScan----------------------
 
-EXPLAIN select * from test;
+EXPLAIN select * FROM test;
 -----------------GetForeignRelSize----------------------
 -----------------GetForeignPaths----------------------
 -----------------GetForeignPlan----------------------
@@ -54,3 +54,14 @@ EXPLAIN select * from test;
 -----------------ExplainForeignScan----------------------
 -----------------EndForeignScan----------------------
 
+SELECT MAX(value) FROM test;
+-----------------GetForeignRelSize----------------------
+-----------------GetForeignPaths----------------------
+-----------------GetForeignRelSize----------------------
+-----------------GetForeignPaths----------------------
+-----------------GetForeignRelSize----------------------
+-----------------GetForeignPaths----------------------
+-----------------GetForeignPlan----------------------
+-----------------BeginForeignScan----------------------
+-----------------IterateForeignScan----------------------
+-----------------EndForeignScan----------------------

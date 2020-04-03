@@ -19,6 +19,10 @@
 #include "foreign/foreign.h"
 #include "utils/builtins.h"
 
+#ifdef VIDARDB
+#include "parser/parsetree.h"
+#endif
+
 
 PG_MODULE_MAGIC;
 
@@ -28,29 +32,6 @@ PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 static SharedMem *ptr = NULL;  // in client process
 
-
-#ifdef VIDARDB
-static int GetAttrCount(Oid foreignTableId) {
-    Relation relation = heap_open(foreignTableId, AccessShareLock);
-    TupleDesc tupleDescriptor = RelationGetDescr(relation);
-    int natts = tupleDescriptor->natts;
-    heap_close(relation, AccessShareLock);
-    return natts;
-}
-
-static bool IsColumnUsed(Oid relationId) {
-    char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
-    if (option == NULL) {
-        return false;
-    }
-    return (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE)));
-}
-
-static int32 GetBatchCapacity(Oid relationId) {
-    char *capacity = KVGetOptionValue(relationId, OPTION_BATCH_CAPACITY);
-    return capacity? pg_atoi(capacity, sizeof(int32), 0): BATCHCAPACITY;
-}
-#endif
 
 static void GetForeignRelSize(PlannerInfo *root,
                               RelOptInfo *baserel,
@@ -80,9 +61,20 @@ static void GetForeignRelSize(PlannerInfo *root,
      * we should open & close db multiple times.
      */
     #ifdef VIDARDB
-    bool useColumn = IsColumnUsed(foreignTableId);
-    int attrCount = useColumn? GetAttrCount(foreignTableId): 0;
-    ptr = OpenRequest(foreignTableId, ptr, useColumn, attrCount);
+    TablePlanState *planState = palloc0(sizeof(TablePlanState));
+    planState->fdwOptions = KVGetOptions(foreignTableId);
+
+    Relation relation = heap_open(foreignTableId, AccessShareLock);
+    TupleDesc tupleDescriptor = RelationGetDescr(relation);
+    planState->attrCount = tupleDescriptor->natts;
+    heap_close(relation, AccessShareLock);
+
+    baserel->fdw_private = planState;
+
+    ptr = OpenRequest(foreignTableId,
+                      ptr,
+                      planState->fdwOptions->useColumn,
+                      planState->attrCount);
     #else
     ptr = OpenRequest(foreignTableId, ptr);
     #endif
@@ -165,9 +157,11 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
 
     /* To accommodate min & max, we open file here */
     #ifdef VIDARDB
-    bool useColumn = IsColumnUsed(foreignTableId);
-    int attrCount = useColumn? GetAttrCount(foreignTableId): 0;
-    ptr = OpenRequest(foreignTableId, ptr, useColumn, attrCount);
+    TablePlanState *planState = baserel->fdw_private;
+    ptr = OpenRequest(foreignTableId,
+                      ptr,
+                      planState->fdwOptions->useColumn,
+                      planState->attrCount);
     #else
     ptr = OpenRequest(foreignTableId, ptr);
     #endif
@@ -177,7 +171,11 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
                             scanClauses,
                             baserel->relid,
                             NIL, /* no expressions to evaluate */
+                            #ifdef VIDARDB
+                            list_make1(planState),
+                            #else
                             NIL,
+                            #endif
                             NIL, /* no custom tlist */
                             NIL, /* no remote quals */
                             NULL);
@@ -243,8 +241,7 @@ static void GetKeyBasedQual(Node *node,
     TupleDesc tupleDescriptor = relation->rd_att;
 
     #ifdef VIDARDB
-    Oid foreignTableId = RelationGetRelid(relation);
-    bool useDelimiter = IsColumnUsed(foreignTableId) && (varattno > 1);
+    bool useDelimiter = readState->useColumn && (varattno > 1);
     SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key, useDelimiter);
     #else
     SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key, false);
@@ -281,6 +278,13 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     readState->done = false;
     readState->key = NULL;
 
+    #ifdef VIDARDB
+    ForeignScan *foreignScan = (ForeignScan *) scanState->ss.ps.plan;
+    List *fdwPrivateList = (List *) foreignScan->fdw_private;
+    TablePlanState *planState = (TablePlanState *) linitial(fdwPrivateList);
+    readState->useColumn = planState->fdwOptions->useColumn;
+    #endif
+
     scanState->fdw_state = (void *) readState;
 
     /* must after readState is recorded, otherwise explain won't close db */
@@ -304,11 +308,10 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
 
         #ifdef VIDARDB
-        bool useColumn = IsColumnUsed(relationId);
-        if (useColumn) {
+        if (readState->useColumn) {
 
             RangeQueryOptions options;
-            options.batchCapacity = GetBatchCapacity(relationId);
+            options.batchCapacity = planState->fdwOptions->batchCapacity;
             options.startLen = 0;
             options.limitLen = 0;
 
@@ -341,10 +344,15 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 }
 
 #ifdef VIDARDB
-static void DeserializeTupleByColumn(StringInfo key,
+/*
+ * It also serves key-based search, but key-based search provides full tuple,
+ * where we need to match the tuple when do deserialization.
+ */
+static void DeserializeColumnTuple(StringInfo key,
                                      StringInfo val,
                                      TupleTableSlot *tupleSlot,
-                                     List *targetList) {
+                                     List *targetList,
+                                     bool fullTuple) {
 
     Datum *values = tupleSlot->tts_values;
     bool *nulls = tupleSlot->tts_isnull;
@@ -371,10 +379,15 @@ static void DeserializeTupleByColumn(StringInfo key,
         nulls[index] = (buffer->data[byteIndex] & bitmask)? true: false;
     }
 
-    AttrNumber *attrs = NULL;
     int targetListLen = list_length(targetList);
-    if (targetListLen > 0) {
-        attrs = (AttrNumber *) palloc0(targetListLen * sizeof(*attrs));
+    Assert(targetListLen > 0);
+    int targetAttrsLen = fullTuple ? count : targetListLen;
+    AttrNumber *attrs = (AttrNumber *) palloc0(targetAttrsLen * sizeof(*attrs));
+    if (fullTuple) {
+        for (int index = 0; index < targetAttrsLen; ++index) {
+            *(attrs + index) = index + 1;
+        }
+    } else {
         int i = 0;
         ListCell *targetCell;
         foreach (targetCell, targetList) {
@@ -382,15 +395,14 @@ static void DeserializeTupleByColumn(StringInfo key,
             *(attrs + i) = targetEntry->resorigcol != 0 ?
                            targetEntry->resorigcol : i + 1;
             i++;
+        /* TODO: sort attrs */
         }
     }
 
-    int offset = 0;
     char *current = key->data;
     /* If the key is in the target list, it must be the first attribute */
-    AttrNumber attr0 = *attrs;
     /* resorigcol starts from 1 */
-    if (attr0 == 1) {
+    if (*attrs == 1) {
         /* The index of tuple descriptors starts from 0 */
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 0);
         bool byValue = attributeForm->attbyval;
@@ -399,7 +411,7 @@ static void DeserializeTupleByColumn(StringInfo key,
     }
 
     /* Deserialize the first attribute in the value to update the offset */
-    offset = bufLen;
+    int offset = bufLen;
     current = val->data + offset;
     if (nulls[1]) {
         /* jump the delimiter */
@@ -412,9 +424,10 @@ static void DeserializeTupleByColumn(StringInfo key,
         values[1] = fetch_att(current, byValue, typeLength);
         offset = att_addlength_datum(offset, typeLength, current) + 1;
     }
-    current = val->data + offset;  
+    current = val->data + offset;
 
-    for (int index = 0; index < targetListLen; index++) {
+    /* deserialize the remaining attributes */
+    for (int index = 0; index < targetAttrsLen; index++) {
         AttrNumber attr = *(attrs + index);
         /* skip key and first value */
         if (attr <= 2) {
@@ -436,6 +449,8 @@ static void DeserializeTupleByColumn(StringInfo key,
         offset = att_addlength_datum(offset, typeLength, current) + 1;
         current = val->data + offset;
     }
+
+    pfree(attrs);
 }
 #endif
 
@@ -528,11 +543,7 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
     TableReadState *readState = (TableReadState *) scanState->fdw_state;
     char *k = NULL, *v = NULL;
     size_t kLen = 0, vLen = 0;
-
     Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
-    #ifdef VIDARDB
-    bool useColumn = IsColumnUsed(relationId);
-    #endif
     bool found = false;
     if (readState->isKeyBased) {
         if (!readState->done) {
@@ -543,7 +554,7 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
         }
     } else {
         #ifdef VIDARDB
-        if (useColumn) {
+        if (readState->useColumn) {
 
             if (readState->next < readState->buf + readState->bufLen) {
                 /* still in reading */
@@ -603,8 +614,12 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
         appendBinaryStringInfo(val, v, vLen);
 
         #ifdef VIDARDB
-        if (useColumn) {
-            DeserializeTupleByColumn(key, val, tupleSlot, scanState->ss.ps.plan->targetlist);
+        if (readState->useColumn) {
+            DeserializeColumnTuple(key,
+                                   val,
+                                   tupleSlot,
+                                   scanState->ss.ps.plan->targetlist,
+                                   readState->isKeyBased);
         } else {
             DeserializeTuple(key, val, tupleSlot);
         }
@@ -645,8 +660,7 @@ static void EndForeignScan(ForeignScanState *scanState) {
     Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
     if (!readState->isKeyBased) {
         #ifdef VIDARDB
-        bool useColumn = IsColumnUsed(relationId);
-        if (useColumn) {
+        if (readState->useColumn) {
             /*
              * unmap for this client process should already be done in
              * IterateForeignScan. Now release resource of server process.
@@ -751,7 +765,28 @@ static List *PlanForeignModify(PlannerInfo *plannerInfo,
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
+    #ifdef VIDARDB
+    if (plan->operation == CMD_INSERT) {
+        /* for insert, no upward info, we have to fetch from scratch */
+        RangeTblEntry *rangeTable = planner_rt_fetch(resultRelation, plannerInfo);
+        Oid foreignTableId = rangeTable->relid;
+        TablePlanState *planState = palloc0(sizeof(TablePlanState));
+        planState->fdwOptions = KVGetOptions(foreignTableId);
+
+        Relation relation = heap_open(foreignTableId, AccessShareLock);
+        TupleDesc tupleDescriptor = RelationGetDescr(relation);
+        planState->attrCount = tupleDescriptor->natts;
+        heap_close(relation, AccessShareLock);
+
+        return list_make1(planState);
+    } else {
+        /* for delete and update, fdw_private comes from GetForeignRelSize */
+        RelOptInfo *baserel = plannerInfo->simple_rel_array[resultRelation];
+        return list_make1(baserel->fdw_private);
+    }
+    #else
     return NULL;
+    #endif
 }
 
 static void BeginForeignModify(ModifyTableState *modifyTableState,
@@ -802,11 +837,16 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     Oid foreignTableId = RelationGetRelid(relation);
     heap_open(foreignTableId, ShareUpdateExclusiveLock);
 
+    #ifdef VIDARDB
+    TablePlanState *planState = (TablePlanState *) linitial(fdwPrivate);
+    writeState->useColumn = planState->fdwOptions->useColumn;
+    #endif
     if (operation == CMD_INSERT) {
         #ifdef VIDARDB
-        bool useColumn = IsColumnUsed(foreignTableId);
-        int attrCount = useColumn? GetAttrCount(foreignTableId): 0;
-        ptr = OpenRequest(foreignTableId, ptr, useColumn, attrCount);
+        ptr = OpenRequest(foreignTableId,
+                          ptr,
+                          writeState->useColumn,
+                          planState->attrCount);
         #else
         ptr = OpenRequest(foreignTableId, ptr);
         #endif
@@ -823,6 +863,11 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     }
 
     relationInfo->ri_FdwState = (void *) writeState;
+
+    #ifdef VIDARDB
+    /* we are sure it is no longer need, once it appears here */
+    pfree(planState);
+    #endif
 }
 
 static void SerializeTuple(StringInfo key,
@@ -915,8 +960,8 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
     Oid foreignTableId = RelationGetRelid(relation);
 
     #ifdef VIDARDB
-    bool useColumn = IsColumnUsed(foreignTableId);
-    SerializeTuple(key, val, tupleSlot, useColumn);
+    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
+    SerializeTuple(key, val, tupleSlot, writeState->useColumn);
     #else
     SerializeTuple(key, val, tupleSlot, false);
     #endif
@@ -975,8 +1020,8 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
     Oid foreignTableId = RelationGetRelid(relation);
 
     #ifdef VIDARDB
-    bool useColumn = IsColumnUsed(foreignTableId);
-    SerializeTuple(key, val, tupleSlot, useColumn);
+    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
+    SerializeTuple(key, val, tupleSlot, writeState->useColumn);
     #else
     SerializeTuple(key, val, tupleSlot, false);
     #endif
@@ -1034,8 +1079,7 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     Oid foreignTableId = RelationGetRelid(relation);
 
     #ifdef VIDARDB
-    bool useColumn = IsColumnUsed(foreignTableId);
-    SerializeTuple(key, val, planSlot, useColumn);
+    SerializeTuple(key, val, planSlot, writeState->useColumn);
     #else
     SerializeTuple(key, val, planSlot, false);
     #endif

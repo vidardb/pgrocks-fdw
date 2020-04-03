@@ -86,6 +86,10 @@ typedef struct KVFdwOptions {
 typedef struct TablePlanState {
     KVFdwOptions *fdwOptions;
     int attrCount;
+
+    #ifdef VIDARDB
+    bool toUpdateDelete;  // involve update or delete?
+    #endif
 } TablePlanState;
 #endif
 
@@ -107,6 +111,7 @@ typedef struct TableReadState {
     size_t bufLen;  // shared mem length
     char *next;     // pointer to the next data entry for IterateForeignScan
     bool hasNext;   // whether there will be a next batch from RangeQuery
+    bool toUpdateDelete;  // indicate whether to be involved in update or delete
     #endif
 } TableReadState;
 

@@ -69,6 +69,7 @@ static void GetForeignRelSize(PlannerInfo *root,
     planState->attrCount = tupleDescriptor->natts;
     heap_close(relation, AccessShareLock);
 
+    planState->toUpdateDelete = false;
     baserel->fdw_private = planState;
 
     ptr = OpenRequest(foreignTableId,
@@ -283,6 +284,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     List *fdwPrivateList = (List *) foreignScan->fdw_private;
     TablePlanState *planState = (TablePlanState *) linitial(fdwPrivateList);
     readState->useColumn = planState->fdwOptions->useColumn;
+    readState->toUpdateDelete = planState->toUpdateDelete;
     #endif
 
     scanState->fdw_state = (void *) readState;
@@ -347,12 +349,13 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 /*
  * It also serves key-based search, but key-based search provides full tuple,
  * where we need to match the tuple when do deserialization.
+ * Update and Delete also provide full tuple.
  */
 static void DeserializeColumnTuple(StringInfo key,
-                                     StringInfo val,
-                                     TupleTableSlot *tupleSlot,
-                                     List *targetList,
-                                     bool fullTuple) {
+                                   StringInfo val,
+                                   TupleTableSlot *tupleSlot,
+                                   List *targetList,
+                                   bool fullTuple) {
 
     Datum *values = tupleSlot->tts_values;
     bool *nulls = tupleSlot->tts_isnull;
@@ -619,7 +622,7 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
                                    val,
                                    tupleSlot,
                                    scanState->ss.ps.plan->targetlist,
-                                   readState->isKeyBased);
+                                   readState->isKeyBased || readState->toUpdateDelete);
         } else {
             DeserializeTuple(key, val, tupleSlot);
         }
@@ -782,6 +785,8 @@ static List *PlanForeignModify(PlannerInfo *plannerInfo,
     } else {
         /* for delete and update, fdw_private comes from GetForeignRelSize */
         RelOptInfo *baserel = plannerInfo->simple_rel_array[resultRelation];
+        TablePlanState *planState = baserel->fdw_private;
+        planState->toUpdateDelete = true;
         return list_make1(baserel->fdw_private);
     }
     #else

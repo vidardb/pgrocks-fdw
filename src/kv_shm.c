@@ -408,7 +408,7 @@ static int StartKVWorker(void) {
 }
 
 SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     if (!ptr) {
         /*
@@ -477,7 +477,7 @@ SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...) {
 }
 
 static void OpenResponse(char *area) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     #ifdef VIDARDB
     bool useColumn = false;
@@ -510,7 +510,7 @@ static void OpenResponse(char *area) {
 }
 
 void CloseRequest(Oid relationId, SharedMem *ptr) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
@@ -533,7 +533,7 @@ void CloseRequest(Oid relationId, SharedMem *ptr) {
 }
 
 static void CloseResponse(char *area) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     Oid relationId;
     memcpy(&relationId, area, sizeof(relationId));
@@ -549,7 +549,7 @@ static void CloseResponse(char *area) {
 }
 
 uint64 CountRequest(Oid relationId, SharedMem *ptr) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
@@ -575,7 +575,7 @@ uint64 CountRequest(Oid relationId, SharedMem *ptr) {
 }
 
 static void CountResponse(char *area) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     uint32 responseId;
     memcpy(&responseId, area, sizeof(responseId));
@@ -593,7 +593,7 @@ static void CountResponse(char *area) {
 }
 
 void GetIterRequest(Oid relationId, SharedMem *ptr) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
@@ -620,7 +620,7 @@ void GetIterRequest(Oid relationId, SharedMem *ptr) {
 }
 
 static void GetIterResponse(char *area) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     KVTableProcHashKey iterKey;    
     memcpy(&iterKey.relationId, area, sizeof(iterKey.relationId));
@@ -648,7 +648,7 @@ static void GetIterResponse(char *area) {
 }
 
 void DelIterRequest(Oid relationId, SharedMem *ptr) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
@@ -675,7 +675,7 @@ void DelIterRequest(Oid relationId, SharedMem *ptr) {
 }
 
 static void DelIterResponse(char *area) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     KVTableProcHashKey iterKey;
     memcpy(&iterKey.relationId, area, sizeof(iterKey.relationId));
@@ -698,7 +698,7 @@ bool NextRequest(Oid relationId,
                  size_t *keyLen,
                  char **val,
                  size_t *valLen) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
@@ -747,7 +747,7 @@ bool NextRequest(Oid relationId,
 }
 
 void NextResponse(char *area) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     uint32 responseId;
     memcpy(&responseId, area, sizeof(responseId));
@@ -809,7 +809,7 @@ bool GetRequest(Oid relationId,
                 size_t keyLen,
                 char **val,
                 size_t *valLen) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
@@ -855,7 +855,7 @@ bool GetRequest(Oid relationId,
 }
 
 static void GetResponse(char *area) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     int responseId;
     memcpy(&responseId, area, sizeof(responseId));
@@ -898,7 +898,7 @@ void PutRequest(Oid relationId,
                 size_t keyLen,
                 char *val,
                 size_t valLen) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
@@ -941,7 +941,7 @@ void PutRequest(Oid relationId,
 }
 
 static void PutResponse(char *area) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     Oid relationId;
     memcpy(&relationId, area, sizeof(relationId));
@@ -971,7 +971,7 @@ static void PutResponse(char *area) {
 }
 
 void DeleteRequest(Oid relationId, SharedMem *ptr, char *key, size_t keyLen) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
@@ -1000,7 +1000,7 @@ void DeleteRequest(Oid relationId, SharedMem *ptr, char *key, size_t keyLen) {
 }
 
 static void DeleteResponse(char *area) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     Oid relationId;
     memcpy(&relationId, area, sizeof(relationId));
@@ -1036,7 +1036,8 @@ bool RangeQueryRequest(Oid relationId,
                        RangeQueryOptions *options,
                        char **buf,
                        size_t *bufLen) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
+
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
 
@@ -1115,7 +1116,7 @@ bool RangeQueryRequest(Oid relationId,
 }
 
 static void RangeQueryResponse(char *area) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     uint32 responseId;
     memcpy(&responseId, area, sizeof(responseId));
@@ -1243,7 +1244,7 @@ static void RangeQueryResponse(char *area) {
 }
 
 void ClearRangeQueryMetaRequest(Oid relationId, SharedMem *ptr) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
@@ -1270,7 +1271,7 @@ void ClearRangeQueryMetaRequest(Oid relationId, SharedMem *ptr) {
 }
 
 static void ClearRangeQueryMetaResponse(char *area) {
-    printf("\n============%s============\n", __func__);
+//    printf("\n============%s============\n", __func__);
 
     KVTableProcHashKey optionKey;
     memcpy(&optionKey.relationId, area, sizeof(optionKey.relationId));

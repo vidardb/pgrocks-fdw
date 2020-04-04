@@ -317,15 +317,25 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
             options.startLen = 0;
             options.limitLen = 0;
 
-            options.attrCount = list_length(scanState->ss.ps.plan->targetlist);
-            if (options.attrCount > 0) {
+            int targetListLen = list_length(scanState->ss.ps.plan->targetlist);
+            if (targetListLen > 0) {
+                options.attrCount = targetListLen;
                 options.attrs = palloc0(options.attrCount * sizeof(*options.attrs));
                 int i = 0;
                 ListCell *targetCell;
                 foreach (targetCell, scanState->ss.ps.plan->targetlist) {
+                    if (i == planState->attrCount) {
+                        /*
+                         * happens in update may be due to resjunkcol,
+                         * not sure about delete
+                         */
+                        printf("\nthere is an additional column\n");
+                        --options.attrCount;
+                        break;
+                    }
                     TargetEntry *targetEntry = lfirst(targetCell);
                     *(options.attrs + i) = targetEntry->resorigcol != 0 ?
-                                           targetEntry->resorigcol - 1 : i + 1;
+                                           targetEntry->resorigcol - 1 : i;
                     i++;
                 }
             }
@@ -336,6 +346,10 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
                                                    &readState->buf,
                                                    &readState->bufLen);
             readState->next = readState->buf;
+
+            if (targetListLen > 0) {
+                pfree(options.attrs);
+            }
         } else {
             GetIterRequest(relationId, ptr);
         }

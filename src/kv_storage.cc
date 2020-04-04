@@ -147,7 +147,9 @@ void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
         options->columns.push_back(1);
     }
     sort(options->columns.begin(), options->columns.end());
-
+    printf("\nattrs: ");
+    for (auto i : options->columns) printf(" %d ", i);
+    printf("\n");
     options->batch_capacity = queryOptions->batchCapacity;
 
     *readOptions = options;

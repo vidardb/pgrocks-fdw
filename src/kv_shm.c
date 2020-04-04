@@ -505,7 +505,7 @@ static void OpenResponse(char *area) {
         #endif
     } else {
         entry->ref++;
-        printf("\n%s ref %d\n", __func__, entry->ref);
+//        printf("\n%s ref %d\n", __func__, entry->ref);
     }
 }
 
@@ -545,7 +545,7 @@ static void CloseResponse(char *area) {
     }
 
     entry->ref--;
-    printf("\n%s ref %d\n", __func__, entry->ref);
+//    printf("\n%s ref %d\n", __func__, entry->ref);
 }
 
 uint64 CountRequest(Oid relationId, SharedMem *ptr) {

@@ -30,7 +30,7 @@ PG_FUNCTION_INFO_V1(kv_fdw_handler);
 PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 
-static SharedMem *ptr = NULL;  // in client process
+static SharedMem *ptr = NULL;  /* in client process */
 
 
 static void GetForeignRelSize(PlannerInfo *root,
@@ -41,8 +41,8 @@ static void GetForeignRelSize(PlannerInfo *root,
      * Obtain relation size estimates for a foreign table. This is called at
      * the beginning of planning for a query that scans a foreign table. root
      * is the planner's global information about the query; baserel is the
-     * planner's information about this table; and foreigntableid is the
-     * pg_class OID of the foreign table. (foreigntableid could be obtained
+     * planner's information about this table; and foreignTableId is the
+     * pg_class OID of the foreign table. (foreignTableId could be obtained
      * from the planner data structures, but it's passed explicitly to save
      * effort.)
      *
@@ -262,12 +262,12 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
      * Information about the table to scan is accessible through the
      * ForeignScanState node (in particular, from the underlying ForeignScan
      * plan node, which contains any FDW-private information provided by
-     * GetForeignPlan). eflags contains flag bits describing the executor's
-     * operating mode for this plan node.
+     * GetForeignPlan). executorFlags contains flag bits describing the
+     * executor's operating mode for this plan node.
      *
-     * Note that when (eflags & EXEC_FLAG_EXPLAIN_ONLY) is true, this function
-     * should not perform any externally-visible actions; it should only do
-     * the minimum required to make the node state valid for
+     * Note that when (executorFlags & EXEC_FLAG_EXPLAIN_ONLY) is true, this
+     * function should not perform any externally-visible actions; it should
+     * only do the minimum required to make the node state valid for
      * ExplainForeignScan and EndForeignScan.
      *
      */
@@ -285,6 +285,13 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     TablePlanState *planState = (TablePlanState *) linitial(fdwPrivateList);
     readState->useColumn = planState->fdwOptions->useColumn;
     readState->toUpdateDelete = planState->toUpdateDelete;
+
+    size_t batchCapacity = planState->fdwOptions->batchCapacity;
+    int attrCount = planState->attrCount;
+
+    if (planState->toUpdateDelete == false) {
+        pfree(planState);
+    }
     #endif
 
     scanState->fdw_state = (void *) readState;
@@ -313,7 +320,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         if (readState->useColumn) {
 
             RangeQueryOptions options;
-            options.batchCapacity = planState->fdwOptions->batchCapacity;
+            options.batchCapacity = batchCapacity;
             options.startLen = 0;
             options.limitLen = 0;
 
@@ -324,7 +331,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
                 int i = 0;
                 ListCell *targetCell;
                 foreach (targetCell, scanState->ss.ps.plan->targetlist) {
-                    if (i == planState->attrCount) {
+                    if (i == attrCount) {
                         /*
                          * happens in update may be due to resjunkcol,
                          * not sure about delete
@@ -336,6 +343,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
                     TargetEntry *targetEntry = lfirst(targetCell);
                     *(options.attrs + i) = targetEntry->resorigcol != 0 ?
                                            targetEntry->resorigcol - 1 : i;
+                    printf("\nattr: %d\n", *(options.attrs + i));
                     i++;
                 }
             }
@@ -400,6 +408,21 @@ static void DeserializeColumnTuple(StringInfo key,
     Assert(targetListLen > 0);
     int targetAttrsLen = fullTuple ? count : targetListLen;
     AttrNumber *attrs = (AttrNumber *) palloc0(targetAttrsLen * sizeof(*attrs));
+    printf("\ntargetListLen: %d\n", targetListLen);
+    printf("\nattrCount: %d\n", count);
+
+    printf("\n");
+    int i = 0;
+    ListCell *targetCell;
+    foreach (targetCell, targetList) {
+        TargetEntry *targetEntry = lfirst(targetCell);
+        int k = targetEntry->resorigcol != 0 ?
+                targetEntry->resorigcol : i + 1;
+        printf("attr: %d", k-1);
+        i++;
+    }
+    printf("\n");
+
     if (fullTuple) {
         for (int index = 0; index < targetAttrsLen; ++index) {
             *(attrs + index) = index + 1;
@@ -411,6 +434,7 @@ static void DeserializeColumnTuple(StringInfo key,
             TargetEntry *targetEntry = lfirst(targetCell);
             *(attrs + i) = targetEntry->resorigcol != 0 ?
                            targetEntry->resorigcol : i + 1;
+            printf("\nattr: %d\n", *(attrs + i) - 1);
             i++;
         /* TODO: sort attrs */
         }
@@ -742,20 +766,20 @@ static void AddForeignUpdateTargets(Query *parsetree,
                        attr->atttypmod,
                        InvalidOid,
                        0);
+
     /* Wrap it in a resjunk TLE with the right name ... */
     const char *attrname = KVKEYJUNK;
-    AttrNumber resno = list_length(parsetree->targetList) + 1;
-    /* is this true? */
-    Assert(resno == 1);
+
     TargetEntry *entry = makeTargetEntry((Expr *) var,
-                                         resno,
+                                         list_length(parsetree->targetList) + 1,
                                          pstrdup(attrname),
                                          true);
+
     /* ... and add it to the query's targetlist */
     parsetree->targetList = lappend(parsetree->targetList, entry);
 }
 
-static List *PlanForeignModify(PlannerInfo *plannerInfo,
+static List *PlanForeignModify(PlannerInfo *root,
                                ModifyTable *plan,
                                Index resultRelation,
                                int subplanIndex) {
@@ -771,7 +795,7 @@ static List *PlanForeignModify(PlannerInfo *plannerInfo,
      * root is the planner's global information about the query. plan is the
      * ModifyTable plan node, which is complete except for the fdwPrivLists
      * field. resultRelation identifies the target foreign table by its
-     * rangetable index. subplan_index identifies which target of the
+     * rangetable index. subplanIndex identifies which target of the
      * ModifyTable plan node this is, counting from zero; use this if you want
      * to index into plan->plans or other substructure of the plan node.
      *
@@ -785,7 +809,7 @@ static List *PlanForeignModify(PlannerInfo *plannerInfo,
     #ifdef VIDARDB
     if (plan->operation == CMD_INSERT) {
         /* for insert, no upward info, we have to fetch from scratch */
-        RangeTblEntry *rangeTable = planner_rt_fetch(resultRelation, plannerInfo);
+        RangeTblEntry *rangeTable = planner_rt_fetch(resultRelation, root);
         Oid foreignTableId = rangeTable->relid;
         TablePlanState *planState = palloc0(sizeof(TablePlanState));
         planState->fdwOptions = KVGetOptions(foreignTableId);
@@ -798,7 +822,7 @@ static List *PlanForeignModify(PlannerInfo *plannerInfo,
         return list_make1(planState);
     } else {
         /* for delete and update, fdw_private comes from GetForeignRelSize */
-        RelOptInfo *baserel = plannerInfo->simple_rel_array[resultRelation];
+        RelOptInfo *baserel = root->simple_rel_array[resultRelation];
         TablePlanState *planState = baserel->fdw_private;
         planState->toUpdateDelete = true;
         return list_make1(baserel->fdw_private);
@@ -809,7 +833,7 @@ static List *PlanForeignModify(PlannerInfo *plannerInfo,
 }
 
 static void BeginForeignModify(ModifyTableState *modifyTableState,
-                               ResultRelInfo *relationInfo,
+                               ResultRelInfo *resultRelInfo,
                                List *fdwPrivate,
                                int subplanIndex,
                                int executorFlags) {
@@ -821,19 +845,19 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
      * ExecForeignInsert, ExecForeignUpdate or ExecForeignDelete will be
      * called for each tuple to be inserted, updated, or deleted.
      *
-     * mtstate is the overall state of the ModifyTable plan node being
+     * modifyTableState is the overall state of the ModifyTable plan node being
      * executed; global data about the plan and execution state is available
-     * via this structure. rinfo is the ResultRelInfo struct describing the
-     * target foreign table. (The ri_FdwState field of ResultRelInfo is
+     * via this structure. resultRelInfo is the ResultRelInfo struct describing
+     * the target foreign table. (The ri_FdwState field of ResultRelInfo is
      * available for the FDW to store any private state it needs for this
      * operation.) fdw_private contains the private data generated by
-     * PlanForeignModify, if any. subplan_index identifies which target of the
-     * ModifyTable plan node this is. eflags contains flag bits describing the
-     * executor's operating mode for this plan node.
+     * PlanForeignModify, if any. subplanIndex identifies which target of the
+     * ModifyTable plan node this is. executorFlags contains flag bits
+     * describing the executor's operating mode for this plan node.
      *
-     * Note that when (eflags & EXEC_FLAG_EXPLAIN_ONLY) is true, this function
-     * should not perform any externally-visible actions; it should only do
-     * the minimum required to make the node state valid for
+     * Note that when (executorFlags & EXEC_FLAG_EXPLAIN_ONLY) is true, this
+     * function should not perform any externally-visible actions; it should
+     * only do the minimum required to make the node state valid for
      * ExplainForeignModify and EndForeignModify.
      *
      * If the BeginForeignModify pointer is set to NULL, no action is taken
@@ -851,7 +875,7 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     CmdType operation = modifyTableState->operation;
     writeState->operation = operation;
 
-    Relation relation = relationInfo->ri_RelationDesc;
+    Relation relation = resultRelInfo->ri_RelationDesc;
 
     Oid foreignTableId = RelationGetRelid(relation);
     heap_open(foreignTableId, ShareUpdateExclusiveLock);
@@ -875,13 +899,13 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
         /* Find the ctid resjunk column in the subplan's result */
         Plan *subplan = modifyTableState->mt_plans[subplanIndex]->plan;
         writeState->keyJunkNo =
-                ExecFindJunkAttributeInTlist(subplan->targetlist, KVKEYJUNK);
+            ExecFindJunkAttributeInTlist(subplan->targetlist, KVKEYJUNK);
         if (!AttributeNumberIsValid(writeState->keyJunkNo)) {
             ereport(ERROR, (errmsg("could not find key junk column")));
         }
     }
 
-    relationInfo->ri_FdwState = (void *) writeState;
+    resultRelInfo->ri_FdwState = (void *) writeState;
 
     #ifdef VIDARDB
     /* we are sure it is no longer need, once it appears here */
@@ -931,19 +955,19 @@ static void SerializeTuple(StringInfo key,
 }
 
 static TupleTableSlot *ExecForeignInsert(EState *executorState,
-                                         ResultRelInfo *relationInfo,
-                                         TupleTableSlot *tupleSlot,
+                                         ResultRelInfo *resultRelInfo,
+                                         TupleTableSlot *slot,
                                          TupleTableSlot *planSlot) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
-     * Insert one tuple into the foreign table. estate is global execution
-     * state for the query. rinfo is the ResultRelInfo struct describing the
-     * target foreign table. slot contains the tuple to be inserted; it will
-     * match the rowtype definition of the foreign table. planSlot contains
-     * the tuple that was generated by the ModifyTable plan node's subplan; it
-     * differs from slot in possibly containing additional "junk" columns.
-     * (The planSlot is typically of little interest for INSERT cases, but is
-     * provided for completeness.)
+     * Insert one tuple into the foreign table. executorState is global
+     * execution state for the query. resultRelInfo is the ResultRelInfo struct
+     * describing the target foreign table. slot contains the tuple to be
+     * inserted; it will match the rowtype definition of the foreign table.
+     * planSlot contains the tuple that was generated by the ModifyTable plan
+     * node's subplan; it differs from slot in possibly containing additional
+     * "junk" columns. (The planSlot is typically of little interest for INSERT
+     * cases, but is provided for completeness.)
      *
      * The return value is either a slot containing the data that was actually
      * inserted (this might differ from the data supplied, for example as a
@@ -952,55 +976,54 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
      * re-used for this purpose.
      *
      * The data in the returned slot is used only if the INSERT query has a
-     * RETURNING clause. Hence, the FDW could choose to optimize away
-     * returning some or all columns depending on the contents of the
-     * RETURNING clause. However, some slot must be returned to indicate
-     * success, or the query's reported rowcount will be wrong.
+     * RETURNING clause. Hence, the FDW could choose to optimize away returning
+     * some or all columns depending on the contents of the RETURNING clause.
+     * However, some slot must be returned to indicate success, or the query's
+     * reported rowcount will be wrong.
      *
-     * If the ExecForeignInsert pointer is set to NULL, attempts to insert
-     * into the foreign table will fail with an error message.
+     * If the ExecForeignInsert pointer is set to NULL, attempts to insert into
+     * the foreign table will fail with an error message.
      */
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
-    TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
-    if (HeapTupleHasExternal(tupleSlot->tts_tuple)) {
+    TupleDesc tupleDescriptor = slot->tts_tupleDescriptor;
+    if (HeapTupleHasExternal(slot->tts_tuple)) {
         /* detoast any toasted attributes */
-        tupleSlot->tts_tuple = toast_flatten_tuple(tupleSlot->tts_tuple,
-                                                   tupleDescriptor);
+        slot->tts_tuple = toast_flatten_tuple(slot->tts_tuple, tupleDescriptor);
     }
 
-    slot_getallattrs(tupleSlot);
+    slot_getallattrs(slot);
 
     StringInfo key = makeStringInfo();
     StringInfo val = makeStringInfo();
 
-    Relation relation = relationInfo->ri_RelationDesc;
+    Relation relation = resultRelInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
 
     #ifdef VIDARDB
-    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
-    SerializeTuple(key, val, tupleSlot, writeState->useColumn);
+    TableWriteState *writeState = (TableWriteState *) resultRelInfo->ri_FdwState;
+    SerializeTuple(key, val, slot, writeState->useColumn);
     #else
-    SerializeTuple(key, val, tupleSlot, false);
+    SerializeTuple(key, val, slot, false);
     #endif
 
     PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
 
-    return tupleSlot;
+    return slot;
 }
 
 static TupleTableSlot *ExecForeignUpdate(EState *executorState,
-                                         ResultRelInfo *relationInfo,
-                                         TupleTableSlot *tupleSlot,
+                                         ResultRelInfo *resultRelInfo,
+                                         TupleTableSlot *slot,
                                          TupleTableSlot *planSlot) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
-     * Update one tuple in the foreign table. estate is global execution state
-     * for the query. rinfo is the ResultRelInfo struct describing the target
-     * foreign table. slot contains the new data for the tuple; it will match
-     * the rowtype definition of the foreign table. planSlot contains the
-     * tuple that was generated by the ModifyTable plan node's subplan; it
+     * Update one tuple in the foreign table. executorState is global execution
+     * state for the query. resultRelInfo is the ResultRelInfo struct describing
+     * the target foreign table. slot contains the new data for the tuple; it
+     * will match the rowtype definition of the foreign table. planSlot contains
+     * the tuple that was generated by the ModifyTable plan node's subplan; it
      * differs from slot in possibly containing additional "junk" columns. In
      * particular, any junk columns that were requested by
      * AddForeignUpdateTargets will be available from this slot.
@@ -1012,10 +1035,10 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
      * re-used for this purpose.
      *
      * The data in the returned slot is used only if the UPDATE query has a
-     * RETURNING clause. Hence, the FDW could choose to optimize away
-     * returning some or all columns depending on the contents of the
-     * RETURNING clause. However, some slot must be returned to indicate
-     * success, or the query's reported rowcount will be wrong.
+     * RETURNING clause. Hence, the FDW could choose to optimize away returning
+     * some or all columns depending on the contents of the RETURNING clause.
+     * However, some slot must be returned to indicate success, or the query's
+     * reported rowcount will be wrong.
      *
      * If the ExecForeignUpdate pointer is set to NULL, attempts to update the
      * foreign table will fail with an error message.
@@ -1024,44 +1047,43 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
-    TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
-    if (HeapTupleHasExternal(tupleSlot->tts_tuple)) {
+    TupleDesc tupleDescriptor = slot->tts_tupleDescriptor;
+    if (HeapTupleHasExternal(slot->tts_tuple)) {
         /* detoast any toasted attributes */
-        tupleSlot->tts_tuple = toast_flatten_tuple(tupleSlot->tts_tuple,
-                                                   tupleDescriptor);
+        slot->tts_tuple = toast_flatten_tuple(slot->tts_tuple, tupleDescriptor);
     }
-    slot_getallattrs(tupleSlot);
+    slot_getallattrs(slot);
 
     StringInfo key = makeStringInfo();
     StringInfo val = makeStringInfo();
 
-    Relation relation = relationInfo->ri_RelationDesc;
+    Relation relation = resultRelInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
 
     #ifdef VIDARDB
-    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
-    SerializeTuple(key, val, tupleSlot, writeState->useColumn);
+    TableWriteState *writeState = (TableWriteState *) resultRelInfo->ri_FdwState;
+    SerializeTuple(key, val, slot, writeState->useColumn);
     #else
-    SerializeTuple(key, val, tupleSlot, false);
+    SerializeTuple(key, val, slot, false);
     #endif
 
     PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
 
-    return tupleSlot;
+    return slot;
 }
 
 static TupleTableSlot *ExecForeignDelete(EState *executorState,
-                                         ResultRelInfo *relationInfo,
-                                         TupleTableSlot *tupleSlot,
+                                         ResultRelInfo *resultRelInfo,
+                                         TupleTableSlot *slot,
                                          TupleTableSlot *planSlot) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
-     * Delete one tuple from the foreign table. estate is global execution
-     * state for the query. rinfo is the ResultRelInfo struct describing the
-     * target foreign table. slot contains nothing useful upon call, but can
-     * be used to hold the returned tuple. planSlot contains the tuple that
-     * was generated by the ModifyTable plan node's subplan; in particular, it
-     * will carry any junk columns that were requested by
+     * Delete one tuple from the foreign table. executorState is global
+     * execution state for the query. resultRelInfo is the ResultRelInfo struct
+     * describing the target foreign table. slot contains nothing useful upon
+     * call, but can be used to hold the returned tuple. planSlot contains the
+     * tuple that was generated by the ModifyTable plan node's subplan; in
+     * particular, it will carry any junk columns that were requested by
      * AddForeignUpdateTargets. The junk column(s) must be used to identify
      * the tuple to be deleted.
      *
@@ -1070,10 +1092,10 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
      * passed-in slot can be used to hold the tuple to be returned.
      *
      * The data in the returned slot is used only if the DELETE query has a
-     * RETURNING clause. Hence, the FDW could choose to optimize away
-     * returning some or all columns depending on the contents of the
-     * RETURNING clause. However, some slot must be returned to indicate
-     * success, or the query's reported rowcount will be wrong.
+     * RETURNING clause. Hence, the FDW could choose to optimize away returning
+     * some or all columns depending on the contents of the RETURNING clause.
+     * However, some slot must be returned to indicate success, or the query's
+     * reported rowcount will be wrong.
      *
      * If the ExecForeignDelete pointer is set to NULL, attempts to delete
      * from the foreign table will fail with an error message.
@@ -1081,7 +1103,7 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
-    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
+    TableWriteState *writeState = (TableWriteState *) resultRelInfo->ri_FdwState;
 
     bool isnull = true;
     ExecGetJunkAttribute(planSlot, writeState->keyJunkNo, &isnull);
@@ -1094,7 +1116,7 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     StringInfo key = makeStringInfo();
     StringInfo val = makeStringInfo();
 
-    Relation relation = relationInfo->ri_RelationDesc;
+    Relation relation = resultRelInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
 
     #ifdef VIDARDB
@@ -1105,27 +1127,27 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
 
     DeleteRequest(foreignTableId, ptr, key->data, key->len);
 
-    return tupleSlot;
+    return slot;
 }
 
 static void EndForeignModify(EState *executorState,
-                             ResultRelInfo *relationInfo) {
+                             ResultRelInfo *resultRelInfo) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
-     * End the table update and release resources. It is normally not
-     * important to release palloc'd memory, but for example open files and
-     * connections to remote servers should be cleaned up.
+     * End the table update and release resources. It is normally not important
+     * to release palloc'd memory, but for example open files and connections
+     * to remote servers should be cleaned up.
      *
-     * If the EndForeignModify pointer is set to NULL, no action is taken
-     * during executor shutdown.
+     * If the EndForeignModify pointer is set to NULL, no action is taken during
+     * executor shutdown.
      */
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
-    TableWriteState *writeState = (TableWriteState *) relationInfo->ri_FdwState;
+    TableWriteState *writeState = (TableWriteState *) resultRelInfo->ri_FdwState;
 
     if (writeState) {
-        Relation relation = relationInfo->ri_RelationDesc;
+        Relation relation = resultRelInfo->ri_RelationDesc;
         Oid foreignTableId = RelationGetRelid(relation);
 
         CmdType operation = writeState->operation;
@@ -1216,7 +1238,7 @@ static bool AnalyzeForeignTable(Relation relation,
 
 Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
     printf("\n-----------------%s----------------------\n", __func__);
-    FdwRoutine *fdwRoutine = makeNode(FdwRoutine);
+    FdwRoutine *routine = makeNode(FdwRoutine);
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
@@ -1229,35 +1251,33 @@ Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
      * GetFdwRoutineByRelId(().
      */
 
-    /* Required by notations: S=SELECT I=INSERT U=UPDATE D=DELETE */
-
     /* these are required */
-    fdwRoutine->GetForeignRelSize = GetForeignRelSize; /* S U D */
-    fdwRoutine->GetForeignPaths = GetForeignPaths; /* S U D */
-    fdwRoutine->GetForeignPlan = GetForeignPlan; /* S U D */
-    fdwRoutine->BeginForeignScan = BeginForeignScan; /* S U D */
-    fdwRoutine->IterateForeignScan = IterateForeignScan; /* S */
-    fdwRoutine->ReScanForeignScan = ReScanForeignScan; /* S */
-    fdwRoutine->EndForeignScan = EndForeignScan; /* S U D */
+    routine->GetForeignRelSize = GetForeignRelSize;
+    routine->GetForeignPaths = GetForeignPaths;
+    routine->GetForeignPlan = GetForeignPlan;
+    routine->BeginForeignScan = BeginForeignScan;
+    routine->IterateForeignScan = IterateForeignScan;
+    routine->ReScanForeignScan = ReScanForeignScan;
+    routine->EndForeignScan = EndForeignScan;
 
     /* remainder are optional - use NULL if not required */
     /* support for insert / update / delete */
-    fdwRoutine->AddForeignUpdateTargets = AddForeignUpdateTargets; /* U D */
-    fdwRoutine->PlanForeignModify = PlanForeignModify; /* I U D */
-    fdwRoutine->BeginForeignModify = BeginForeignModify; /* I U D */
-    fdwRoutine->ExecForeignInsert = ExecForeignInsert; /* I */
-    fdwRoutine->ExecForeignUpdate = ExecForeignUpdate; /* U */
-    fdwRoutine->ExecForeignDelete = ExecForeignDelete; /* D */
-    fdwRoutine->EndForeignModify = EndForeignModify; /* I U D */
+    routine->AddForeignUpdateTargets = AddForeignUpdateTargets;
+    routine->PlanForeignModify = PlanForeignModify;
+    routine->BeginForeignModify = BeginForeignModify;
+    routine->ExecForeignInsert = ExecForeignInsert;
+    routine->ExecForeignUpdate = ExecForeignUpdate;
+    routine->ExecForeignDelete = ExecForeignDelete;
+    routine->EndForeignModify = EndForeignModify;
 
     /* support for EXPLAIN */
-    fdwRoutine->ExplainForeignScan = ExplainForeignScan; /* EXPLAIN S U D */
-    fdwRoutine->ExplainForeignModify = ExplainForeignModify; /* EXPLAIN I U D */
+    routine->ExplainForeignScan = ExplainForeignScan;
+    routine->ExplainForeignModify = ExplainForeignModify;
 
     /* support for ANALYSE */
-    fdwRoutine->AnalyzeForeignTable = AnalyzeForeignTable; /* ANALYZE only */
+    routine->AnalyzeForeignTable = AnalyzeForeignTable;
 
-    PG_RETURN_POINTER(fdwRoutine);
+    PG_RETURN_POINTER(routine);
 }
 
 Datum kv_fdw_validator(PG_FUNCTION_ARGS) {

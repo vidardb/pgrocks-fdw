@@ -66,7 +66,7 @@ typedef struct SharedMem {
     sem_t responseMutex[RESPONSEQUEUELENGTH];
     sem_t responseSync[RESPONSEQUEUELENGTH];
     bool workerProcessCreated;
-    char area[BUFSIZE];  // assume ~64K for a tuple is enough
+    char area[BUFSIZE];  /* assume ~64K for a tuple is enough */
 } SharedMem;
 
 /* Holds the option values to be used when reading or writing files.
@@ -88,7 +88,7 @@ typedef struct TablePlanState {
     int attrCount;
 
     #ifdef VIDARDB
-    bool toUpdateDelete;  // involve update or delete?
+    bool toUpdateDelete;  /* involve update or delete? */
     #endif
 } TablePlanState;
 #endif
@@ -107,11 +107,11 @@ typedef struct TableReadState {
 
     #ifdef VIDARDB
     bool useColumn;
-    char *buf;      // shared mem for data returned by RangeQuery
-    size_t bufLen;  // shared mem length
-    char *next;     // pointer to the next data entry for IterateForeignScan
-    bool hasNext;   // whether there will be a next batch from RangeQuery
-    bool toUpdateDelete;  // indicate whether to be involved in update or delete
+    char *buf;      /* shared mem for data returned by RangeQuery */
+    size_t bufLen;  /* shared mem length */
+    char *next;     /* pointer to the next data entry for IterateForeignScan */
+    bool hasNext;   /* whether there will be a next batch from RangeQuery */
+    bool toUpdateDelete;  /* whether to be involved in update or delete */
     #endif
 } TableReadState;
 

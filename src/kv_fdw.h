@@ -16,8 +16,6 @@
 
 
 /* Defines */
-#define KVKEYJUNK "__key_junk"
-
 #define KVFDWNAME "kv_fdw"
 
 #define BACKFILE "/KVSharedMem"
@@ -85,11 +83,9 @@ typedef struct KVFdwOptions {
 #ifdef VIDARDB
 typedef struct TablePlanState {
     KVFdwOptions *fdwOptions;
-    int attrCount;
-
-    #ifdef VIDARDB
-    bool toUpdateDelete;  /* involve update or delete? */
-    #endif
+    int attrCount;        /* total attributes in a table */
+    List *targetAttrs;    /* attributes in select, where, groupby */
+    bool toUpdateDelete;  /* any update or delete? indicate when to delete */
 } TablePlanState;
 #endif
 
@@ -111,7 +107,7 @@ typedef struct TableReadState {
     size_t bufLen;  /* shared mem length */
     char *next;     /* pointer to the next data entry for IterateForeignScan */
     bool hasNext;   /* whether there will be a next batch from RangeQuery */
-    bool toUpdateDelete;  /* whether to be involved in update or delete */
+    List *targetAttrs;    /* attributes in select, where, group */
     #endif
 } TableReadState;
 

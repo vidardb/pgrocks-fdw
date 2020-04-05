@@ -21,6 +21,8 @@
 
 #ifdef VIDARDB
 #include "parser/parsetree.h"
+#include "optimizer/var.h"
+#include "access/sysattr.h"
 #endif
 
 
@@ -70,6 +72,41 @@ static void GetForeignRelSize(PlannerInfo *root,
     heap_close(relation, AccessShareLock);
 
     planState->toUpdateDelete = false;
+
+    /*
+     * Identify which attributes will need to be retrieved.
+     * These include all attrs needed for joins or final output, plus
+     * all attrs used in the conds.
+     */
+    Bitmapset *attrs = NULL;
+    pull_varattnos((Node *) baserel->reltarget->exprs, baserel->relid, &attrs);
+
+    /* identify baserestrictinfo, such as where, groupby */
+    List *conds = NIL;
+    ListCell *lc = NULL;
+    foreach (lc, baserel->baserestrictinfo) {
+        RestrictInfo *restrictInfo = lfirst_node(RestrictInfo, lc);
+        conds = lappend(conds, restrictInfo);
+    }
+    foreach (lc, conds) {
+        RestrictInfo *restrictInfo = lfirst_node(RestrictInfo, lc);
+        pull_varattnos((Node *) restrictInfo->clause, baserel->relid, &attrs);
+    }
+
+    printf("\n");
+    planState->targetAttrs = NIL;
+    int col = -1;
+    while ((col = bms_next_member(attrs, col)) >= 0) {
+        /* bit numbers are offset by FirstLowInvalidHeapAttributeNumber */
+        AttrNumber attr = col + FirstLowInvalidHeapAttributeNumber;
+        if (attr <= InvalidAttrNumber) {  /* shouldn't happen */
+            ereport(ERROR, (errmsg("InvalidAttrNumber in %s", __func__)));
+        }
+        planState->targetAttrs = lappend_int(planState->targetAttrs, attr);
+        printf(" %d ", attr);
+    }
+    printf("\n");
+
     baserel->fdw_private = planState;
 
     ptr = OpenRequest(foreignTableId,
@@ -80,7 +117,7 @@ static void GetForeignRelSize(PlannerInfo *root,
     ptr = OpenRequest(foreignTableId, ptr);
     #endif
 
-    /* TODO better estimation */
+    /* TODO: better estimation */
     baserel->rows = CountRequest(foreignTableId, ptr);
 
     CloseRequest(foreignTableId, ptr);
@@ -217,7 +254,7 @@ static void GetKeyBasedQual(Node *node,
     }
     Form_pg_operator operform = (Form_pg_operator) GETSTRUCT(opertup);
     char *oprname = NameStr(operform->oprname);
-    /* TODO support more operators */
+    /* TODO: support more operators */
     if (strncmp(oprname, "=", NAMEDATALEN)) {
         ReleaseSysCache(opertup);
         return;
@@ -284,10 +321,9 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     List *fdwPrivateList = (List *) foreignScan->fdw_private;
     TablePlanState *planState = (TablePlanState *) linitial(fdwPrivateList);
     readState->useColumn = planState->fdwOptions->useColumn;
-    readState->toUpdateDelete = planState->toUpdateDelete;
+    readState->targetAttrs = planState->targetAttrs;
 
     size_t batchCapacity = planState->fdwOptions->batchCapacity;
-    int attrCount = planState->attrCount;
 
     if (planState->toUpdateDelete == false) {
         pfree(planState);
@@ -323,30 +359,19 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
             options.batchCapacity = batchCapacity;
             options.startLen = 0;
             options.limitLen = 0;
+            options.attrCount = list_length(readState->targetAttrs);
+            options.attrs = palloc0(options.attrCount * sizeof(*options.attrs));
 
-            int targetListLen = list_length(scanState->ss.ps.plan->targetlist);
-            if (targetListLen > 0) {
-                options.attrCount = targetListLen;
-                options.attrs = palloc0(options.attrCount * sizeof(*options.attrs));
-                int i = 0;
-                ListCell *targetCell;
-                foreach (targetCell, scanState->ss.ps.plan->targetlist) {
-                    if (i == attrCount) {
-                        /*
-                         * happens in update may be due to resjunkcol,
-                         * not sure about delete
-                         */
-                        printf("\nthere is an additional column\n");
-                        --options.attrCount;
-                        break;
-                    }
-                    TargetEntry *targetEntry = lfirst(targetCell);
-                    *(options.attrs + i) = targetEntry->resorigcol != 0 ?
-                                           targetEntry->resorigcol - 1 : i;
-                    printf("\nattr: %d\n", *(options.attrs + i));
-                    i++;
-                }
+            printf("\n");
+            int i = 0;
+            ListCell *targetCell = NULL;
+            foreach (targetCell, readState->targetAttrs) {
+                AttrNumber attr = lfirst_int(targetCell);
+                *(options.attrs + i) = attr - 1;
+                printf(" %d ", *(options.attrs + i));
+                ++i;
             }
+            printf("\n");
 
             readState->hasNext = RangeQueryRequest(relationId,
                                                    ptr,
@@ -355,9 +380,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
                                                    &readState->bufLen);
             readState->next = readState->buf;
 
-            if (targetListLen > 0) {
-                pfree(options.attrs);
-            }
+            pfree(options.attrs);
         } else {
             GetIterRequest(relationId, ptr);
         }
@@ -405,23 +428,8 @@ static void DeserializeColumnTuple(StringInfo key,
     }
 
     int targetListLen = list_length(targetList);
-    Assert(targetListLen > 0);
     int targetAttrsLen = fullTuple ? count : targetListLen;
     AttrNumber *attrs = (AttrNumber *) palloc0(targetAttrsLen * sizeof(*attrs));
-    printf("\ntargetListLen: %d\n", targetListLen);
-    printf("\nattrCount: %d\n", count);
-
-    printf("\n");
-    int i = 0;
-    ListCell *targetCell;
-    foreach (targetCell, targetList) {
-        TargetEntry *targetEntry = lfirst(targetCell);
-        int k = targetEntry->resorigcol != 0 ?
-                targetEntry->resorigcol : i + 1;
-        printf("attr: %d", k-1);
-        i++;
-    }
-    printf("\n");
 
     if (fullTuple) {
         for (int index = 0; index < targetAttrsLen; ++index) {
@@ -429,20 +437,25 @@ static void DeserializeColumnTuple(StringInfo key,
         }
     } else {
         int i = 0;
-        ListCell *targetCell;
+        ListCell *targetCell = NULL;
         foreach (targetCell, targetList) {
-            TargetEntry *targetEntry = lfirst(targetCell);
-            *(attrs + i) = targetEntry->resorigcol != 0 ?
-                           targetEntry->resorigcol : i + 1;
-            printf("\nattr: %d\n", *(attrs + i) - 1);
-            i++;
-        /* TODO: sort attrs */
+            AttrNumber attr = lfirst_int(targetCell);
+            *(attrs + i) = attr;
+            ++i;
         }
     }
 
+    printf("\n");
+    for (int index = 0; index < targetAttrsLen; ++index) {
+        printf(" %d ", *(attrs + index));
+    }
+    printf("\n");
+
     char *current = key->data;
-    /* If the key is in the target list, it must be the first attribute */
-    /* resorigcol starts from 1 */
+    /*
+     * If the key is in the target list, it must be the first attribute
+     * resorigcol starts from 1
+     */
     if (*attrs == 1) {
         /* The index of tuple descriptors starts from 0 */
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 0);
@@ -455,7 +468,7 @@ static void DeserializeColumnTuple(StringInfo key,
     int offset = bufLen;
     current = val->data + offset;
     if (nulls[1]) {
-        /* jump the delimiter */
+        /* TODO: have the delimiter? */
         offset++;
     } else {
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 1);
@@ -477,7 +490,7 @@ static void DeserializeColumnTuple(StringInfo key,
 
         /* update attr and skip the null attribute */
         if (nulls[--attr]) {
-            /* jump the delimiter */
+            /* TODO: have the delimiter? */
             offset++;
             continue;
         }
@@ -659,8 +672,8 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
             DeserializeColumnTuple(key,
                                    val,
                                    tupleSlot,
-                                   scanState->ss.ps.plan->targetlist,
-                                   readState->isKeyBased || readState->toUpdateDelete);
+                                   readState->targetAttrs,
+                                   readState->isKeyBased);
         } else {
             DeserializeTuple(key, val, tupleSlot);
         }
@@ -752,14 +765,12 @@ static void AddForeignUpdateTargets(Query *parsetree,
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
-    Form_pg_attribute attr = &RelationGetDescr(targetRelation)->attrs[0];
-
     /*
-     * Code adapted from redis_fdw
-     *
-     * In KV, we need the key name. It's the first column in the table
-     * regardless of the table type. Knowing the key, we can delete it.
+     * We are using first column as row identification column, so we are adding
+     * that into target list.
      */
+    Form_pg_attribute attr = TupleDescAttr(RelationGetDescr(targetRelation), 0);
+
     Var *var = makeVar(parsetree->resultRelation,
                        1,
                        attr->atttypid,
@@ -767,9 +778,8 @@ static void AddForeignUpdateTargets(Query *parsetree,
                        InvalidOid,
                        0);
 
-    /* Wrap it in a resjunk TLE with the right name ... */
-    const char *attrname = KVKEYJUNK;
-
+    /* Wrap it in a TLE with the right name ... */
+    const char *attrname = NameStr(attr->attname);
     TargetEntry *entry = makeTargetEntry((Expr *) var,
                                          list_length(parsetree->targetList) + 1,
                                          pstrdup(attrname),
@@ -809,9 +819,10 @@ static List *PlanForeignModify(PlannerInfo *root,
     #ifdef VIDARDB
     if (plan->operation == CMD_INSERT) {
         /* for insert, no upward info, we have to fetch from scratch */
+        TablePlanState *planState = palloc0(sizeof(TablePlanState));
+
         RangeTblEntry *rangeTable = planner_rt_fetch(resultRelation, root);
         Oid foreignTableId = rangeTable->relid;
-        TablePlanState *planState = palloc0(sizeof(TablePlanState));
         planState->fdwOptions = KVGetOptions(foreignTableId);
 
         Relation relation = heap_open(foreignTableId, AccessShareLock);
@@ -819,6 +830,8 @@ static List *PlanForeignModify(PlannerInfo *root,
         planState->attrCount = tupleDescriptor->natts;
         heap_close(relation, AccessShareLock);
 
+        planState->toUpdateDelete = false;
+        planState->targetAttrs = NIL;
         return list_make1(planState);
     } else {
         /* for delete and update, fdw_private comes from GetForeignRelSize */
@@ -893,16 +906,6 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
         #else
         ptr = OpenRequest(foreignTableId, ptr);
         #endif
-    }
-
-    if (operation == CMD_DELETE) {
-        /* Find the ctid resjunk column in the subplan's result */
-        Plan *subplan = modifyTableState->mt_plans[subplanIndex]->plan;
-        writeState->keyJunkNo =
-            ExecFindJunkAttributeInTlist(subplan->targetlist, KVKEYJUNK);
-        if (!AttributeNumberIsValid(writeState->keyJunkNo)) {
-            ereport(ERROR, (errmsg("could not find key junk column")));
-        }
     }
 
     resultRelInfo->ri_FdwState = (void *) writeState;
@@ -1103,14 +1106,6 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
-    TableWriteState *writeState = (TableWriteState *) resultRelInfo->ri_FdwState;
-
-    bool isnull = true;
-    ExecGetJunkAttribute(planSlot, writeState->keyJunkNo, &isnull);
-    if (isnull) {
-        ereport(ERROR, (errmsg("can't get junk key value")));
-    }
-
     slot_getallattrs(planSlot);
 
     StringInfo key = makeStringInfo();
@@ -1120,6 +1115,7 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     Oid foreignTableId = RelationGetRelid(relation);
 
     #ifdef VIDARDB
+    TableWriteState *writeState = (TableWriteState *) resultRelInfo->ri_FdwState;
     SerializeTuple(key, val, planSlot, writeState->useColumn);
     #else
     SerializeTuple(key, val, planSlot, false);

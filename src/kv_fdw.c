@@ -838,6 +838,27 @@ static List *PlanForeignModify(PlannerInfo *root,
         RelOptInfo *baserel = root->simple_rel_array[resultRelation];
         TablePlanState *planState = baserel->fdw_private;
         planState->toUpdateDelete = true;
+
+        /* We disallow updates to the first column */
+        if (plan->operation == CMD_UPDATE) {
+            RangeTblEntry *rangeTable = planner_rt_fetch(resultRelation, root);
+            Bitmapset *attrs = bms_copy(rangeTable->updatedCols);
+            AttrNumber col = -1;
+            while ((col = bms_first_member(attrs)) >= 0) {
+                col += FirstLowInvalidHeapAttributeNumber;
+                if (col <= InvalidAttrNumber) {  /* shouldn't happen */
+                    ereport(ERROR, (errmsg("InvalidAttrNumber in %s", __func__)));
+                }
+                if (col == 1) {
+                    ereport(ERROR, (errmsg("row identifier column update is "
+                                           "not supported.")));
+                }
+                if (col > 1) {
+                    break;
+                }
+            }
+        }
+
         return list_make1(baserel->fdw_private);
     }
     #else

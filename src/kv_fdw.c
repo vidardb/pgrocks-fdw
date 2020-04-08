@@ -65,12 +65,7 @@ static void GetForeignRelSize(PlannerInfo *root,
     #ifdef VIDARDB
     TablePlanState *planState = palloc0(sizeof(TablePlanState));
     planState->fdwOptions = KVGetOptions(foreignTableId);
-
-    Relation relation = heap_open(foreignTableId, AccessShareLock);
-    TupleDesc tupleDescriptor = RelationGetDescr(relation);
-    planState->attrCount = tupleDescriptor->natts;
-    heap_close(relation, AccessShareLock);
-
+    planState->attrCount = baserel->max_attr;
     planState->toUpdateDelete = false;
 
     /*
@@ -410,21 +405,24 @@ static void DeserializeColumnTuple(StringInfo key,
 
     /* initialize all values for this row to null */
     memset(values, 0, count * sizeof(Datum));
-    memset(nulls, false, count * sizeof(bool));
+    /* nulls tells the above layer whether corresponding attribute is carried */
+    memset(nulls, true, count * sizeof(bool));
 
-    int bufLen = (count - 1 + 7) / 8;
+    int nullBitmapLen = (count - 1 + 7) / 8;
+    StringInfo nullBitmap = makeStringInfo();
+    enlargeStringInfo(nullBitmap, nullBitmapLen);
+    nullBitmap->len = nullBitmapLen;
+    memcpy(nullBitmap->data, val->data, nullBitmapLen);
 
-    StringInfo buffer = makeStringInfo();
-    enlargeStringInfo(buffer, bufLen);
-    buffer->len = bufLen;
-
-    memcpy(buffer->data, val->data, bufLen);
-
+    /* exists array represents is null or not in the sense of storage level */
+    bool exists[count];
+    exists[0] = true;
     for (int index = 1; index < count; index++) {
         int byteIndex = (index - 1) / 8;
         int bitIndex = (index - 1) % 8;
         uint8 bitmask = (1 << bitIndex);
-        nulls[index] = (buffer->data[byteIndex] & bitmask)? true: false;
+        /* for nullBitmap, 1 stands for is null, 0 for not null */
+        exists[index] = (nullBitmap->data[byteIndex] & bitmask) ? false : true;
     }
 
     int targetListLen = list_length(targetList);
@@ -452,22 +450,21 @@ static void DeserializeColumnTuple(StringInfo key,
     printf("\n");
 
     char *current = key->data;
-    /*
-     * If the key is in the target list, it must be the first attribute
-     * resorigcol starts from 1
-     */
+    /* If the key is in the query list, it must be the first attribute */
     if (*attrs == 1) {
         /* The index of tuple descriptors starts from 0 */
+        Assert(exists[0]);
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 0);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
         values[0] = fetch_att(current, byValue, typeLength);
+        nulls[0] = false;
     }
 
     /* Deserialize the first attribute in the value to update the offset */
-    int offset = bufLen;
+    int offset = nullBitmapLen;
     current = val->data + offset;
-    if (nulls[1]) {
+    if (!exists[1]) {
         /* TODO: have the delimiter? */
         offset++;
     } else {
@@ -477,6 +474,7 @@ static void DeserializeColumnTuple(StringInfo key,
 
         values[1] = fetch_att(current, byValue, typeLength);
         offset = att_addlength_datum(offset, typeLength, current) + 1;
+        nulls[1] = false;
     }
     current = val->data + offset;
 
@@ -489,7 +487,7 @@ static void DeserializeColumnTuple(StringInfo key,
         }
 
         /* update attr and skip the null attribute */
-        if (nulls[--attr]) {
+        if (exists[--attr] == false) {
             /* TODO: have the delimiter? */
             offset++;
             continue;
@@ -502,6 +500,7 @@ static void DeserializeColumnTuple(StringInfo key,
         values[attr] = fetch_att(current, byValue, typeLength);
         offset = att_addlength_datum(offset, typeLength, current) + 1;
         current = val->data + offset;
+        nulls[attr] = false;
     }
 
     pfree(attrs);
@@ -522,19 +521,19 @@ static void DeserializeTuple(StringInfo key,
     memset(values, 0, count * sizeof(Datum));
     memset(nulls, false, count * sizeof(bool));
 
-    int bufLen = (count - 1 + 7) / 8;
+    int nullBitmapLen = (count - 1 + 7) / 8;
 
-    StringInfo buffer = makeStringInfo();
-    enlargeStringInfo(buffer, bufLen);
-    buffer->len = bufLen;
-
-    memcpy(buffer->data, val->data, bufLen);
+    StringInfo nullBitmap = makeStringInfo();
+    enlargeStringInfo(nullBitmap, nullBitmapLen);
+    nullBitmap->len = nullBitmapLen;
+    memcpy(nullBitmap->data, val->data, nullBitmapLen);
 
     for (int index = 1; index < count; index++) {
         int byteIndex = (index - 1) / 8;
         int bitIndex = (index - 1) % 8;
         uint8 bitmask = (1 << bitIndex);
-        nulls[index] = (buffer->data[byteIndex] & bitmask)? true: false;
+        /* 1 stands for is null, 0 for not null */
+        nulls[index] = (nullBitmap->data[byteIndex] & bitmask) ? true : false;
     }
 
     int offset = 0;
@@ -556,9 +555,9 @@ static void DeserializeTuple(StringInfo key,
         offset = att_addlength_datum(offset, typeLength, current);
             
         if (index == 0) {
-            offset = bufLen;
+            offset = nullBitmapLen;
         }
-        
+
         current = val->data + offset;
     }
 }
@@ -825,10 +824,14 @@ static List *PlanForeignModify(PlannerInfo *root,
         Oid foreignTableId = rangeTable->relid;
         planState->fdwOptions = KVGetOptions(foreignTableId);
 
-        Relation relation = heap_open(foreignTableId, AccessShareLock);
+        /*
+         * Core code already has some lock on each rel being planned, so we can
+         * use NoLock here.
+         */
+        Relation relation = heap_open(foreignTableId, NoLock);
         TupleDesc tupleDescriptor = RelationGetDescr(relation);
         planState->attrCount = tupleDescriptor->natts;
-        heap_close(relation, AccessShareLock);
+        heap_close(relation, NoLock);
 
         planState->toUpdateDelete = false;
         planState->targetAttrs = NIL;
@@ -946,14 +949,14 @@ static void SerializeTuple(StringInfo key,
     int count = tupleDescriptor->natts;
 
     /* first attr must exist */
-    int nullsLen = (count - 1 + 7) / 8;
+    int nullBitmapLen = (count - 1 + 7) / 8;
 
-    StringInfo nulls = makeStringInfo();
-    enlargeStringInfo(nulls, nullsLen);
-    nulls->len = nullsLen;
-    memset(nulls->data, 0, nullsLen);
+    StringInfo nullBitmap = makeStringInfo();
+    enlargeStringInfo(nullBitmap, nullBitmapLen);
+    nullBitmap->len = nullBitmapLen;
+    memset(nullBitmap->data, 0, nullBitmapLen);
 
-    val->len += nullsLen;
+    val->len += nullBitmapLen;
 
     for (int index = 0; index < count; index++) {
 
@@ -964,7 +967,8 @@ static void SerializeTuple(StringInfo key,
             int byteIndex = (index - 1) / 8;
             int bitIndex = (index - 1) % 8;
             uint8 bitmask = (1 << bitIndex);
-            nulls->data[byteIndex] |= bitmask;
+            /* 1 stands for is null, 0 for not null */
+            nullBitmap->data[byteIndex] |= bitmask;
             continue;
         }
 
@@ -975,7 +979,7 @@ static void SerializeTuple(StringInfo key,
         SerializeAttribute(tupleDescriptor, index, datum, index==0? key: val, useDelimiter);
     }
 
-    memcpy(val->data, nulls->data, nullsLen);
+    memcpy(val->data, nullBitmap->data, nullBitmapLen);
 }
 
 static TupleTableSlot *ExecForeignInsert(EState *executorState,

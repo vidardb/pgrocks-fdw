@@ -33,7 +33,7 @@ PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 
 static SharedMem *ptr = NULL;  /* in client process */
-
+static uint32 operationId = 0;
 
 static void GetForeignRelSize(PlannerInfo *root,
                               RelOptInfo *baserel,
@@ -308,6 +308,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
     TableReadState *readState = palloc0(sizeof(TableReadState));
     readState->isKeyBased = false;
+    readState->operationId = 0;
     readState->done = false;
     readState->key = NULL;
 
@@ -369,18 +370,22 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
             printf("\n");
 
             readState->hasNext = RangeQueryRequest(relationId,
+                                                   &operationId,
                                                    ptr,
                                                    &options,
                                                    &readState->buf,
-                                                   &readState->bufLen);
+                                                   &readState->bufLen,
+                                                   &readState->operationId);
             readState->next = readState->buf;
 
             pfree(options.attrs);
         } else {
-            GetIterRequest(relationId, ptr);
+            uint32 opId = GetIterRequest(relationId, &operationId, ptr);
+            readState->operationId = opId;
         }
         #else
-        GetIterRequest(relationId, ptr);
+        uint32 opId = GetIterRequest(relationId, &operationId, ptr);
+        readState->operationId = opId;
         #endif
     }
 }
@@ -628,10 +633,12 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
                 /* finish reading from shared mem */
                 Munmap(readState->buf, readState->bufLen, __func__);
                 readState->hasNext = RangeQueryRequest(relationId,
+                                                       &operationId,
                                                        ptr,
                                                        NULL,
                                                        &readState->buf,
-                                                       &readState->bufLen);
+                                                       &readState->bufLen,
+                                                       &readState->operationId);
                 readState->next = readState->buf;
 
                 if (readState->bufLen > 0) {
@@ -653,10 +660,10 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
                 }
             }
         } else {
-            found = NextRequest(relationId, ptr, &k, &kLen, &v, &vLen);
+            found = NextRequest(relationId, readState->operationId, ptr, &k, &kLen, &v, &vLen);
         }
         #else
-        found = NextRequest(relationId, ptr, &k, &kLen, &v, &vLen);
+        found = NextRequest(relationId, readState->operationId, ptr, &k, &kLen, &v, &vLen);
         #endif
     }
 
@@ -718,12 +725,12 @@ static void EndForeignScan(ForeignScanState *scanState) {
              * unmap for this client process should already be done in
              * IterateForeignScan. Now release resource of server process.
              */
-            ClearRangeQueryMetaRequest(relationId, ptr);
+            ClearRangeQueryMetaRequest(relationId, readState->operationId, ptr);
         } else {
-            DelIterRequest(relationId, ptr);
+            DelIterRequest(relationId, readState->operationId, ptr);
         }
         #else
-        DelIterRequest(relationId, ptr);
+        DelIterRequest(relationId, readState->operationId, ptr);
         #endif
     }
 

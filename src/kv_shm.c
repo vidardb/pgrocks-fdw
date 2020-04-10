@@ -593,7 +593,7 @@ static void CountResponse(char *area) {
     memcpy(ResponseQueue[responseId], &count, sizeof(count));
 }
 
-uint32 GetIterRequest(Oid relationId, uint32 *operationId, SharedMem *ptr) {
+void GetIterRequest(Oid relationId, uint32 *operationId, SharedMem *ptr) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
@@ -614,7 +614,7 @@ uint32 GetIterRequest(Oid relationId, uint32 *operationId, SharedMem *ptr) {
     memcpy(current, &pid, sizeof(pid));
     current += sizeof(pid);
 
-    uint32 opId = ++*operationId;
+    ++*operationId;
     memcpy(current, operationId, sizeof(int));
 
     SemPost(&ptr->worker, __func__);
@@ -622,8 +622,6 @@ uint32 GetIterRequest(Oid relationId, uint32 *operationId, SharedMem *ptr) {
 
     SemWait(&ptr->responseSync[responseId], __func__);
     SemPost(&ptr->responseMutex[responseId], __func__);
-
-    return opId;
 }
 
 static void GetIterResponse(char *area) {
@@ -1063,8 +1061,7 @@ bool RangeQueryRequest(Oid relationId,
                        SharedMem *ptr,
                        RangeQueryOptions *options,
                        char **buf,
-                       size_t *bufLen,
-                       uint32 *retOpId) {
+                       size_t *bufLen) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
@@ -1085,7 +1082,7 @@ bool RangeQueryRequest(Oid relationId,
     memcpy(current, &pid, sizeof(pid));
     current += sizeof(pid);
 
-    *retOpId = ++*operationId;
+    ++*operationId;
     memcpy(current, operationId, sizeof(uint32));
     current += sizeof(uint32);
 

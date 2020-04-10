@@ -374,18 +374,18 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
                                                    ptr,
                                                    &options,
                                                    &readState->buf,
-                                                   &readState->bufLen,
-                                                   &readState->operationId);
+                                                   &readState->bufLen);
+            readState->operationId = operationId;
             readState->next = readState->buf;
 
             pfree(options.attrs);
         } else {
-            uint32 opId = GetIterRequest(relationId, &operationId, ptr);
-            readState->operationId = opId;
+            GetIterRequest(relationId, &operationId, ptr);
+            readState->operationId = operationId;
         }
         #else
-        uint32 opId = GetIterRequest(relationId, &operationId, ptr);
-        readState->operationId = opId;
+        GetIterRequest(relationId, &operationId, ptr);
+        readState->operationId = operationId;
         #endif
     }
 }
@@ -637,8 +637,8 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
                                                        ptr,
                                                        NULL,
                                                        &readState->buf,
-                                                       &readState->bufLen,
-                                                       &readState->operationId);
+                                                       &readState->bufLen);
+                readState->operationId = operationId;
                 readState->next = readState->buf;
 
                 if (readState->bufLen > 0) {

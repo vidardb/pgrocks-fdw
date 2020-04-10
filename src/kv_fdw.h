@@ -173,7 +173,7 @@ extern void CloseRequest(Oid relationId, SharedMem *ptr);
 
 extern uint64 CountRequest(Oid relationId, SharedMem *ptr);
 
-extern uint32 GetIterRequest(Oid relationId, uint32 *operationId, SharedMem *ptr);
+extern void GetIterRequest(Oid relationId, uint32 *operationId, SharedMem *ptr);
 
 extern void DelIterRequest(Oid relationId, uint32 operationId, SharedMem *ptr);
 
@@ -210,8 +210,7 @@ extern bool RangeQueryRequest(Oid relationId,
                               SharedMem *ptr,
                               RangeQueryOptions *options,
                               char **buf,
-                              size_t *bufLen,
-                              uint32 *retOpId);
+                              size_t *bufLen);
 
 extern void ClearRangeQueryMetaRequest(Oid relationId, uint32 operationId, SharedMem *ptr);
 #endif

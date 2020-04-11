@@ -33,7 +33,7 @@ PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 
 static SharedMem *ptr = NULL;  /* in client process */
-static uint32 operationId = 0;
+static uint64 operationId = 0;
 
 static void GetForeignRelSize(PlannerInfo *root,
                               RelOptInfo *baserel,

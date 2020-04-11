@@ -22,7 +22,7 @@ typedef struct KVHashEntry {
 typedef struct KVTableProcHashKey {
     Oid relationId;
     pid_t pid;
-    uint32 operationId;
+    uint64 operationId;
 } KVTableProcHashKey;
 
 typedef struct KVIterHashEntry {
@@ -593,7 +593,7 @@ static void CountResponse(char *area) {
     memcpy(ResponseQueue[responseId], &count, sizeof(count));
 }
 
-void GetIterRequest(Oid relationId, uint32 *operationId, SharedMem *ptr) {
+void GetIterRequest(Oid relationId, uint64 *operationId, SharedMem *ptr) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
@@ -656,7 +656,7 @@ static void GetIterResponse(char *area) {
     iterEntry->iter = GetIter(entry->db);
 }
 
-void DelIterRequest(Oid relationId, uint32 operationId, SharedMem *ptr) {
+void DelIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
@@ -709,7 +709,7 @@ static void DelIterResponse(char *area) {
 }
 
 bool NextRequest(Oid relationId,
-                 uint32 operationId,
+                 uint64 operationId,
                  SharedMem *ptr,
                  char **key,
                  size_t *keyLen,
@@ -1057,7 +1057,7 @@ static void DeleteResponse(char *area) {
  * Return whether there is a remaining batch.
  */
 bool RangeQueryRequest(Oid relationId,
-                       uint32 *operationId,
+                       uint64 *operationId,
                        SharedMem *ptr,
                        RangeQueryOptions *options,
                        char **buf,
@@ -1276,7 +1276,7 @@ static void RangeQueryResponse(char *area) {
     }
 }
 
-void ClearRangeQueryMetaRequest(Oid relationId, uint32 operationId, SharedMem *ptr) {
+void ClearRangeQueryMetaRequest(Oid relationId, uint64 operationId, SharedMem *ptr) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);

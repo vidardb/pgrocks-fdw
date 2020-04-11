@@ -98,7 +98,7 @@ typedef struct TablePlanState {
  */
 typedef struct TableReadState {
     bool isKeyBased;
-    uint32 operationId;
+    uint64 operationId;
     bool done;
     StringInfo key;
 
@@ -173,12 +173,12 @@ extern void CloseRequest(Oid relationId, SharedMem *ptr);
 
 extern uint64 CountRequest(Oid relationId, SharedMem *ptr);
 
-extern void GetIterRequest(Oid relationId, uint32 *operationId, SharedMem *ptr);
+extern void GetIterRequest(Oid relationId, uint64 *operationId, SharedMem *ptr);
 
-extern void DelIterRequest(Oid relationId, uint32 operationId, SharedMem *ptr);
+extern void DelIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr);
 
 extern bool NextRequest(Oid relationId,
-                        uint32 operationId,
+                        uint64 operationId,
                         SharedMem *ptr,
                         char **key,
                         size_t *keyLen,
@@ -206,13 +206,13 @@ extern void DeleteRequest(Oid relationId,
 
 #ifdef VIDARDB
 extern bool RangeQueryRequest(Oid relationId,
-                              uint32 *operationId,
+                              uint64 *operationId,
                               SharedMem *ptr,
                               RangeQueryOptions *options,
                               char **buf,
                               size_t *bufLen);
 
-extern void ClearRangeQueryMetaRequest(Oid relationId, uint32 operationId, SharedMem *ptr);
+extern void ClearRangeQueryMetaRequest(Oid relationId, uint64 operationId, SharedMem *ptr);
 #endif
 
 /* global variables */

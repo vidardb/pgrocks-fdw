@@ -5,21 +5,21 @@
 You are now connected to database "kvtest" as user "postgres".
 CREATE FOREIGN TABLE item (id SERIAL, name VARCHAR(20), price NUMERIC(10,2), inventory INT, stime TIMESTAMP, flag BOOLEAN) SERVER kv_server;
 CREATE FOREIGN TABLE
-INSERT INTO item VALUES (DEFAULT, 'Name1', 10.00, 50, current_timestamp(2), false);
+INSERT INTO item VALUES (DEFAULT, 'Name1', 10.00, 50, '2020-04-10 10:50:00', false);
 INSERT 0 1
-INSERT INTO item VALUES (DEFAULT, 'Name2', 20.00, 50, current_timestamp(2), false);
+INSERT INTO item VALUES (DEFAULT, 'Name2', 20.00, 50, '2020-04-10 10:51:30', false);
 INSERT 0 1
-INSERT INTO item VALUES (DEFAULT, 'Name3', 30.00, 50, current_timestamp(2), false);
+INSERT INTO item VALUES (DEFAULT, 'Name3', 30.00, 50, '2020-04-10 10:53:02', false);
 INSERT 0 1
 INSERT INTO item VALUES (DEFAULT, 'Name1', 40.00, 10,  '2016-06-22 19:10:25', false);
 INSERT 0 1
 SELECT * FROM item;
- id | name  | price | inventory |         stime          | flag 
-----+-------+-------+-----------+------------------------+------
-  1 | Name1 | 10.00 |        50 | 2019-10-20 01:13:03.33 | f
-  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
-  3 | Name3 | 30.00 |        50 | 2019-10-20 01:13:03.46 | f
-  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25    | f
+ id | name  | price | inventory |        stime        | flag 
+----+-------+-------+-----------+---------------------+------
+  1 | Name1 | 10.00 |        50 | 2020-04-10 10:50:00 | f
+  2 | Name2 | 20.00 |        50 | 2020-04-10 10:51:30 | f
+  3 | Name3 | 30.00 |        50 | 2020-04-10 10:53:02 | f
+  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25 | f
 (4 rows)
 
 SELECT COUNT(*) FROM item WHERE name='Name1';
@@ -35,43 +35,43 @@ SELECT COUNT(*) FROM item WHERE name='Name1' AND inventory=10;
 (1 row)
 
 SELECT * FROM item WHERE name='Name2' OR inventory=10;
- id | name  | price | inventory |         stime          | flag 
-----+-------+-------+-----------+------------------------+------
-  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
-  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25    | f
+ id | name  | price | inventory |        stime        | flag 
+----+-------+-------+-----------+---------------------+------
+  2 | Name2 | 20.00 |        50 | 2020-04-10 10:51:30 | f
+  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25 | f
 (2 rows)
 
 SELECT * FROM item WHERE stime > timestamp '2019-01-01 00:00:00';
- id | name  | price | inventory |         stime          | flag 
-----+-------+-------+-----------+------------------------+------
-  1 | Name1 | 10.00 |        50 | 2019-10-20 01:13:03.33 | f
-  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
-  3 | Name3 | 30.00 |        50 | 2019-10-20 01:13:03.46 | f
+ id | name  | price | inventory |        stime        | flag 
+----+-------+-------+-----------+---------------------+------
+  1 | Name1 | 10.00 |        50 | 2020-04-10 10:50:00 | f
+  2 | Name2 | 20.00 |        50 | 2020-04-10 10:51:30 | f
+  3 | Name3 | 30.00 |        50 | 2020-04-10 10:53:02 | f
 (3 rows)
 
 SELECT * FROM item WHERE name LIKE '%2';
- id | name  | price | inventory |         stime          | flag 
-----+-------+-------+-----------+------------------------+------
-  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
+ id | name  | price | inventory |        stime        | flag 
+----+-------+-------+-----------+---------------------+------
+  2 | Name2 | 20.00 |        50 | 2020-04-10 10:51:30 | f
 (1 row)
 
 SELECT * FROM item WHERE id IN (2,3);
- id | name  | price | inventory |         stime          | flag 
-----+-------+-------+-----------+------------------------+------
-  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
-  3 | Name3 | 30.00 |        50 | 2019-10-20 01:13:03.46 | f
+ id | name  | price | inventory |        stime        | flag 
+----+-------+-------+-----------+---------------------+------
+  2 | Name2 | 20.00 |        50 | 2020-04-10 10:51:30 | f
+  3 | Name3 | 30.00 |        50 | 2020-04-10 10:53:02 | f
 (2 rows)
 
 SELECT * FROM item LIMIT 1;
- id | name  | price | inventory |         stime          | flag 
-----+-------+-------+-----------+------------------------+------
-  1 | Name1 | 10.00 |        50 | 2019-10-20 01:13:03.33 | f
+ id | name  | price | inventory |        stime        | flag 
+----+-------+-------+-----------+---------------------+------
+  1 | Name1 | 10.00 |        50 | 2020-04-10 10:50:00 | f
 (1 row)
 
 SELECT * FROM item LIMIT 1 OFFSET 1;
- id | name  | price | inventory |         stime          | flag 
-----+-------+-------+-----------+------------------------+------
-  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
+ id | name  | price | inventory |        stime        | flag 
+----+-------+-------+-----------+---------------------+------
+  2 | Name2 | 20.00 |        50 | 2020-04-10 10:51:30 | f
 (1 row)
 
 SELECT DISTINCT inventory FROM item;
@@ -140,16 +140,24 @@ SELECT id, name, price FROM item WHERE price > 10.00 ORDER BY price DESC;
   2 | Name2 | 20.00
 (3 rows)
 
-INSERT INTO item VALUES (DEFAULT, 'Name2', 20.00, 50, current_timestamp(2), NULL);
+SELECT name FROM item WHERE price > 10.00 ORDER BY price DESC;
+ name  
+-------
+ Name1
+ Name3
+ Name2
+(3 rows)
+
+INSERT INTO item VALUES (DEFAULT, 'Name2', 20.00, 50, '2020-04-10 12:00:00', NULL);
 INSERT 0 1
 SELECT * FROM item;
- id | name  | price | inventory |         stime          | flag 
-----+-------+-------+-----------+------------------------+------
-  1 | Name1 | 10.00 |        50 | 2019-10-20 01:13:03.33 | f
-  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
-  3 | Name3 | 30.00 |        50 | 2019-10-20 01:13:03.46 | f
-  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25    | f
-  5 | Name2 | 20.00 |        50 | 2019-10-20 01:13:04.83 | 
+ id | name  | price | inventory |        stime        | flag 
+----+-------+-------+-----------+---------------------+------
+  1 | Name1 | 10.00 |        50 | 2020-04-10 10:50:00 | f
+  2 | Name2 | 20.00 |        50 | 2020-04-10 10:51:30 | f
+  3 | Name3 | 30.00 |        50 | 2020-04-10 10:53:02 | f
+  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25 | f
+  5 | Name2 | 20.00 |        50 | 2020-04-10 12:00:00 | 
 (5 rows)
 
 SELECT id, name FROM item WHERE flag IS NULL;
@@ -160,27 +168,49 @@ SELECT id, name FROM item WHERE flag IS NULL;
 
 UPDATE item SET inventory=40 WHERE id=5;
 UPDATE 1
+SELECT * FROM item;
+ id | name  | price | inventory |        stime        | flag 
+----+-------+-------+-----------+---------------------+------
+  1 | Name1 | 10.00 |        50 | 2020-04-10 10:50:00 | f
+  2 | Name2 | 20.00 |        50 | 2020-04-10 10:51:30 | f
+  3 | Name3 | 30.00 |        50 | 2020-04-10 10:53:02 | f
+  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25 | f
+  5 | Name2 | 20.00 |        40 | 2020-04-10 12:00:00 | 
+(5 rows)
+
+UPDATE item SET inventory=25 WHERE name='Name2';
+UPDATE 2
+SELECT * FROM item;
+ id | name  | price | inventory |        stime        | flag 
+----+-------+-------+-----------+---------------------+------
+  1 | Name1 | 10.00 |        50 | 2020-04-10 10:50:00 | f
+  2 | Name2 | 20.00 |        25 | 2020-04-10 10:51:30 | f
+  3 | Name3 | 30.00 |        50 | 2020-04-10 10:53:02 | f
+  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25 | f
+  5 | Name2 | 20.00 |        25 | 2020-04-10 12:00:00 | 
+(5 rows)
+
 UPDATE item SET inventory=NULL WHERE id=5;
 UPDATE 1
 SELECT * FROM item;
- id | name  | price | inventory |         stime          | flag 
-----+-------+-------+-----------+------------------------+------
-  1 | Name1 | 10.00 |        50 | 2019-10-20 01:13:03.33 | f
-  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
-  3 | Name3 | 30.00 |        50 | 2019-10-20 01:13:03.46 | f
-  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25    | f
-  5 | Name2 | 20.00 |           | 2019-10-20 01:13:04.83 | 
+ id | name  | price | inventory |        stime        | flag 
+----+-------+-------+-----------+---------------------+------
+  1 | Name1 | 10.00 |        50 | 2020-04-10 10:50:00 | f
+  2 | Name2 | 20.00 |        25 | 2020-04-10 10:51:30 | f
+  3 | Name3 | 30.00 |        50 | 2020-04-10 10:53:02 | f
+  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25 | f
+  5 | Name2 | 20.00 |           | 2020-04-10 12:00:00 | 
 (5 rows)
 
 DELETE FROM item WHERE id=5;
 DELETE 1
 SELECT * FROM item;
- id | name  | price | inventory |         stime          | flag 
-----+-------+-------+-----------+------------------------+------
-  1 | Name1 | 10.00 |        50 | 2019-10-20 01:13:03.33 | f
-  2 | Name2 | 20.00 |        50 | 2019-10-20 01:13:03.36 | f
-  3 | Name3 | 30.00 |        50 | 2019-10-20 01:13:03.46 | f
-  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25    | f
+ id | name  | price | inventory |        stime        | flag 
+----+-------+-------+-----------+---------------------+------
+  1 | Name1 | 10.00 |        50 | 2020-04-10 10:50:00 | f
+  2 | Name2 | 20.00 |        25 | 2020-04-10 10:51:30 | f
+  3 | Name3 | 30.00 |        50 | 2020-04-10 10:53:02 | f
+  4 | Name1 | 40.00 |        10 | 2016-06-22 19:10:25 | f
 (4 rows)
 
 CREATE FOREIGN TABLE product(name VARCHAR(20), make CHAR(50), product_id UUID) SERVER kv_server;
@@ -203,7 +233,7 @@ SELECT item.name,item.inventory,product.product_id FROM item INNER JOIN product 
  name  | inventory |              product_id              
 -------+-----------+--------------------------------------
  Name1 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
- Name2 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name2 |        25 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
  Name3 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
  Name1 |        10 | 40e6215d-b5c6-4896-987c-f30f3678f608
 (4 rows)
@@ -214,9 +244,9 @@ SELECT item.name,item.inventory,product.product_id FROM item CROSS JOIN product;
  Name1 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
  Name1 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
  Name1 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
- Name2 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
- Name2 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
- Name2 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
+ Name2 |        25 | 40e6215d-b5c6-4896-987c-f30f3678f608
+ Name2 |        25 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name2 |        25 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
  Name3 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
  Name3 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
  Name3 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
@@ -227,13 +257,13 @@ SELECT item.name,item.inventory,product.product_id FROM item CROSS JOIN product;
 
 INSERT INTO product VALUES ('Name4', 'ComD', 'b532bc88-4502-1ef8-bc6c-6cb9bd300a23');
 INSERT 0 1
-INSERT INTO item VALUES (DEFAULT, 'Name5', 30.00, 50, current_timestamp(2), false);
+INSERT INTO item VALUES (DEFAULT, 'Name5', 30.00, 50, '2020-04-10 12:30:00', false);
 INSERT 0 1
 SELECT item.name,item.inventory,product.product_id FROM item LEFT OUTER JOIN product ON item.name=product.name;
  name  | inventory |              product_id              
 -------+-----------+--------------------------------------
  Name1 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
- Name2 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name2 |        25 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
  Name3 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
  Name1 |        10 | 40e6215d-b5c6-4896-987c-f30f3678f608
  Name5 |        50 | 
@@ -243,7 +273,7 @@ SELECT item.name,item.inventory,product.product_id FROM item RIGHT OUTER JOIN pr
  name  | inventory |              product_id              
 -------+-----------+--------------------------------------
  Name1 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
- Name2 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name2 |        25 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
  Name3 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
  Name1 |        10 | 40e6215d-b5c6-4896-987c-f30f3678f608
        |           | b532bc88-4502-1ef8-bc6c-6cb9bd300a23
@@ -253,7 +283,7 @@ SELECT item.name,item.inventory,product.product_id FROM item FULL OUTER JOIN pro
  name  | inventory |              product_id              
 -------+-----------+--------------------------------------
  Name1 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
- Name2 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name2 |        25 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
  Name3 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
  Name1 |        10 | 40e6215d-b5c6-4896-987c-f30f3678f608
  Name5 |        50 | 

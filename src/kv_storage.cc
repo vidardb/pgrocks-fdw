@@ -218,6 +218,47 @@ void ClearRangeQueryMeta(void* range, void* readOptions) {
     pfree(range);
     pfree(readOptions);
 }
+
+/* copied from the storage engine */
+inline char* EncodeVarint64(char* dst, uint64_t v) {
+    static const unsigned int B = 128;
+    unsigned char* ptr = reinterpret_cast<unsigned char*>(dst);
+    while (v >= B) {
+        *(ptr++) = (v & (B - 1)) | B;
+        v >>= 7;
+    }
+    *(ptr++) = static_cast<unsigned char>(v);
+    return reinterpret_cast<char*>(ptr);
+}
+
+uint8 EncodeVarintLength(uint64 len, char* buf) {
+    char* ptr = EncodeVarint64(buf, len);
+    return (ptr - buf);
+}
+
+/* copied from the storage engine */
+inline const char* GetVarint64Ptr(const char* p, const char* limit, uint64_t* value) {
+  uint64_t result = 0;
+  for (uint32_t shift = 0; shift <= 63 && p < limit; shift += 7) {
+    uint64_t byte = *(reinterpret_cast<const unsigned char*>(p));
+    p++;
+    if (byte & 128) {
+      // More bytes are present
+      result |= ((byte & 127) << shift);
+    } else {
+      result |= (byte << shift);
+      *value = result;
+      return reinterpret_cast<const char*>(p);
+    }
+  }
+  return nullptr;
+}
+
+uint8 DecodeVarintLength(char* start, char* limit, uint64* len) {
+  const char* ret = GetVarint64Ptr(start, limit, len);
+  return ret ? (ret - start) : 0;
+}
+
 #endif
 
 }

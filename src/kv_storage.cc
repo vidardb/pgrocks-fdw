@@ -178,17 +178,10 @@ void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
     }
 
     /* TODO: currently, first attribute in the value must be returned */   
-    //bool hasFirstValAttr = false;
     for (int i = 0; i < queryOptions->attrCount; i++) {
         AttrNumber attr = *(queryOptions->attrs + i);
         options->columns.push_back(attr);
-        //if (attr == 1) {
-        //    hasFirstValAttr = true;
-        //}
     }
-    //if (hasFirstValAttr == false) {
-    //    options->columns.push_back(1);
-    //}
     
     sort(options->columns.begin(), options->columns.end());
     printf("\nattrs: ");

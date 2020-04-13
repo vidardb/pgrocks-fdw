@@ -454,12 +454,6 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
         memcpy(current, DatumGetPointer(datum), datumLength - offset);
     }
 
-    /* if (useDelimiter) {
-        char delimiter = '|';
-        memcpy(current + datumLength - offset, &delimiter, sizeof(delimiter));
-        buffer->len = datumLength + 1;
-    } */
-
     buffer->len = datumLength + headerLen;
 }
 
@@ -529,12 +523,6 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     Datum *values = palloc0(attrCount * sizeof(Datum));
     bool *nulls = palloc0(attrCount * sizeof(bool));
 
-    /* first attr must exist */
-    //int bufLen = (attrCount - 1 + 7) / 8;
-    //StringInfo buffer = makeStringInfo();
-    //enlargeStringInfo(buffer, bufLen);
-    //buffer->len = bufLen;
-
     uint64 rowCount = 0;
     bool found = true;
     while (found) {
@@ -543,10 +531,8 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
         found = NextCopyFrom(copyState, NULL, values, nulls, NULL);
         /* write the row to the kv file */
         if (found) {
-            //memset(buffer->data, 0, bufLen);
             StringInfo key = makeStringInfo();
             StringInfo val = makeStringInfo();
-            //val->len += bufLen;
 
             for (int index = 0; index < attrCount; index++) {
                 Datum datum = values[index];
@@ -555,29 +541,13 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                         ereport(ERROR, (errmsg("first column cannot be null!")));
                     }
                     datum = (Datum) 0;
-                    //int byteIndex = (index - 1) / 8;
-                    //int bitIndex = (index - 1) % 8;
-                    //uint8 bitmask = (1 << bitIndex);
-                    //buffer->data[byteIndex] |= bitmask;
-                    //continue;
                 }
                 
-                /* #ifdef VIDARDB
-                bool useDelimiter = ((index == attrCount - 1)? false: useColumn)
-                                    && (index > 0);
-                SerializeAttribute(tupleDescriptor,
-                                   index,
-                                   datum,
-                                   index==0? key: val,
-                                   useDelimiter);
-                #else */
                 SerializeAttribute(tupleDescriptor,
                                    index,
                                    datum,
                                    index==0? key: val);
-                //#endif
             }
-            //memcpy(val->data, buffer->data, bufLen);
 
             PutRequest(relationId, ptr, key->data, key->len, val->data, val->len);
             rowCount++;

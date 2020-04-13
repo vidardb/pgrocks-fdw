@@ -32,6 +32,8 @@
 
 #define RESPONSEQUEUELENGTH 2
 
+#define HEADERBUFFSIZE 10
+
 /* Defines for valid options and the default values */
 #define OPTION_FILENAME "filename"
 
@@ -158,8 +160,7 @@ extern KVFdwOptions *KVGetOptions(Oid foreignTableId);
 extern void SerializeAttribute(TupleDesc tupleDescriptor,
                                Index index,
                                Datum datum,
-                               StringInfo buffer,
-                               bool useDelimiter);
+                               StringInfo buffer);
 
 extern char *KVGetOptionValue(Oid foreignTableId, const char *optionName);
 

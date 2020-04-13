@@ -36,6 +36,15 @@ bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen);
 bool Put(void* db, char* key, size_t keyLen, char* val, size_t valLen);
 bool Delete(void* db, char* key, size_t keyLen);
 
+/* at least buf[10] is expected to pass in, return encoding length */
+uint8 EncodeVarintLength(uint64 len, char* buf);
+
+/*
+ * pass in start of the buf, limit is the one after the last position of buf,
+ * decoded length is stored in len, return the real encoded length.
+ */
+uint8 DecodeVarintLength(char* start, char* limit, uint64* len);
+
 #ifdef VIDARDB
 #define FILENAMELENGTH 20
 #define PERMISSION 0777
@@ -60,15 +69,6 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
 void ParseRangeQueryResult(void* result, char* buf);
 
 void ClearRangeQueryMeta(void* range, void* readOptions);
-
-/* at least buf[10] is expected to pass in, return encoding length */
-uint8 EncodeVarintLength(uint64 len, char* buf);
-
-/*
- * pass in start of the buf, limit is the one after the last position of buf,
- * decoded length is stored in len, return the real encoded length.
- */
-uint8 DecodeVarintLength(char* start, char* limit, uint64* len);
 
 #endif
 

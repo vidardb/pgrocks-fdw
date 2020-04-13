@@ -408,8 +408,17 @@ Datum ShortVarlena(Datum datum, int typeLength, char storage) {
 void SerializeAttribute(TupleDesc tupleDescriptor,
                         Index index,
                         Datum datum,
-                        StringInfo buffer,
-                        bool useDelimiter) {
+                        StringInfo buffer) {
+    if (datum == (Datum) 0) {
+        int offset = buffer->len;
+        enlargeStringInfo(buffer, offset + HEADERBUFFSIZE);
+        char *current = buffer->data + buffer->len;
+        memset(current, 0, HEADERBUFFSIZE);
+        uint8 headerLen = EncodeVarintLength(0, current);
+        buffer->len += headerLen;
+        return;
+    }
+
     Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
     bool byValue = attributeForm->attbyval;
     int typeLength = attributeForm->attlen;
@@ -421,10 +430,19 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
     int offset = buffer->len;
     int datumLength = att_addlength_datum(offset, typeLength, datum);
 
-    enlargeStringInfo(buffer, datumLength + (useDelimiter? 1: 0));
+    /* the key does not have a size header */ 
+    enlargeStringInfo(buffer, datumLength + (index == 0? 0: HEADERBUFFSIZE));
 
-    char *current = buffer->data + buffer->len;
-    memset(current, 0, datumLength - offset + (useDelimiter? 1: 0));
+    char *current = buffer->data + buffer->len;    
+    memset(current, 0, datumLength - offset + (index == 0? 0: HEADERBUFFSIZE));
+
+    /* set the size header */
+    uint8 headerLen = 0;
+    if (index > 0) {
+        uint64 dataLen = typeLength > 0? typeLength : (datumLength - offset);
+        headerLen = EncodeVarintLength(dataLen, current);
+        current += headerLen;
+    }
 
     if (typeLength > 0) {
         if (byValue) {
@@ -436,13 +454,13 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
         memcpy(current, DatumGetPointer(datum), datumLength - offset);
     }
 
-    if (useDelimiter) {
+    /* if (useDelimiter) {
         char delimiter = '|';
         memcpy(current + datumLength - offset, &delimiter, sizeof(delimiter));
         buffer->len = datumLength + 1;
-    } else {
-        buffer->len = datumLength;
-    }
+    } */
+
+    buffer->len = datumLength + headerLen;
 }
 
 /*
@@ -512,10 +530,10 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     bool *nulls = palloc0(attrCount * sizeof(bool));
 
     /* first attr must exist */
-    int bufLen = (attrCount - 1 + 7) / 8;
-    StringInfo buffer = makeStringInfo();
-    enlargeStringInfo(buffer, bufLen);
-    buffer->len = bufLen;
+    //int bufLen = (attrCount - 1 + 7) / 8;
+    //StringInfo buffer = makeStringInfo();
+    //enlargeStringInfo(buffer, bufLen);
+    //buffer->len = bufLen;
 
     uint64 rowCount = 0;
     bool found = true;
@@ -525,25 +543,26 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
         found = NextCopyFrom(copyState, NULL, values, nulls, NULL);
         /* write the row to the kv file */
         if (found) {
-            memset(buffer->data, 0, bufLen);
+            //memset(buffer->data, 0, bufLen);
             StringInfo key = makeStringInfo();
             StringInfo val = makeStringInfo();
-            val->len += bufLen;
+            //val->len += bufLen;
 
             for (int index = 0; index < attrCount; index++) {
-
+                Datum datum = values[index];
                 if (nulls[index]) {
                     if (index == 0) {
                         ereport(ERROR, (errmsg("first column cannot be null!")));
                     }
-                    int byteIndex = (index - 1) / 8;
-                    int bitIndex = (index - 1) % 8;
-                    uint8 bitmask = (1 << bitIndex);
-                    buffer->data[byteIndex] |= bitmask;
-                    continue;
+                    datum = (Datum) 0;
+                    //int byteIndex = (index - 1) / 8;
+                    //int bitIndex = (index - 1) % 8;
+                    //uint8 bitmask = (1 << bitIndex);
+                    //buffer->data[byteIndex] |= bitmask;
+                    //continue;
                 }
-                Datum datum = values[index];
-                #ifdef VIDARDB
+                
+                /* #ifdef VIDARDB
                 bool useDelimiter = ((index == attrCount - 1)? false: useColumn)
                                     && (index > 0);
                 SerializeAttribute(tupleDescriptor,
@@ -551,15 +570,14 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                                    datum,
                                    index==0? key: val,
                                    useDelimiter);
-                #else
+                #else */
                 SerializeAttribute(tupleDescriptor,
                                    index,
                                    datum,
-                                   index==0? key: val,
-                                   false);
-                #endif
+                                   index==0? key: val);
+                //#endif
             }
-            memcpy(val->data, buffer->data, bufLen);
+            //memcpy(val->data, buffer->data, bufLen);
 
             PutRequest(relationId, ptr, key->data, key->len, val->data, val->len);
             rowCount++;

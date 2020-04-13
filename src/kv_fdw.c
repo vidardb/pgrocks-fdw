@@ -273,12 +273,12 @@ static void GetKeyBasedQual(Node *node,
     readState->key = makeStringInfo();
     TupleDesc tupleDescriptor = relation->rd_att;
 
-    #ifdef VIDARDB
-    bool useDelimiter = readState->useColumn && (varattno > 1);
-    SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key, useDelimiter);
-    #else
-    SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key, false);
-    #endif
+    //#ifdef VIDARDB
+    //bool useDelimiter = readState->useColumn && (varattno > 1);
+    //SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key);
+    //#else
+    SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key);
+    //#endif
 
     return;
 }
@@ -413,22 +413,22 @@ static void DeserializeColumnTuple(StringInfo key,
     /* nulls tells the above layer whether corresponding attribute is carried */
     memset(nulls, true, count * sizeof(bool));
 
-    int nullBitmapLen = (count - 1 + 7) / 8;
+    /* int nullBitmapLen = (count - 1 + 7) / 8;
     StringInfo nullBitmap = makeStringInfo();
     enlargeStringInfo(nullBitmap, nullBitmapLen);
     nullBitmap->len = nullBitmapLen;
-    memcpy(nullBitmap->data, val->data, nullBitmapLen);
+    memcpy(nullBitmap->data, val->data, nullBitmapLen); */
 
     /* exists array represents is null or not in the sense of storage level */
-    bool exists[count];
+    /*bool exists[count];
     exists[0] = true;
     for (int index = 1; index < count; index++) {
         int byteIndex = (index - 1) / 8;
         int bitIndex = (index - 1) % 8;
         uint8 bitmask = (1 << bitIndex);
-        /* for nullBitmap, 1 stands for is null, 0 for not null */
+        // for nullBitmap, 1 stands for is null, 0 for not null 
         exists[index] = (nullBitmap->data[byteIndex] & bitmask) ? false : true;
-    }
+    }*/
 
     int targetListLen = list_length(targetList);
     int targetAttrsLen = fullTuple ? count : targetListLen;
@@ -458,7 +458,7 @@ static void DeserializeColumnTuple(StringInfo key,
     /* If the key is in the query list, it must be the first attribute */
     if (*attrs == 1) {
         /* The index of tuple descriptors starts from 0 */
-        Assert(exists[0]);
+        //Assert(exists[0]);
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 0);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
@@ -466,45 +466,51 @@ static void DeserializeColumnTuple(StringInfo key,
         nulls[0] = false;
     }
 
-    /* Deserialize the first attribute in the value to update the offset */
-    int offset = nullBitmapLen;
-    current = val->data + offset;
-    if (!exists[1]) {
+    int offset = 0;
+    current = val->data;
+    //if (!exists[1]) {
         /* TODO: have the delimiter? */
-        offset++;
-    } else {
-        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 1);
-        bool byValue = attributeForm->attbyval;
-        int typeLength = attributeForm->attlen;
+    //    offset++;
+    //} else {
+    //    Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 1);
+    //    bool byValue = attributeForm->attbyval;
+    //    int typeLength = attributeForm->attlen;
 
-        values[1] = fetch_att(current, byValue, typeLength);
-        offset = att_addlength_datum(offset, typeLength, current) + 1;
-        nulls[1] = false;
-    }
-    current = val->data + offset;
+    //    values[1] = fetch_att(current, byValue, typeLength);
+    //    offset = att_addlength_datum(offset, typeLength, current) + 1;
+    //    nulls[1] = false;
+    //}
+    //current = val->data + offset;
 
     /* deserialize the remaining attributes */
     for (int index = 0; index < targetAttrsLen; index++) {
         AttrNumber attr = *(attrs + index);
-        /* skip key and first value */
-        if (attr <= 2) {
+        /* skip the key */
+        if (attr <= 1) {
             continue;
         }
 
         /* update attr and skip the null attribute */
-        if (exists[--attr] == false) {
+        //if (exists[--attr] == false) {
             /* TODO: have the delimiter? */
-            offset++;
+        //    offset++;
+        //    continue;
+        //}
+
+        uint64 dataLen = 0;
+        uint8 headerLen = DecodeVarintLength(current, val->data + val->len, &dataLen);
+        offset += headerLen;
+        if (dataLen == 0) {
             continue;
         }
-
+        current = val->data + offset;
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, attr);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
 
         values[attr] = fetch_att(current, byValue, typeLength);
         offset = att_addlength_datum(offset, typeLength, current) + 1;
-        current = val->data + offset;
+        //current = val->data + offset;
         nulls[attr] = false;
     }
 
@@ -526,44 +532,53 @@ static void DeserializeTuple(StringInfo key,
     memset(values, 0, count * sizeof(Datum));
     memset(nulls, false, count * sizeof(bool));
 
-    int nullBitmapLen = (count - 1 + 7) / 8;
+    //int nullBitmapLen = (count - 1 + 7) / 8;
 
-    StringInfo nullBitmap = makeStringInfo();
-    enlargeStringInfo(nullBitmap, nullBitmapLen);
-    nullBitmap->len = nullBitmapLen;
-    memcpy(nullBitmap->data, val->data, nullBitmapLen);
+    //StringInfo nullBitmap = makeStringInfo();
+    //enlargeStringInfo(nullBitmap, nullBitmapLen);
+    //nullBitmap->len = nullBitmapLen;
+    //memcpy(nullBitmap->data, val->data, nullBitmapLen);
 
-    for (int index = 1; index < count; index++) {
+    /* for (int index = 1; index < count; index++) {
         int byteIndex = (index - 1) / 8;
         int bitIndex = (index - 1) % 8;
-        uint8 bitmask = (1 << bitIndex);
+        uint8 bitmask = (1 << bitIndex); */
         /* 1 stands for is null, 0 for not null */
-        nulls[index] = (nullBitmap->data[byteIndex] & bitmask) ? true : false;
-    }
+        //nulls[index] = (nullBitmap->data[byteIndex] & bitmask) ? true : false;
+    //}
 
     int offset = 0;
     char *current = key->data;
     for (int index = 0; index < count; index++) {
 
-        if (nulls[index]) {
+        if (index > 0) {
+            uint64 dataLen = 0;
+            uint8 headerLen = DecodeVarintLength(current, val->data + val->len, &dataLen);
+            offset += headerLen;
+            if (dataLen == 0) {
+                nulls[index] = true;
+                continue;
+            }
+            current = val->data + offset;
+        }
+        /*if (nulls[index]) {
             if (index == 0) {
                 ereport(ERROR, (errmsg("first column cannot be null!")));
             }
-            continue;
-        }
+            //continue;
+        }*/
 
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
         
+
         values[index] = fetch_att(current, byValue, typeLength);
         offset = att_addlength_datum(offset, typeLength, current);
             
         if (index == 0) {
-            offset = nullBitmapLen;
+            offset = 0;
         }
-
-        current = val->data + offset;
     }
 }
 
@@ -949,44 +964,44 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
 
 static void SerializeTuple(StringInfo key,
                            StringInfo val,
-                           TupleTableSlot *tupleSlot,
-                           bool useColumn) {
+                           TupleTableSlot *tupleSlot) {
 
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
     int count = tupleDescriptor->natts;
 
     /* first attr must exist */
-    int nullBitmapLen = (count - 1 + 7) / 8;
+    /* int nullBitmapLen = (count - 1 + 7) / 8;
 
     StringInfo nullBitmap = makeStringInfo();
     enlargeStringInfo(nullBitmap, nullBitmapLen);
     nullBitmap->len = nullBitmapLen;
     memset(nullBitmap->data, 0, nullBitmapLen);
 
-    val->len += nullBitmapLen;
+    val->len += nullBitmapLen; */
 
     for (int index = 0; index < count; index++) {
 
+        Datum datum = tupleSlot->tts_values[index];
         if (tupleSlot->tts_isnull[index]) {
             if (index == 0) {
                 ereport(ERROR, (errmsg("first column cannot be null!")));
             }
-            int byteIndex = (index - 1) / 8;
-            int bitIndex = (index - 1) % 8;
-            uint8 bitmask = (1 << bitIndex);
-            /* 1 stands for is null, 0 for not null */
-            nullBitmap->data[byteIndex] |= bitmask;
-            continue;
-        }
 
-        Datum datum = tupleSlot->tts_values[index];
+            datum = (Datum) 0;
+            //int byteIndex = (index - 1) / 8;
+            //int bitIndex = (index - 1) % 8;
+            //uint8 bitmask = (1 << bitIndex);
+            /* 1 stands for is null, 0 for not null */
+            //nullBitmap->data[byteIndex] |= bitmask;
+            //continue;
+        }        
 
         /*The last column does not require a delimiter*/
-        bool useDelimiter = (useColumn && index > 0 && index < count-1);
-        SerializeAttribute(tupleDescriptor, index, datum, index==0? key: val, useDelimiter);
+        //bool useDelimiter = (useColumn && index > 0 && index < count-1);
+        SerializeAttribute(tupleDescriptor, index, datum, index==0? key: val);
     }
 
-    memcpy(val->data, nullBitmap->data, nullBitmapLen);
+    //memcpy(val->data, nullBitmap->data, nullBitmapLen);
 }
 
 static TupleTableSlot *ExecForeignInsert(EState *executorState,
@@ -1036,12 +1051,12 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
     Relation relation = resultRelInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
 
-    #ifdef VIDARDB
+    /* #ifdef VIDARDB
     TableWriteState *writeState = (TableWriteState *) resultRelInfo->ri_FdwState;
     SerializeTuple(key, val, slot, writeState->useColumn);
-    #else
-    SerializeTuple(key, val, slot, false);
-    #endif
+    #else */
+    SerializeTuple(key, val, slot);
+    //#endif
 
     PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
 
@@ -1095,12 +1110,12 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
     Relation relation = resultRelInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
 
-    #ifdef VIDARDB
+    /*#ifdef VIDARDB
     TableWriteState *writeState = (TableWriteState *) resultRelInfo->ri_FdwState;
     SerializeTuple(key, val, slot, writeState->useColumn);
-    #else
-    SerializeTuple(key, val, slot, false);
-    #endif
+    #else */
+    SerializeTuple(key, val, slot);
+    //#endif
 
     PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
 
@@ -1146,12 +1161,12 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     Relation relation = resultRelInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
 
-    #ifdef VIDARDB
+    /*#ifdef VIDARDB
     TableWriteState *writeState = (TableWriteState *) resultRelInfo->ri_FdwState;
     SerializeTuple(key, val, planSlot, writeState->useColumn);
-    #else
-    SerializeTuple(key, val, planSlot, false);
-    #endif
+    #else*/
+    SerializeTuple(key, val, planSlot);
+    //#endif
 
     DeleteRequest(foreignTableId, ptr, key->data, key->len);
 

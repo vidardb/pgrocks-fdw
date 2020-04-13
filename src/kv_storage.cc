@@ -3,6 +3,7 @@
 #include "vidardb/db.h"
 #include "vidardb/options.h"
 #include "vidardb/table.h"
+#include "vidardb/splitter.h"
 using namespace vidardb;
 #include <list>
 #include <algorithm>
@@ -28,10 +29,11 @@ void* Open(char* path, bool useColumn, int attrCount) {
     shared_ptr<TableFactory> column_table(NewColumnTableFactory());
     ColumnTableOptions* column_opts =
         static_cast<ColumnTableOptions*>(column_table->GetOptions());
-    column_opts->splitter.reset(new PipeSplitter());
+    //column_opts->splitter.reset(new PipeSplitter());
     /* TODO: currently, we assume 1 attribute primary key */
     column_opts->column_count = attrCount - 1;
 
+    options.splitter.reset(NewEncodingSplitter());
     options.table_factory.reset(NewAdaptiveTableFactory(block_based_table,
         block_based_table, column_table, useColumn? 0: -1));
 
@@ -93,7 +95,8 @@ bool Next(void* db, void* iter, char** key, size_t* keyLen, char** val,
 
 bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen) {
     string sval;
-    Status s = static_cast<DB*>(db)->Get(ReadOptions(), Slice(key, keyLen), &sval);
+    ReadOptions ro;
+    Status s = static_cast<DB*>(db)->Get(ro, Slice(key, keyLen), &sval);
     if (!s.ok()) return false;
     *valLen = sval.length();
     *val = static_cast<char*>(palloc(*valLen));
@@ -110,6 +113,46 @@ bool Put(void* db, char* key, size_t keyLen, char* val, size_t valLen) {
 bool Delete(void* db, char* key, size_t keyLen) {
     Status s = static_cast<DB*>(db)->Delete(WriteOptions(), Slice(key, keyLen));
     return s.ok();
+}
+
+/* copied from the storage engine */
+inline char* EncodeVarint64(char* dst, uint64_t v) {
+    static const unsigned int B = 128;
+    unsigned char* ptr = reinterpret_cast<unsigned char*>(dst);
+    while (v >= B) {
+        *(ptr++) = (v & (B - 1)) | B;
+        v >>= 7;
+    }
+    *(ptr++) = static_cast<unsigned char>(v);
+    return reinterpret_cast<char*>(ptr);
+}
+
+uint8 EncodeVarintLength(uint64 len, char* buf) {
+    char* ptr = EncodeVarint64(buf, len);
+    return (ptr - buf);
+}
+
+/* copied from the storage engine */
+inline const char* GetVarint64Ptr(const char* p, const char* limit, uint64_t* value) {
+  uint64_t result = 0;
+  for (uint32_t shift = 0; shift <= 63 && p < limit; shift += 7) {
+    uint64_t byte = *(reinterpret_cast<const unsigned char*>(p));
+    p++;
+    if (byte & 128) {
+      // More bytes are present
+      result |= ((byte & 127) << shift);
+    } else {
+      result |= (byte << shift);
+      *value = result;
+      return reinterpret_cast<const char*>(p);
+    }
+  }
+  return nullptr;
+}
+
+uint8 DecodeVarintLength(char* start, char* limit, uint64* len) {
+  const char* ret = GetVarint64Ptr(start, limit, len);
+  return ret ? (ret - start) : 0;
 }
 
 #ifdef VIDARDB
@@ -135,17 +178,18 @@ void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
     }
 
     /* TODO: currently, first attribute in the value must be returned */   
-    bool hasFirstValAttr = false;
+    //bool hasFirstValAttr = false;
     for (int i = 0; i < queryOptions->attrCount; i++) {
         AttrNumber attr = *(queryOptions->attrs + i);
         options->columns.push_back(attr);
-        if (attr == 1) {
-            hasFirstValAttr = true;
-        }
+        //if (attr == 1) {
+        //    hasFirstValAttr = true;
+        //}
     }
-    if (hasFirstValAttr == false) {
-        options->columns.push_back(1);
-    }
+    //if (hasFirstValAttr == false) {
+    //    options->columns.push_back(1);
+    //}
+    
     sort(options->columns.begin(), options->columns.end());
     printf("\nattrs: ");
     for (auto i : options->columns) printf(" %d ", i);
@@ -164,9 +208,9 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
         res = new list<RangeQueryKeyVal>;
     }
     Status s;
-    ro->splitter = new PipeSplitter();
+    //ro->splitter = new PipeSplitter();
     bool ret = static_cast<DB*>(db)->RangeQuery(*ro, *r, *res, &s);
-    delete ro->splitter;
+    //delete ro->splitter;
 
     if (!s.ok()) {
         *bufLen = 0;
@@ -217,46 +261,6 @@ void ClearRangeQueryMeta(void* range, void* readOptions) {
     }
     pfree(range);
     pfree(readOptions);
-}
-
-/* copied from the storage engine */
-inline char* EncodeVarint64(char* dst, uint64_t v) {
-    static const unsigned int B = 128;
-    unsigned char* ptr = reinterpret_cast<unsigned char*>(dst);
-    while (v >= B) {
-        *(ptr++) = (v & (B - 1)) | B;
-        v >>= 7;
-    }
-    *(ptr++) = static_cast<unsigned char>(v);
-    return reinterpret_cast<char*>(ptr);
-}
-
-uint8 EncodeVarintLength(uint64 len, char* buf) {
-    char* ptr = EncodeVarint64(buf, len);
-    return (ptr - buf);
-}
-
-/* copied from the storage engine */
-inline const char* GetVarint64Ptr(const char* p, const char* limit, uint64_t* value) {
-  uint64_t result = 0;
-  for (uint32_t shift = 0; shift <= 63 && p < limit; shift += 7) {
-    uint64_t byte = *(reinterpret_cast<const unsigned char*>(p));
-    p++;
-    if (byte & 128) {
-      // More bytes are present
-      result |= ((byte & 127) << shift);
-    } else {
-      result |= (byte << shift);
-      *value = result;
-      return reinterpret_cast<const char*>(p);
-    }
-  }
-  return nullptr;
-}
-
-uint8 DecodeVarintLength(char* start, char* limit, uint64* len) {
-  const char* ret = GetVarint64Ptr(start, limit, len);
-  return ret ? (ret - start) : 0;
 }
 
 #endif

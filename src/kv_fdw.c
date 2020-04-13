@@ -449,8 +449,9 @@ static void DeserializeColumnTuple(StringInfo key,
     /* deserialize the remaining attributes */
     for (int index = 0; index < targetAttrsLen; index++) {
         AttrNumber attr = *(attrs + index);
+        attr--;
         /* skip the key */
-        if (attr <= 1) {
+        if (attr == 0) {
             continue;
         }
 

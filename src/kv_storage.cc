@@ -201,9 +201,7 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
         res = new list<RangeQueryKeyVal>;
     }
     Status s;
-    //ro->splitter = new PipeSplitter();
     bool ret = static_cast<DB*>(db)->RangeQuery(*ro, *r, *res, &s);
-    //delete ro->splitter;
 
     if (!s.ok()) {
         *bufLen = 0;

@@ -370,7 +370,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
             printf("\n");
 
             readState->hasNext = RangeQueryRequest(relationId,
-                                                   &operationId,
+                                                   ++operationId,
                                                    ptr,
                                                    &options,
                                                    &readState->buf,
@@ -380,7 +380,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
             pfree(options.attrs);
         } else {
-            GetIterRequest(relationId, &operationId, ptr);
+            GetIterRequest(relationId, ++operationId, ptr);
             readState->operationId = operationId;
         }
         #else
@@ -431,11 +431,11 @@ static void DeserializeColumnTuple(StringInfo key,
         }
     }
 
-    printf("\n");
-    for (int index = 0; index < targetAttrsLen; ++index) {
-        printf(" %d ", *(attrs + index));
-    }
-    printf("\n");
+//    printf("\n");
+//    for (int index = 0; index < targetAttrsLen; ++index) {
+//        printf(" %d ", *(attrs + index));
+//    }
+//    printf("\n");
 
     /* If the key is in the query list, it must be the first attribute */
     if (*attrs == 1) {
@@ -530,7 +530,7 @@ static void DeserializeTuple(StringInfo key,
 }
 
 static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
-    printf("\n-----------------%s----------------------\n", __func__);
+//    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Fetch one row from the foreign source, returning it in a tuple table
      * slot (the node's ScanTupleSlot should be used for this purpose). Return
@@ -595,12 +595,11 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
                 /* finish reading from shared mem */
                 Munmap(readState->buf, readState->bufLen, __func__);
                 readState->hasNext = RangeQueryRequest(relationId,
-                                                       &operationId,
+                                                       readState->operationId,
                                                        ptr,
                                                        NULL,
                                                        &readState->buf,
                                                        &readState->bufLen);
-                readState->operationId = operationId;
                 readState->next = readState->buf;
 
                 if (readState->bufLen > 0) {

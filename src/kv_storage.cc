@@ -174,7 +174,8 @@ void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
     /* Parse ReadOptions */
     ReadOptions* options = static_cast<ReadOptions*>(*readOptions);
     if (options == NULL) {
-        options = static_cast<ReadOptions*>(palloc0(sizeof(ReadOptions)));
+        /* since there is vector in ReadOptions, so we use 'new' here */
+        options = new ReadOptions();
     }
 
     for (int i = 0; i < queryOptions->attrCount; i++) {
@@ -183,7 +184,7 @@ void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
     }
 
     sort(options->columns.begin(), options->columns.end());
-    printf("\nattrs: ");
+    printf("\nattrs in %s: ", __func__);
     for (auto i : options->columns) printf(" %d ", i);
     printf("\n");
     options->batch_capacity = queryOptions->batchCapacity;
@@ -250,7 +251,9 @@ void ClearRangeQueryMeta(void* range, void* readOptions) {
         pfree(const_cast<void*>(static_cast<const void*>(r->limit.data())));
     }
     pfree(range);
-    pfree(readOptions);
+
+    ReadOptions* options = static_cast<ReadOptions*>(readOptions);
+    delete options;
 }
 
 #endif

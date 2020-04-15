@@ -173,7 +173,7 @@ extern void CloseRequest(Oid relationId, SharedMem *ptr);
 
 extern uint64 CountRequest(Oid relationId, SharedMem *ptr);
 
-extern void GetIterRequest(Oid relationId, uint64 *operationId, SharedMem *ptr);
+extern void GetIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr);
 
 extern void DelIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr);
 
@@ -206,7 +206,7 @@ extern void DeleteRequest(Oid relationId,
 
 #ifdef VIDARDB
 extern bool RangeQueryRequest(Oid relationId,
-                              uint64 *operationId,
+                              uint64 operationId,
                               SharedMem *ptr,
                               RangeQueryOptions *options,
                               char **buf,

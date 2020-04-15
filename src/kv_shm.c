@@ -19,20 +19,20 @@ typedef struct KVHashEntry {
     void *db;
 } KVHashEntry;
 
-typedef struct KVTableProcHashKey {
+typedef struct KVTableProcOpHashKey {
     Oid relationId;
     pid_t pid;
     uint64 operationId;
-} KVTableProcHashKey;
+} KVTableProcOpHashKey;
 
 typedef struct KVIterHashEntry {
-    KVTableProcHashKey key;
+    KVTableProcOpHashKey key;
     void *iter;
 } KVIterHashEntry;
 
 #ifdef VIDARDB
 typedef struct KVReadOptionsEntry {
-    KVTableProcHashKey key;
+    KVTableProcOpHashKey key;
     void *readOptions;
     void *range;
 } KVReadOptionsEntry;
@@ -192,11 +192,11 @@ static void OpenResponseArea() {
 /*
  * Compare function for KVIterHash
  */
-static inline int CompareKVIterHashKey(const void *key1,
-                                       const void *key2,
-                                       Size keysize) {
-    const KVTableProcHashKey *k1 = (const KVTableProcHashKey *)key1;
-    const KVTableProcHashKey *k2 = (const KVTableProcHashKey *)key2;
+static inline int CompareKVTableProcOpHashKey(const void *key1,
+                                              const void *key2,
+                                              Size keysize) {
+    const KVTableProcOpHashKey *k1 = (const KVTableProcOpHashKey *)key1;
+    const KVTableProcOpHashKey *k2 = (const KVTableProcOpHashKey *)key2;
 
     if (k1 == NULL || k2 == NULL) {
         return -1;
@@ -292,9 +292,9 @@ static void KVWorkerMain(int argc, char *argv[]) {
 
     HASHCTL iter_hash_ctl;
     memset(&iter_hash_ctl, 0, sizeof(iter_hash_ctl));
-    iter_hash_ctl.keysize = sizeof(KVTableProcHashKey);
+    iter_hash_ctl.keysize = sizeof(KVTableProcOpHashKey);
     iter_hash_ctl.entrysize = sizeof(KVIterHashEntry);
-    iter_hash_ctl.match = CompareKVIterHashKey;
+    iter_hash_ctl.match = CompareKVTableProcOpHashKey;
     kvIterHash = hash_create("kvIterHash",
                              HASHSIZE,
                              &iter_hash_ctl,
@@ -303,9 +303,9 @@ static void KVWorkerMain(int argc, char *argv[]) {
     #ifdef VIDARDB
     HASHCTL option_hash_ctl;
     memset(&option_hash_ctl, 0, sizeof(option_hash_ctl));
-    option_hash_ctl.keysize = sizeof(KVTableProcHashKey);
+    option_hash_ctl.keysize = sizeof(KVTableProcOpHashKey);
     option_hash_ctl.entrysize = sizeof(KVReadOptionsEntry);
-    option_hash_ctl.match = CompareKVIterHashKey;
+    option_hash_ctl.match = CompareKVTableProcOpHashKey;
     kvReadOptionsHash = hash_create("kvReadOptionsHash",
                                     HASHSIZE,
                                     &option_hash_ctl,
@@ -598,7 +598,7 @@ static void CountResponse(char *area) {
     memcpy(ResponseQueue[responseId], &count, sizeof(count));
 }
 
-void GetIterRequest(Oid relationId, uint64 *operationId, SharedMem *ptr) {
+void GetIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&ptr->mutex, __func__);
@@ -620,8 +620,7 @@ void GetIterRequest(Oid relationId, uint64 *operationId, SharedMem *ptr) {
     memcpy(current, &pid, sizeof(pid));
     current += sizeof(pid);
 
-    ++(*operationId);
-    memcpy(current, operationId, sizeof(*operationId));
+    memcpy(current, &operationId, sizeof(operationId));
 
     SemPost(&ptr->worker, __func__);
     SemPost(&ptr->mutex, __func__);
@@ -633,7 +632,7 @@ void GetIterRequest(Oid relationId, uint64 *operationId, SharedMem *ptr) {
 static void GetIterResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
-    KVTableProcHashKey iterKey;
+    KVTableProcOpHashKey iterKey;
     memcpy(&iterKey.relationId, area, sizeof(iterKey.relationId));
     area += sizeof(iterKey.relationId);
     memcpy(&iterKey.pid, area, sizeof(iterKey.pid));
@@ -695,7 +694,7 @@ void DelIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr) {
 static void DelIterResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
-    KVTableProcHashKey iterKey;
+    KVTableProcOpHashKey iterKey;
     memcpy(&iterKey.relationId, area, sizeof(iterKey.relationId));
     area += sizeof(iterKey.relationId);
     memcpy(&iterKey.pid, area, sizeof(iterKey.pid));
@@ -780,7 +779,7 @@ void NextResponse(char *area) {
     memcpy(&responseId, area, sizeof(responseId));
     area += sizeof(responseId);
 
-    KVTableProcHashKey iterKey;
+    KVTableProcOpHashKey iterKey;
     memcpy(&iterKey.relationId, area, sizeof(iterKey.relationId));
     area += sizeof(iterKey.relationId);
 
@@ -1065,7 +1064,7 @@ static void DeleteResponse(char *area) {
  * Return whether there is a remaining batch.
  */
 bool RangeQueryRequest(Oid relationId,
-                       uint64 *operationId,
+                       uint64 operationId,
                        SharedMem *ptr,
                        RangeQueryOptions *options,
                        char **buf,
@@ -1091,9 +1090,8 @@ bool RangeQueryRequest(Oid relationId,
     memcpy(current, &pid, sizeof(pid));
     current += sizeof(pid);
 
-    ++(*operationId);
-    memcpy(current, operationId, sizeof(*operationId));
-    current += sizeof(*operationId);
+    memcpy(current, &operationId, sizeof(operationId));
+    current += sizeof(operationId);
 
     /* options != NULL means first time trigger this function */
     if (options) {
@@ -1161,7 +1159,7 @@ static void RangeQueryResponse(char *area) {
     memcpy(&responseId, area, sizeof(responseId));
     area += sizeof(responseId);
 
-    KVTableProcHashKey optionKey;
+    KVTableProcOpHashKey optionKey;
     memcpy(&optionKey.relationId, area, sizeof(optionKey.relationId));
     area += sizeof(optionKey.relationId);
 
@@ -1319,7 +1317,7 @@ void ClearRangeQueryMetaRequest(Oid relationId, uint64 operationId, SharedMem *p
 static void ClearRangeQueryMetaResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
-    KVTableProcHashKey optionKey;
+    KVTableProcOpHashKey optionKey;
     memcpy(&optionKey.relationId, area, sizeof(optionKey.relationId));
     area += sizeof(optionKey.relationId);
     memcpy(&optionKey.pid, area, sizeof(optionKey.pid));

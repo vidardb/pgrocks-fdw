@@ -102,6 +102,10 @@ static void GetForeignRelSize(PlannerInfo *root,
     }
     printf("\n");
 
+    if (planState->targetAttrs == NIL) {
+        planState->targetAttrs = lappend_int(planState->targetAttrs, 1);
+    }
+
     baserel->fdw_private = planState;
 
     ptr = OpenRequest(foreignTableId,
@@ -458,10 +462,11 @@ static void DeserializeColumnTuple(StringInfo key,
         uint64 dataLen = 0;
         uint8 headerLen = DecodeVarintLength(current, val->data + val->len, &dataLen);
         offset += headerLen;
+        current = val->data + offset;
         if (dataLen == 0) {
             continue;
         }
-        current = val->data + offset;
+
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, attr);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
@@ -469,6 +474,7 @@ static void DeserializeColumnTuple(StringInfo key,
         values[attr] = fetch_att(current, byValue, typeLength);
         offset = att_addlength_datum(offset, typeLength, current);
         nulls[attr] = false;
+        current = val->data + offset;
     }
 
     pfree(attrs);
@@ -497,23 +503,24 @@ static void DeserializeTuple(StringInfo key,
             uint64 dataLen = 0;
             uint8 headerLen = DecodeVarintLength(current, val->data + val->len, &dataLen);
             offset += headerLen;
+            current = val->data + offset;
             if (dataLen == 0) {
                 nulls[index] = true;
                 continue;
             }
-            current = val->data + offset;
         }
 
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
         
-
         values[index] = fetch_att(current, byValue, typeLength);
         offset = att_addlength_datum(offset, typeLength, current);
-            
+
         if (index == 0) {
             offset = 0;
+        } else {
+            current = val->data + offset;
         }
     }
 }
@@ -913,10 +920,10 @@ static void SerializeTuple(StringInfo key,
                 ereport(ERROR, (errmsg("first column cannot be null!")));
             }
 
-            datum = (Datum) 0;
-        }        
-
-        SerializeAttribute(tupleDescriptor, index, datum, index==0? key: val);
+            SerializeNullAttribute(tupleDescriptor, index, val);
+        } else {
+            SerializeAttribute(tupleDescriptor, index, datum, index==0? key: val);
+        }
     }
 }
 

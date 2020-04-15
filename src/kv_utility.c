@@ -405,20 +405,21 @@ Datum ShortVarlena(Datum datum, int typeLength, char storage) {
     PG_RETURN_DATUM(datum);
 }
 
+void SerializeNullAttribute(TupleDesc tupleDescriptor,
+                            Index index,
+                            StringInfo buffer) {
+    int offset = buffer->len;
+    enlargeStringInfo(buffer, offset + HEADERBUFFSIZE);
+    char *current = buffer->data + buffer->len;
+    memset(current, 0, HEADERBUFFSIZE);
+    uint8 headerLen = EncodeVarintLength(0, current);
+    buffer->len += headerLen;
+}
+
 void SerializeAttribute(TupleDesc tupleDescriptor,
                         Index index,
                         Datum datum,
                         StringInfo buffer) {
-    if (datum == (Datum) 0) {
-        int offset = buffer->len;
-        enlargeStringInfo(buffer, offset + HEADERBUFFSIZE);
-        char *current = buffer->data + buffer->len;
-        memset(current, 0, HEADERBUFFSIZE);
-        uint8 headerLen = EncodeVarintLength(0, current);
-        buffer->len += headerLen;
-        return;
-    }
-
     Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
     bool byValue = attributeForm->attbyval;
     int typeLength = attributeForm->attlen;
@@ -540,13 +541,13 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                     if (index == 0) {
                         ereport(ERROR, (errmsg("first column cannot be null!")));
                     }
-                    datum = (Datum) 0;
+                    SerializeNullAttribute(tupleDescriptor, index, val);
+                } else {
+                    SerializeAttribute(tupleDescriptor,
+                                        index,
+                                        datum,
+                                        index==0? key: val);
                 }
-                
-                SerializeAttribute(tupleDescriptor,
-                                   index,
-                                   datum,
-                                   index==0? key: val);
             }
 
             PutRequest(relationId, ptr, key->data, key->len, val->data, val->len);

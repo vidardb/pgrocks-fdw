@@ -157,6 +157,10 @@ extern void _PG_fini(void);
 /* Functions used across files in kv_fdw */
 extern KVFdwOptions *KVGetOptions(Oid foreignTableId);
 
+extern void SerializeNullAttribute(TupleDesc tupleDescriptor,
+                                    Index index,
+                                    StringInfo buffer);
+
 extern void SerializeAttribute(TupleDesc tupleDescriptor,
                                Index index,
                                Datum datum,

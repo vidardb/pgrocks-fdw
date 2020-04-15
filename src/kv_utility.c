@@ -408,8 +408,7 @@ Datum ShortVarlena(Datum datum, int typeLength, char storage) {
 void SerializeNullAttribute(TupleDesc tupleDescriptor,
                             Index index,
                             StringInfo buffer) {
-    int offset = buffer->len;
-    enlargeStringInfo(buffer, offset + HEADERBUFFSIZE);
+    enlargeStringInfo(buffer, buffer->len + HEADERBUFFSIZE);
     char *current = buffer->data + buffer->len;
     memset(current, 0, HEADERBUFFSIZE);
     uint8 headerLen = EncodeVarintLength(0, current);
@@ -432,15 +431,15 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
     int datumLength = att_addlength_datum(offset, typeLength, datum);
 
     /* the key does not have a size header */ 
-    enlargeStringInfo(buffer, datumLength + (index == 0? 0: HEADERBUFFSIZE));
+    enlargeStringInfo(buffer, datumLength + (index == 0 ? 0 : HEADERBUFFSIZE));
 
-    char *current = buffer->data + buffer->len;    
-    memset(current, 0, datumLength - offset + (index == 0? 0: HEADERBUFFSIZE));
+    char *current = buffer->data + buffer->len;
+    memset(current, 0, datumLength - offset + (index == 0 ? 0 : HEADERBUFFSIZE));
 
     /* set the size header */
     uint8 headerLen = 0;
     if (index > 0) {
-        uint64 dataLen = typeLength > 0? typeLength : (datumLength - offset);
+        uint64 dataLen = typeLength > 0 ? typeLength : (datumLength - offset);
         headerLen = EncodeVarintLength(dataLen, current);
         current += headerLen;
     }
@@ -544,9 +543,9 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                     SerializeNullAttribute(tupleDescriptor, index, val);
                 } else {
                     SerializeAttribute(tupleDescriptor,
-                                        index,
-                                        datum,
-                                        index==0? key: val);
+                                       index,
+                                       datum,
+                                       index == 0 ? key : val);
                 }
             }
 

@@ -29,7 +29,6 @@ void* Open(char* path, bool useColumn, int attrCount) {
     shared_ptr<TableFactory> column_table(NewColumnTableFactory());
     ColumnTableOptions* column_opts =
         static_cast<ColumnTableOptions*>(column_table->GetOptions());
-    //column_opts->splitter.reset(new PipeSplitter());
     /* TODO: currently, we assume 1 attribute primary key */
     column_opts->column_count = attrCount - 1;
 
@@ -133,26 +132,27 @@ uint8 EncodeVarintLength(uint64 len, char* buf) {
 }
 
 /* copied from the storage engine */
-inline const char* GetVarint64Ptr(const char* p, const char* limit, uint64_t* value) {
-  uint64_t result = 0;
-  for (uint32_t shift = 0; shift <= 63 && p < limit; shift += 7) {
-    uint64_t byte = *(reinterpret_cast<const unsigned char*>(p));
-    p++;
-    if (byte & 128) {
-      // More bytes are present
-      result |= ((byte & 127) << shift);
-    } else {
-      result |= (byte << shift);
-      *value = result;
-      return reinterpret_cast<const char*>(p);
+inline const char* GetVarint64Ptr(const char* p, const char* limit,
+                                  uint64_t* value) {
+    uint64_t result = 0;
+    for (uint32_t shift = 0; shift <= 63 && p < limit; shift += 7) {
+        uint64_t byte = *(reinterpret_cast<const unsigned char*>(p));
+        p++;
+        if (byte & 128) {
+            // More bytes are present
+            result |= ((byte & 127) << shift);
+        } else {
+            result |= (byte << shift);
+            *value = result;
+            return reinterpret_cast<const char*>(p);
+        }
     }
-  }
-  return nullptr;
+    return nullptr;
 }
 
 uint8 DecodeVarintLength(char* start, char* limit, uint64* len) {
-  const char* ret = GetVarint64Ptr(start, limit, len);
-  return ret ? (ret - start) : 0;
+    const char* ret = GetVarint64Ptr(start, limit, len);
+    return ret ? (ret - start) : 0;
 }
 
 #ifdef VIDARDB
@@ -177,12 +177,11 @@ void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
         options = static_cast<ReadOptions*>(palloc0(sizeof(ReadOptions)));
     }
 
-    /* TODO: currently, first attribute in the value must be returned */   
     for (int i = 0; i < queryOptions->attrCount; i++) {
         AttrNumber attr = *(queryOptions->attrs + i);
         options->columns.push_back(attr);
     }
-    
+
     sort(options->columns.begin(), options->columns.end());
     printf("\nattrs: ");
     for (auto i : options->columns) printf(" %d ", i);

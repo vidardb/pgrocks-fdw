@@ -102,6 +102,7 @@ static void GetForeignRelSize(PlannerInfo *root,
     }
     printf("\n");
 
+    /* count(*), no attributes show up, so we have to manually add key column */
     if (planState->targetAttrs == NIL) {
         planState->targetAttrs = lappend_int(planState->targetAttrs, 1);
     }
@@ -436,19 +437,18 @@ static void DeserializeColumnTuple(StringInfo key,
     }
     printf("\n");
 
-    char *current = key->data;
     /* If the key is in the query list, it must be the first attribute */
     if (*attrs == 1) {
         /* The index of tuple descriptors starts from 0 */
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 0);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
-        values[0] = fetch_att(current, byValue, typeLength);
+        values[0] = fetch_att(key->data, byValue, typeLength);
         nulls[0] = false;
     }
 
     int offset = 0;
-    current = val->data;
+    char *current = val->data;
 
     /* deserialize the remaining attributes */
     for (int index = 0; index < targetAttrsLen; index++) {
@@ -460,7 +460,9 @@ static void DeserializeColumnTuple(StringInfo key,
         }
 
         uint64 dataLen = 0;
-        uint8 headerLen = DecodeVarintLength(current, val->data + val->len, &dataLen);
+        uint8 headerLen = DecodeVarintLength(current,
+                                             val->data + val->len,
+                                             &dataLen);
         offset += headerLen;
         current = val->data + offset;
         if (dataLen == 0) {
@@ -501,7 +503,9 @@ static void DeserializeTuple(StringInfo key,
 
         if (index > 0) {
             uint64 dataLen = 0;
-            uint8 headerLen = DecodeVarintLength(current, val->data + val->len, &dataLen);
+            uint8 headerLen = DecodeVarintLength(current,
+                                                 val->data + val->len,
+                                                 &dataLen);
             offset += headerLen;
             current = val->data + offset;
             if (dataLen == 0) {
@@ -513,15 +517,15 @@ static void DeserializeTuple(StringInfo key,
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
-        
+
         values[index] = fetch_att(current, byValue, typeLength);
         offset = att_addlength_datum(offset, typeLength, current);
 
         if (index == 0) {
             offset = 0;
-        } else {
-            current = val->data + offset;
         }
+
+        current = val->data + offset;
     }
 }
 
@@ -884,13 +888,13 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
 
     #ifdef VIDARDB
     TablePlanState *planState = (TablePlanState *) linitial(fdwPrivate);
-    writeState->useColumn = planState->fdwOptions->useColumn;
     #endif
+
     if (operation == CMD_INSERT) {
         #ifdef VIDARDB
         ptr = OpenRequest(foreignTableId,
                           ptr,
-                          writeState->useColumn,
+                          planState->fdwOptions->useColumn,
                           planState->attrCount);
         #else
         ptr = OpenRequest(foreignTableId, ptr);
@@ -922,7 +926,10 @@ static void SerializeTuple(StringInfo key,
 
             SerializeNullAttribute(tupleDescriptor, index, val);
         } else {
-            SerializeAttribute(tupleDescriptor, index, datum, index==0? key: val);
+            SerializeAttribute(tupleDescriptor,
+                               index,
+                               datum,
+                               index == 0 ? key : val);
         }
     }
 }
@@ -974,12 +981,7 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
     Relation relation = resultRelInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
 
-    /* #ifdef VIDARDB
-    TableWriteState *writeState = (TableWriteState *) resultRelInfo->ri_FdwState;
-    SerializeTuple(key, val, slot, writeState->useColumn);
-    #else */
     SerializeTuple(key, val, slot);
-    //#endif
 
     PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
 
@@ -1033,12 +1035,7 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
     Relation relation = resultRelInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
 
-    /*#ifdef VIDARDB
-    TableWriteState *writeState = (TableWriteState *) resultRelInfo->ri_FdwState;
-    SerializeTuple(key, val, slot, writeState->useColumn);
-    #else */
     SerializeTuple(key, val, slot);
-    //#endif
 
     PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
 
@@ -1084,12 +1081,7 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
     Relation relation = resultRelInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
 
-    /*#ifdef VIDARDB
-    TableWriteState *writeState = (TableWriteState *) resultRelInfo->ri_FdwState;
-    SerializeTuple(key, val, planSlot, writeState->useColumn);
-    #else*/
     SerializeTuple(key, val, planSlot);
-    //#endif
 
     DeleteRequest(foreignTableId, ptr, key->data, key->len);
 

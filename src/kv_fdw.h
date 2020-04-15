@@ -123,11 +123,6 @@ typedef struct TableReadState {
  */
 typedef struct TableWriteState {
     CmdType operation;
-    AttrNumber keyJunkNo;
-
-    #ifdef VIDARDB
-    bool useColumn;
-    #endif
 } TableWriteState;
 
 typedef enum FuncName {
@@ -158,8 +153,8 @@ extern void _PG_fini(void);
 extern KVFdwOptions *KVGetOptions(Oid foreignTableId);
 
 extern void SerializeNullAttribute(TupleDesc tupleDescriptor,
-                                    Index index,
-                                    StringInfo buffer);
+                                   Index index,
+                                   StringInfo buffer);
 
 extern void SerializeAttribute(TupleDesc tupleDescriptor,
                                Index index,

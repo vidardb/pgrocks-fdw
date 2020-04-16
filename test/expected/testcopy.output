@@ -9,4 +9,6 @@ CREATE FOREIGN TABLE
 COPY 4
 COPY (SELECT * FROM product) TO '/tmp/products.csv' WITH (FORMAT CSV);
 COPY 4
+DROP FOREIGN TABLE product;
+DROP FOREIGN TABLE
 \! diff -uN /tmp/products.csv test/sql/products.csv

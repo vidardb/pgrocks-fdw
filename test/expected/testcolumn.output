@@ -3,7 +3,7 @@
 --
 \c kvtest
 You are now connected to database "kvtest" as user "postgres".
-CREATE FOREIGN TABLE item (id SERIAL, name VARCHAR(20), price NUMERIC(10,2), inventory INT, stime TIMESTAMP, flag BOOLEAN) SERVER kv_server;
+CREATE FOREIGN TABLE item (id SERIAL, name VARCHAR(20), price NUMERIC(10,2), inventory INT, stime TIMESTAMP, flag BOOLEAN) SERVER kv_server OPTIONS(storage 'column');
 CREATE FOREIGN TABLE
 INSERT INTO item VALUES (DEFAULT, 'Name1', 10.00, 50, '2020-04-10 10:50:00', false);
 INSERT 0 1

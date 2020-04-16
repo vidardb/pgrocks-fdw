@@ -384,7 +384,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
             readState->operationId = operationId;
         }
         #else
-        GetIterRequest(relationId, &operationId, ptr);
+        GetIterRequest(relationId, ++operationId, ptr);
         readState->operationId = operationId;
         #endif
     }

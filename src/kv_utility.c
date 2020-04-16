@@ -20,6 +20,7 @@
 #include "utils/builtins.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_type.h"
+#include "executor/executor.h"
 
 
 #define PREVIOUS_UTILITY (PreviousProcessUtilityHook != NULL ? \
@@ -466,14 +467,6 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
  */
 static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                               const char *queryString) {
-    /* TODO copy specified columns */
-    if (copyStmt->attlist != NIL) {
-        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                        errmsg("copy column list is not supported"),
-                        errhint("use 'copy (select <columns> from <table>) to "
-                                "...' instead")));
-    }
-
     /* Only superuser can copy from or to local file */
     KVCheckSuperuserPrivilegesForCopy(copyStmt);
 
@@ -492,20 +485,9 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                                         copyStmt->filename,
                                         copyStmt->is_program,
                                         NULL,
-                                        NIL/*copyStatement->attlist*/,
+                                        copyStmt->attlist,
                                         copyStmt->options);
     free_parsestate(pstate);
-
-    /*
-     * We create a new memory context called tuple context, and read and write
-     * each row's values within this memory context. After each read and write,
-     * we reset the memory context. That way, we immediately release memory
-     * allocated for each row, and don't bloat memory usage with large input
-     * files.
-     */
-    MemoryContext tupleContext = AllocSetContextCreate(CurrentMemoryContext,
-                                                       "KV COPY Row Context",
-                                                       ALLOCSET_DEFAULT_SIZES);
 
     Oid relationId = RelationGetRelid(relation);
     TupleDesc tupleDescriptor = RelationGetDescr(relation);
@@ -523,12 +505,23 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     Datum *values = palloc0(attrCount * sizeof(Datum));
     bool *nulls = palloc0(attrCount * sizeof(bool));
 
+    EState *estate = CreateExecutorState();
+    ExprContext *econtext = GetPerTupleExprContext(estate);
+
     uint64 rowCount = 0;
     bool found = true;
     while (found) {
         /* read the next row in tupleContext */
-        MemoryContext oldContext = MemoryContextSwitchTo(tupleContext);
-        found = NextCopyFrom(copyState, NULL, values, nulls, NULL);
+        MemoryContext oldContext =
+            MemoryContextSwitchTo(GetPerTupleMemoryContext(estate));
+
+        /*
+         * 'econtext' is used to evaluate default expression for each columns
+         * not read from the file. It can be NULL when no default values are
+         * used, i.e. when all columns are read from the file.
+         */
+        found = NextCopyFrom(copyState, econtext, values, nulls, NULL);
+
         /* write the row to the kv file */
         if (found) {
             StringInfo key = makeStringInfo();
@@ -554,7 +547,11 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
         }
 
         MemoryContextSwitchTo(oldContext);
-        MemoryContextReset(tupleContext);
+        /*
+         * Reset the per-tuple exprcontext. We do this after every tuple, to
+         * clean-up after expression evaluations etc.
+         */
+        ResetPerTupleExprContext(estate);
         CHECK_FOR_INTERRUPTS();
     }
 

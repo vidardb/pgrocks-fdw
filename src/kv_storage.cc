@@ -76,17 +76,18 @@ void DelIter(void* it) {
     delete static_cast<Iterator*>(it);
 }
 
-bool Next(void* db, void* iter, char** key, size_t* keyLen, char** val,
-          size_t* valLen) {
+bool Next(void* db, void* iter, char* buffer) {
     Iterator* it = static_cast<Iterator*>(iter);
     if (it == nullptr || !it->Valid()) return false;
 
-    *keyLen = it->key().size(), *valLen = it->value().size();
-    *key = static_cast<char*>(palloc(*keyLen));
-    *val = static_cast<char*>(palloc(*valLen));
-
-    memcpy(*key, it->key().data(), *keyLen);
-    memcpy(*val, it->value().data(), *valLen);
+    size_t keyLen = it->key().size(), valLen = it->value().size();
+    memcpy(buffer, &keyLen, sizeof(keyLen));
+    buffer += sizeof(keyLen);
+    memcpy(buffer, it->key().data(), keyLen);
+    buffer += keyLen;
+    memcpy(buffer, &valLen, sizeof(valLen));
+    buffer += sizeof(valLen);
+    memcpy(buffer, it->value().data(), valLen);
 
     it->Next();
     return true;

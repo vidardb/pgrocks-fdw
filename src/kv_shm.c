@@ -806,30 +806,13 @@ void NextResponse(char *area) {
         ereport(ERROR, (errmsg("%s failed in hash search for iterator", __func__)));
     }
 
-    char *key = NULL, *val = NULL;
-    size_t keyLen = 0, valLen = 0;
-    bool res = Next(entry->db, iterEntry->iter, &key, &keyLen, &val, &valLen);
-
+    char *current = ResponseQueue[responseId];
+    bool res = Next(entry->db, iterEntry->iter, current);
     if (!res) {
         /* no next item */
+        size_t keyLen = 0;
         memcpy(ResponseQueue[responseId], &keyLen, sizeof(keyLen));
-        return;
     }
-
-    char *current = ResponseQueue[responseId];
-    memcpy(current, &keyLen, sizeof(keyLen));
-
-    current += sizeof(keyLen);
-    memcpy(current, key, keyLen);
-
-    current += keyLen;
-    memcpy(current, &valLen, sizeof(valLen));
-
-    current += sizeof(valLen);
-    memcpy(current, val, valLen);
-
-    pfree(key);
-    pfree(val);
 }
 
 bool GetRequest(Oid relationId,

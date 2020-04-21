@@ -29,8 +29,7 @@ uint64 Count(void* db);
 
 void* GetIter(void* db);
 void DelIter(void* it);
-bool Next(void* db, void* iter, char** key, size_t* keyLen, char** val,
-          size_t* valLen);
+bool Next(void* db, void* iter, char* buffer);
 
 bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen);
 bool Put(void* db, char* key, size_t keyLen, char* val, size_t valLen);
@@ -44,6 +43,8 @@ uint8 EncodeVarintLength(uint64 len, char* buf);
  * decoded length is stored in len, return the real encoded length.
  */
 uint8 DecodeVarintLength(char* start, char* limit, uint64* len);
+
+#define READBATCHSIZE 10240
 
 #ifdef VIDARDB
 #define FILENAMELENGTH 20

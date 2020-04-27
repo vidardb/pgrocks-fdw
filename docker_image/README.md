@@ -4,7 +4,7 @@ We can easily deploy PostgreSQL with RocksDB using Docker. This section will gui
 
 ## Requirement
 
-Docker is the only requirement. Install it at https://docs.docker.com/install/ .
+Docker is the only requirement. Install it at [https://docs.docker.com/get-docker/](https://docs.docker.com/get-docker/) .
 
 ## Run a RocksDB's Docker container:
 

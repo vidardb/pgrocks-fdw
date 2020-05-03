@@ -380,11 +380,17 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
             pfree(options.attrs);
         } else {
-            GetIterRequest(relationId, ++operationId, ptr);
+            //GetIterRequest(relationId, ++operationId, ptr);
+            readState->buf = NULL;
+            readState->bufLen = ReadBatchRequest(relationId, ++operationId, ptr, &readState->buf);
+            readState->next = readState->buf;
             readState->operationId = operationId;
         }
         #else
-        GetIterRequest(relationId, ++operationId, ptr);
+        //GetIterRequest(relationId, ++operationId, ptr);
+        readState->buf = NULL;
+        readState->bufLen = ReadBatchRequest(relationId, ++operationId, ptr, &readState->buf);
+        readState->next = readState->buf;
         readState->operationId = operationId;
         #endif
     }
@@ -529,6 +535,37 @@ static void DeserializeTuple(StringInfo key,
     }
 }
 
+static bool GetNextFromBatch(Oid relationId,
+                             TableReadState *readState,
+                             SharedMem *ptr,
+                             char **key,
+                             size_t *keyLen,
+                             char **val,
+                             size_t *valLen) {
+    bool found = false;
+    if (readState->next < readState->buf + readState->bufLen) {
+        found = true;
+    } else if (readState->bufLen > 0) {
+        readState->bufLen = ReadBatchRequest(relationId, readState->operationId, ptr, &readState->buf);
+        readState->next  = readState->buf;
+        if (readState->bufLen > 0) found = true;
+    }
+
+    if (found) {
+        memcpy(keyLen, readState->next, sizeof(*keyLen));
+        readState->next += sizeof(*keyLen);
+        *key = palloc(*keyLen);
+        memcpy(*key, readState->next, *keyLen);
+        readState->next += *keyLen;
+        memcpy(valLen, readState->next, sizeof(*valLen));
+        readState->next += sizeof(*valLen);
+        *val = palloc(*valLen);
+        memcpy(*val, readState->next, *valLen);
+        readState->next += *valLen;
+    }
+    return found;
+}
+
 static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
 //    printf("\n-----------------%s----------------------\n", __func__);
     /*
@@ -621,10 +658,12 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
                 }
             }
         } else {
-            found = NextRequest(relationId, readState->operationId, ptr, &k, &kLen, &v, &vLen);
+            //found = NextRequest(relationId, readState->operationId, ptr, &k, &kLen, &v, &vLen);
+            found = GetNextFromBatch(relationId, readState, ptr, &k, &kLen, &v, &vLen);
         }
         #else
-        found = NextRequest(relationId, readState->operationId, ptr, &k, &kLen, &v, &vLen);
+        //found = NextRequest(relationId, readState->operationId, ptr, &k, &kLen, &v, &vLen);
+        found = GetNextFromBatch(relationId, readState, ptr, &k, &kLen, &v, &vLen);
         #endif
     }
 
@@ -688,10 +727,10 @@ static void EndForeignScan(ForeignScanState *scanState) {
              */
             ClearRangeQueryMetaRequest(relationId, readState->operationId, ptr);
         } else {
-            DelIterRequest(relationId, readState->operationId, ptr);
+            DelIterRequest(relationId, readState->operationId, ptr, readState);
         }
         #else
-        DelIterRequest(relationId, readState->operationId, ptr);
+        DelIterRequest(relationId, readState->operationId, ptr, readState);
         #endif
     }
 

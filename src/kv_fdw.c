@@ -380,14 +380,12 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
             pfree(options.attrs);
         } else {
-            //GetIterRequest(relationId, ++operationId, ptr);
             readState->buf = NULL;
             readState->bufLen = ReadBatchRequest(relationId, ++operationId, ptr, &readState->buf);
             readState->next = readState->buf;
             readState->operationId = operationId;
         }
         #else
-        //GetIterRequest(relationId, ++operationId, ptr);
         readState->buf = NULL;
         readState->bufLen = ReadBatchRequest(relationId, ++operationId, ptr, &readState->buf);
         readState->next = readState->buf;
@@ -658,11 +656,9 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
                 }
             }
         } else {
-            //found = NextRequest(relationId, readState->operationId, ptr, &k, &kLen, &v, &vLen);
             found = GetNextFromBatch(relationId, readState, ptr, &k, &kLen, &v, &vLen);
         }
         #else
-        //found = NextRequest(relationId, readState->operationId, ptr, &k, &kLen, &v, &vLen);
         found = GetNextFromBatch(relationId, readState, ptr, &k, &kLen, &v, &vLen);
         #endif
     }

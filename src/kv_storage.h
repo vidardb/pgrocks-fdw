@@ -45,11 +45,11 @@ uint8 EncodeVarintLength(uint64 len, char* buf);
  */
 uint8 DecodeVarintLength(char* start, char* limit, uint64* len);
 
+#define FILENAMELENGTH 25
 #define READBATCHSIZE 10240
 #define READBATCHFILE "/KVReadBatch"
 
 #ifdef VIDARDB
-#define FILENAMELENGTH 20
 #define PERMISSION 0777
 #define RANGEQUERYFILE "/KVRangeQuery"
 

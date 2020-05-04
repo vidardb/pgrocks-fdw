@@ -26,8 +26,6 @@
 
 #define BUFSIZE 65536 * sizeof(char)
 
-#define FILENAMELENGTH 25
-
 #define RESPONSEFILE "/KVSharedResponse"
 
 #define RESPONSEQUEUELENGTH 2

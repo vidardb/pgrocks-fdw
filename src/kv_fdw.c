@@ -381,13 +381,13 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
             pfree(options.attrs);
         } else {
             readState->buf = NULL;
-            readState->bufLen = ReadBatchRequest(relationId, ++operationId, ptr, &readState->buf);
+            readState->hasNext = ReadBatchRequest(relationId, ++operationId, ptr, &readState->buf, &readState->bufLen);
             readState->next = readState->buf;
             readState->operationId = operationId;
         }
         #else
         readState->buf = NULL;
-        readState->bufLen = ReadBatchRequest(relationId, ++operationId, ptr, &readState->buf);
+        readState->hasNext = ReadBatchRequest(relationId, ++operationId, ptr, &readState->buf, &readState->bufLen);
         readState->next = readState->buf;
         readState->operationId = operationId;
         #endif
@@ -543,8 +543,8 @@ static bool GetNextFromBatch(Oid relationId,
     bool found = false;
     if (readState->next < readState->buf + readState->bufLen) {
         found = true;
-    } else if (readState->bufLen > 0) {
-        readState->bufLen = ReadBatchRequest(relationId, readState->operationId, ptr, &readState->buf);
+    } else if (readState->hasNext) {
+        readState->hasNext = ReadBatchRequest(relationId, readState->operationId, ptr, &readState->buf, &readState->bufLen);
         readState->next  = readState->buf;
         if (readState->bufLen > 0) found = true;
     }

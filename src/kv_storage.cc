@@ -93,16 +93,16 @@ bool Next(void* db, void* iter, char* buffer) {
     return true;
 }
 
-size_t ReadBatch(void* db, void* iter, char* buffer) {
-    size_t dataSize = 0;
+bool ReadBatch(void* db, void* iter, char* buffer, size_t *dataSize) {
+    *dataSize = 0;
 
     Iterator* it = static_cast<Iterator*>(iter);
     while (it != nullptr && it->Valid()) {
         size_t keyLen = it->key().size(), valLen = it->value().size();
-        dataSize += keyLen + valLen + sizeof(keyLen) + sizeof(valLen);
+        *dataSize += keyLen + valLen + sizeof(keyLen) + sizeof(valLen);
 
-        if (dataSize > READBATCHSIZE) {
-            dataSize -= keyLen + valLen + sizeof(keyLen) + sizeof(valLen);
+        if (*dataSize > READBATCHSIZE) {
+            *dataSize -= keyLen + valLen + sizeof(keyLen) + sizeof(valLen);
             break;
         }
 
@@ -118,7 +118,10 @@ size_t ReadBatch(void* db, void* iter, char* buffer) {
         it->Next();
     }
 
-    return dataSize;
+    /* does not have next */
+    if (it == nullptr || !it->Valid()) return false;
+
+    return true;
 }
 
 bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen) {

@@ -668,6 +668,10 @@ static void GetIterResponse(char *area) {
 void DelIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr, TableReadState *readState) {
 //    printf("\n============%s============\n", __func__);
 
+    if (readState->buf != NULL) {
+        Munmap(readState->buf, READBATCHSIZE, __func__);
+    }
+    /* shared memory will be open in ReadBatchResponse anyway */
     char filename[FILENAMELENGTH];
     pid_t pid = getpid();
     snprintf(filename, FILENAMELENGTH, "%s%d%lu", READBATCHFILE, pid, readState->operationId);
@@ -824,10 +828,11 @@ void NextResponse(char *area) {
     }
 }
 
-size_t ReadBatchRequest(Oid relationId,
+bool ReadBatchRequest(Oid relationId,
                         uint64 operationId,
                         SharedMem *ptr,
-                        char **buf) {
+                        char **buf,
+                        size_t *dataSize) {
     /* munmap the shared memory so that Response can unlink it */
     if (*buf != NULL) {
         Munmap(*buf, READBATCHSIZE, __func__);
@@ -859,13 +864,15 @@ size_t ReadBatchRequest(Oid relationId,
 
     SemWait(&ptr->responseSync[responseId], __func__);
 
-    size_t batchSz = 0;
     current = ResponseQueue[responseId];
-    memcpy(&batchSz, current, sizeof(batchSz));
+    memcpy(dataSize, current, sizeof(*dataSize));
+    current += sizeof(*dataSize);
+    bool hasNext;
+    memcpy(&hasNext, current, sizeof(hasNext));
 
     SemPost(&ptr->responseMutex[responseId], __func__);
 
-    if (batchSz == 0) {
+    if (*dataSize == 0) {
         *buf = NULL;
     } else {
         char filename[FILENAMELENGTH];
@@ -881,7 +888,7 @@ size_t ReadBatchRequest(Oid relationId,
         Fclose(fd, __func__);
     }
 
-    return batchSz;
+    return hasNext;
 }
 
 void ReadBatchResponse(char *area) {
@@ -935,9 +942,11 @@ void ReadBatchResponse(char *area) {
                      __func__);
     Fclose(fd, __func__);
 
-    size_t batchSz = ReadBatch(entry->db, iterEntry->iter, buf);
+    size_t batchSz = 0;
+    bool hasNext = ReadBatch(entry->db, iterEntry->iter, buf, &batchSz);
 
     memcpy(ResponseQueue[responseId], &batchSz, sizeof(batchSz));
+    memcpy(ResponseQueue[responseId] + sizeof(batchSz), &hasNext, sizeof(hasNext));
     Munmap(buf, READBATCHSIZE, __func__);
 }
 

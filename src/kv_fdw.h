@@ -104,10 +104,10 @@ typedef struct TableReadState {
     char *buf;     /* shared mem for data returned by RangeQuery or ReadBatch */
     size_t bufLen; /* shared mem length, no next batch if it is 0 */
     char *next;    /* pointer to the next data entry for IterateForeignScan */
+    bool hasNext;   /* whether there will be a next batch from RangeQuery or ReadBatch*/
 
     #ifdef VIDARDB
     bool useColumn;
-    bool hasNext;   /* whether there will be a next batch from RangeQuery */
     List *targetAttrs;    /* attributes in select, where, group */
     #endif
 } TableReadState;
@@ -184,10 +184,11 @@ extern bool NextRequest(Oid relationId,
                         char **val,
                         size_t *valLen);
 
-extern size_t ReadBatchRequest(Oid relationId,
+extern bool ReadBatchRequest(Oid relationId,
                         uint64 operationId,
                         SharedMem *ptr,
-                        char **buf);
+                        char **buf,
+                        size_t *dataSize);
 
 extern bool GetRequest(Oid relationId,
                        SharedMem *ptr,

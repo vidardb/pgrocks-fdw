@@ -30,7 +30,7 @@ uint64 Count(void* db);
 void* GetIter(void* db);
 void DelIter(void* it);
 bool Next(void* db, void* iter, char* buffer);
-size_t ReadBatch(void* db, void* iter, char* buffer);
+bool ReadBatch(void* db, void* iter, char* buffer, size_t* dataSize);
 
 bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen);
 bool Put(void* db, char* key, size_t keyLen, char* val, size_t valLen);

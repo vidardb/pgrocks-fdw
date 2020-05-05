@@ -69,6 +69,8 @@ static void DelIterResponse(char *area);
 
 static void NextResponse(char *area);
 
+static void ReadBatchResponse(char *area);
+
 static void GetResponse(char *area);
 
 static void PutResponse(char *area);
@@ -348,6 +350,9 @@ static void KVWorkerMain(int argc, char *argv[]) {
                 break;
             case NEXT:
                 NextResponse(buf);
+                break;
+            case READBATCH:
+                ReadBatchResponse(buf);
                 break;
             case GET:
                 GetResponse(buf);
@@ -660,8 +665,17 @@ static void GetIterResponse(char *area) {
     iterEntry->iter = GetIter(entry->db);
 }
 
-void DelIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr) {
+void DelIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr, TableReadState *readState) {
 //    printf("\n============%s============\n", __func__);
+
+    if (readState->buf != NULL) {
+        Munmap(readState->buf, READBATCHSIZE, __func__);
+    }
+    /* shared memory will be open in ReadBatchResponse anyway */
+    char filename[FILENAMELENGTH];
+    pid_t pid = getpid();
+    snprintf(filename, FILENAMELENGTH, "%s%d%lu", READBATCHFILE, pid, readState->operationId);
+    ShmUnlink(filename, __func__);
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
@@ -678,7 +692,6 @@ void DelIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr) {
     memcpy(current, &relationId, sizeof(relationId));
     current += sizeof(relationId);
 
-    pid_t pid = getpid();
     memcpy(current, &pid, sizeof(pid));
     current += sizeof(pid);
 
@@ -813,6 +826,128 @@ void NextResponse(char *area) {
         size_t keyLen = 0;
         memcpy(ResponseQueue[responseId], &keyLen, sizeof(keyLen));
     }
+}
+
+bool ReadBatchRequest(Oid relationId,
+                        uint64 operationId,
+                        SharedMem *ptr,
+                        char **buf,
+                        size_t *dataSize) {
+    /* munmap the shared memory so that Response can unlink it */
+    if (*buf != NULL) {
+        Munmap(*buf, READBATCHSIZE, __func__);
+    }
+
+    SemWait(&ptr->mutex, __func__);
+    SemWait(&ptr->full, __func__);
+
+    char *current = ptr->area;
+    FuncName func = READBATCH;
+    memcpy(current, &func, sizeof(func));
+    current += sizeof(func);
+
+    uint32 responseId = GetResponseQueueIndex(ptr);
+    memcpy(current, &responseId, sizeof(responseId));
+    current += sizeof(responseId);
+
+    memcpy(current, &relationId, sizeof(relationId));
+    current += sizeof(relationId);
+
+    pid_t pid = getpid();
+    memcpy(current, &pid, sizeof(pid));
+    current += sizeof(pid);
+
+    memcpy(current, &operationId, sizeof(operationId));
+
+    SemPost(&ptr->worker, __func__);
+    SemPost(&ptr->mutex, __func__);
+
+    SemWait(&ptr->responseSync[responseId], __func__);
+
+    current = ResponseQueue[responseId];
+    memcpy(dataSize, current, sizeof(*dataSize));
+    current += sizeof(*dataSize);
+    bool hasNext;
+    memcpy(&hasNext, current, sizeof(hasNext));
+
+    SemPost(&ptr->responseMutex[responseId], __func__);
+
+    if (*dataSize == 0) {
+        *buf = NULL;
+    } else {
+        char filename[FILENAMELENGTH];
+        snprintf(filename, FILENAMELENGTH, "%s%d%lu", READBATCHFILE, pid, operationId);
+        int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
+        *buf = Mmap(NULL,
+                    READBATCHSIZE,
+                    PROT_READ | PROT_WRITE,
+                    MAP_SHARED,
+                    fd,
+                    0,
+                    __func__);
+        Fclose(fd, __func__);
+    }
+
+    return hasNext;
+}
+
+void ReadBatchResponse(char *area) {
+    uint32 responseId;
+    memcpy(&responseId, area, sizeof(responseId));
+    area += sizeof(responseId);
+
+    KVTableProcOpHashKey iterKey;
+    memcpy(&iterKey.relationId, area, sizeof(iterKey.relationId));
+    area += sizeof(iterKey.relationId);
+
+    memcpy(&iterKey.pid, area, sizeof(iterKey.pid));
+    area += sizeof(iterKey.pid);
+
+    memcpy(&iterKey.operationId, area, sizeof(iterKey.operationId));
+
+    bool found;
+    KVHashEntry *entry = hash_search(kvTableHash,
+                                     &iterKey.relationId,
+                                     HASH_FIND,
+                                     &found);
+    if (!found) {
+        ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
+    }
+
+    bool iterFound;
+    KVIterHashEntry *iterEntry = hash_search(kvIterHash,
+                                             &iterKey,
+                                             HASH_ENTER,
+                                             &iterFound);
+    if (!iterFound) {
+        iterEntry->key = iterKey;
+        iterEntry->iter = GetIter(entry->db);
+    }
+
+    char filename[FILENAMELENGTH];
+    snprintf(filename, FILENAMELENGTH, "%s%d%lu", READBATCHFILE, iterKey.pid, iterKey.operationId);
+
+    ShmUnlink(filename, __func__);
+    int fd = ShmOpen(filename,
+                     O_CREAT | O_RDWR | O_EXCL,
+                     PERMISSION,
+                     __func__);
+    Ftruncate(fd, READBATCHSIZE, __func__);
+    char* buf = Mmap(NULL,
+                     READBATCHSIZE,
+                     PROT_READ | PROT_WRITE,
+                     MAP_SHARED,
+                     fd,
+                     0,
+                     __func__);
+    Fclose(fd, __func__);
+
+    size_t batchSz = 0;
+    bool hasNext = ReadBatch(entry->db, iterEntry->iter, buf, &batchSz);
+
+    memcpy(ResponseQueue[responseId], &batchSz, sizeof(batchSz));
+    memcpy(ResponseQueue[responseId] + sizeof(batchSz), &hasNext, sizeof(hasNext));
+    Munmap(buf, READBATCHSIZE, __func__);
 }
 
 bool GetRequest(Oid relationId,

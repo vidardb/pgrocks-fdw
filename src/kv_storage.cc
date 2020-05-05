@@ -93,6 +93,37 @@ bool Next(void* db, void* iter, char* buffer) {
     return true;
 }
 
+bool ReadBatch(void* db, void* iter, char* buffer, size_t *dataSize) {
+    *dataSize = 0;
+
+    Iterator* it = static_cast<Iterator*>(iter);
+    while (it != nullptr && it->Valid()) {
+        size_t keyLen = it->key().size(), valLen = it->value().size();
+        *dataSize += keyLen + valLen + sizeof(keyLen) + sizeof(valLen);
+
+        if (*dataSize > READBATCHSIZE) {
+            *dataSize -= keyLen + valLen + sizeof(keyLen) + sizeof(valLen);
+            break;
+        }
+
+        memcpy(buffer, &keyLen, sizeof(keyLen));
+        buffer += sizeof(keyLen);
+        memcpy(buffer, it->key().data(), keyLen);
+        buffer += keyLen;
+        memcpy(buffer, &valLen, sizeof(valLen));
+        buffer += sizeof(valLen);
+        memcpy(buffer, it->value().data(), valLen);
+        buffer += valLen;
+
+        it->Next();
+    }
+
+    /* does not have next */
+    if (it == nullptr || !it->Valid()) return false;
+
+    return true;
+}
+
 bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen) {
     string sval;
     ReadOptions ro;

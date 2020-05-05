@@ -26,8 +26,6 @@
 
 #define BUFSIZE 65536 * sizeof(char)
 
-#define FILENAMELENGTH 20
-
 #define RESPONSEFILE "/KVSharedResponse"
 
 #define RESPONSEQUEUELENGTH 2
@@ -103,13 +101,13 @@ typedef struct TableReadState {
     uint64 operationId;
     bool done;
     StringInfo key;
+    char *buf;     /* shared mem for data returned by RangeQuery or ReadBatch */
+    size_t bufLen; /* shared mem length, no next batch if it is 0 */
+    char *next;    /* pointer to the next data entry for IterateForeignScan */
+    bool hasNext;   /* whether there will be a next batch from RangeQuery or ReadBatch*/
 
     #ifdef VIDARDB
     bool useColumn;
-    char *buf;      /* shared mem for data returned by RangeQuery */
-    size_t bufLen;  /* shared mem length */
-    char *next;     /* pointer to the next data entry for IterateForeignScan */
-    bool hasNext;   /* whether there will be a next batch from RangeQuery */
     List *targetAttrs;    /* attributes in select, where, group */
     #endif
 } TableReadState;
@@ -132,6 +130,7 @@ typedef enum FuncName {
     GETITER,
     DELITER,
     NEXT,
+    READBATCH,
     GET,
     PUT,
     DELETE,
@@ -175,7 +174,7 @@ extern uint64 CountRequest(Oid relationId, SharedMem *ptr);
 
 extern void GetIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr);
 
-extern void DelIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr);
+extern void DelIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr, TableReadState *readState);
 
 extern bool NextRequest(Oid relationId,
                         uint64 operationId,
@@ -184,6 +183,12 @@ extern bool NextRequest(Oid relationId,
                         size_t *keyLen,
                         char **val,
                         size_t *valLen);
+
+extern bool ReadBatchRequest(Oid relationId,
+                        uint64 operationId,
+                        SharedMem *ptr,
+                        char **buf,
+                        size_t *dataSize);
 
 extern bool GetRequest(Oid relationId,
                        SharedMem *ptr,

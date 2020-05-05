@@ -30,6 +30,7 @@ uint64 Count(void* db);
 void* GetIter(void* db);
 void DelIter(void* it);
 bool Next(void* db, void* iter, char* buffer);
+bool ReadBatch(void* db, void* iter, char* buffer, size_t* dataSize);
 
 bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen);
 bool Put(void* db, char* key, size_t keyLen, char* val, size_t valLen);
@@ -44,10 +45,11 @@ uint8 EncodeVarintLength(uint64 len, char* buf);
  */
 uint8 DecodeVarintLength(char* start, char* limit, uint64* len);
 
+#define FILENAMELENGTH 25
 #define READBATCHSIZE 10240
+#define READBATCHFILE "/KVReadBatch"
 
 #ifdef VIDARDB
-#define FILENAMELENGTH 20
 #define PERMISSION 0777
 #define RANGEQUERYFILE "/KVRangeQuery"
 

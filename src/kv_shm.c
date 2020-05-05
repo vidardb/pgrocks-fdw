@@ -665,7 +665,10 @@ static void GetIterResponse(char *area) {
     iterEntry->iter = GetIter(entry->db);
 }
 
-void DelIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr, TableReadState *readState) {
+void DelIterRequest(Oid relationId,
+                    uint64 operationId,
+                    SharedMem *ptr,
+                    TableReadState *readState) {
 //    printf("\n============%s============\n", __func__);
 
     if (readState->buf != NULL) {
@@ -674,7 +677,12 @@ void DelIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr, TableRea
     /* shared memory will be open in ReadBatchResponse anyway */
     char filename[FILENAMELENGTH];
     pid_t pid = getpid();
-    snprintf(filename, FILENAMELENGTH, "%s%d%lu", READBATCHFILE, pid, readState->operationId);
+    snprintf(filename,
+             FILENAMELENGTH,
+             "%s%d%lu",
+             READBATCHFILE,
+             pid,
+             readState->operationId);
     ShmUnlink(filename, __func__);
 
     SemWait(&ptr->mutex, __func__);
@@ -829,10 +837,12 @@ void NextResponse(char *area) {
 }
 
 bool ReadBatchRequest(Oid relationId,
-                        uint64 operationId,
-                        SharedMem *ptr,
-                        char **buf,
-                        size_t *dataSize) {
+                      uint64 operationId,
+                      SharedMem *ptr,
+                      char **buf,
+                      size_t *bufLen) {
+//    printf("\n============%s============\n", __func__);
+
     /* munmap the shared memory so that Response can unlink it */
     if (*buf != NULL) {
         Munmap(*buf, READBATCHSIZE, __func__);
@@ -865,18 +875,23 @@ bool ReadBatchRequest(Oid relationId,
     SemWait(&ptr->responseSync[responseId], __func__);
 
     current = ResponseQueue[responseId];
-    memcpy(dataSize, current, sizeof(*dataSize));
-    current += sizeof(*dataSize);
+    memcpy(bufLen, current, sizeof(*bufLen));
+    current += sizeof(*bufLen);
     bool hasNext;
     memcpy(&hasNext, current, sizeof(hasNext));
 
     SemPost(&ptr->responseMutex[responseId], __func__);
 
-    if (*dataSize == 0) {
+    if (*bufLen == 0) {
         *buf = NULL;
     } else {
         char filename[FILENAMELENGTH];
-        snprintf(filename, FILENAMELENGTH, "%s%d%lu", READBATCHFILE, pid, operationId);
+        snprintf(filename,
+                 FILENAMELENGTH,
+                 "%s%d%lu",
+                 READBATCHFILE,
+                 pid,
+                 operationId);
         int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
         *buf = Mmap(NULL,
                     READBATCHSIZE,
@@ -892,6 +907,8 @@ bool ReadBatchRequest(Oid relationId,
 }
 
 void ReadBatchResponse(char *area) {
+//    printf("\n============%s============\n", __func__);
+
     uint32 responseId;
     memcpy(&responseId, area, sizeof(responseId));
     area += sizeof(responseId);
@@ -925,7 +942,12 @@ void ReadBatchResponse(char *area) {
     }
 
     char filename[FILENAMELENGTH];
-    snprintf(filename, FILENAMELENGTH, "%s%d%lu", READBATCHFILE, iterKey.pid, iterKey.operationId);
+    snprintf(filename,
+             FILENAMELENGTH,
+             "%s%d%lu",
+             READBATCHFILE,
+             iterKey.pid,
+             iterKey.operationId);
 
     ShmUnlink(filename, __func__);
     int fd = ShmOpen(filename,
@@ -942,11 +964,11 @@ void ReadBatchResponse(char *area) {
                      __func__);
     Fclose(fd, __func__);
 
-    size_t batchSz = 0;
-    bool hasNext = ReadBatch(entry->db, iterEntry->iter, buf, &batchSz);
+    size_t bufLen = 0;
+    bool hasNext = ReadBatch(entry->db, iterEntry->iter, buf, &bufLen);
 
-    memcpy(ResponseQueue[responseId], &batchSz, sizeof(batchSz));
-    memcpy(ResponseQueue[responseId] + sizeof(batchSz), &hasNext, sizeof(hasNext));
+    memcpy(ResponseQueue[responseId], &bufLen, sizeof(bufLen));
+    memcpy(ResponseQueue[responseId] + sizeof(bufLen), &hasNext, sizeof(hasNext));
     Munmap(buf, READBATCHSIZE, __func__);
 }
 
@@ -1189,6 +1211,11 @@ bool RangeQueryRequest(Oid relationId,
                        size_t *bufLen) {
 //    printf("\n============%s============\n", __func__);
 
+    /* munmap the shared memory so that Response can unlink it */
+    if (*buf && *bufLen > 0) {
+        Munmap(*buf, *bufLen, __func__);
+    }
+
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
 
@@ -1254,7 +1281,12 @@ bool RangeQueryRequest(Oid relationId,
         *buf = NULL;
     } else {
         char filename[FILENAMELENGTH];
-        snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, pid);
+        snprintf(filename,
+                 FILENAMELENGTH,
+                 "%s%d%lu",
+                 RANGEQUERYFILE,
+                 pid,
+                 operationId);
         int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
         *buf = Mmap(NULL,
                     *bufLen,  /* must larger than 0 */
@@ -1365,7 +1397,12 @@ static void RangeQueryResponse(char *area) {
     memcpy(current, &ret, sizeof(ret));
 
     char filename[FILENAMELENGTH];
-    snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, optionKey.pid);
+    snprintf(filename,
+             FILENAMELENGTH,
+             "%s%d%lu",
+             RANGEQUERYFILE,
+             optionKey.pid,
+             optionKey.operationId);
     /*
      * clear last call's shared data structure,
      * might throw out warning if no object to unlink, but it is fine.
@@ -1401,8 +1438,15 @@ static void RangeQueryResponse(char *area) {
     }
 }
 
-void ClearRangeQueryMetaRequest(Oid relationId, uint64 operationId, SharedMem *ptr) {
+void ClearRangeQueryMetaRequest(Oid relationId,
+                                uint64 operationId,
+                                SharedMem *ptr,
+                                TableReadState *readState) {
 //    printf("\n============%s============\n", __func__);
+
+    if (readState->buf && readState->bufLen > 0) {
+        Munmap(readState->buf, readState->bufLen, __func__);
+    }
 
     SemWait(&ptr->mutex, __func__);
     SemWait(&ptr->full, __func__);
@@ -1457,7 +1501,12 @@ static void ClearRangeQueryMetaResponse(char *area) {
     entry->range = NULL;
 
     char filename[FILENAMELENGTH];
-    snprintf(filename, FILENAMELENGTH, "%s%d", RANGEQUERYFILE, optionKey.pid);
+    snprintf(filename,
+             FILENAMELENGTH,
+             "%s%d%lu",
+             RANGEQUERYFILE,
+             optionKey.pid,
+             optionKey.operationId);
     ShmUnlink(filename, __func__);
 }
 #endif

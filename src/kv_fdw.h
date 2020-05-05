@@ -24,13 +24,20 @@
 
 #define PATHMAXLENGTH 4096
 
-#define BUFSIZE 65536 * sizeof(char)
+#define FILENAMELENGTH 25
+
+#define BUFSIZE 65536
 
 #define RESPONSEFILE "/KVSharedResponse"
 
 #define RESPONSEQUEUELENGTH 2
 
 #define HEADERBUFFSIZE 10
+
+#define READBATCHSIZE 4096*20
+
+#define READBATCHFILE "/KVReadBatch"
+
 
 /* Defines for valid options and the default values */
 #define OPTION_FILENAME "filename"
@@ -43,6 +50,8 @@
 #define COLUMNSTORE "column"
 
 #define BATCHCAPACITY 10000
+
+#define RANGEQUERYFILE "/KVRangeQuery"
 #endif
 
 
@@ -104,7 +113,7 @@ typedef struct TableReadState {
     char *buf;     /* shared mem for data returned by RangeQuery or ReadBatch */
     size_t bufLen; /* shared mem length, no next batch if it is 0 */
     char *next;    /* pointer to the next data entry for IterateForeignScan */
-    bool hasNext;   /* whether there will be a next batch from RangeQuery or ReadBatch*/
+    bool hasNext;  /* whether a next batch from RangeQuery or ReadBatch*/
 
     #ifdef VIDARDB
     bool useColumn;
@@ -174,7 +183,10 @@ extern uint64 CountRequest(Oid relationId, SharedMem *ptr);
 
 extern void GetIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr);
 
-extern void DelIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr, TableReadState *readState);
+extern void DelIterRequest(Oid relationId,
+                           uint64 operationId,
+                           SharedMem *ptr,
+                           TableReadState *readState);
 
 extern bool NextRequest(Oid relationId,
                         uint64 operationId,
@@ -185,10 +197,10 @@ extern bool NextRequest(Oid relationId,
                         size_t *valLen);
 
 extern bool ReadBatchRequest(Oid relationId,
-                        uint64 operationId,
-                        SharedMem *ptr,
-                        char **buf,
-                        size_t *dataSize);
+                             uint64 operationId,
+                             SharedMem *ptr,
+                             char **buf,
+                             size_t *bufLen);
 
 extern bool GetRequest(Oid relationId,
                        SharedMem *ptr,
@@ -217,7 +229,10 @@ extern bool RangeQueryRequest(Oid relationId,
                               char **buf,
                               size_t *bufLen);
 
-extern void ClearRangeQueryMetaRequest(Oid relationId, uint64 operationId, SharedMem *ptr);
+extern void ClearRangeQueryMetaRequest(Oid relationId,
+                                       uint64 operationId,
+                                       SharedMem *ptr,
+                                       TableReadState *readState);
 #endif
 
 /* global variables */

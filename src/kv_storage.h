@@ -30,7 +30,7 @@ uint64 Count(void* db);
 void* GetIter(void* db);
 void DelIter(void* it);
 bool Next(void* db, void* iter, char* buffer);
-bool ReadBatch(void* db, void* iter, char* buffer, size_t* dataSize);
+bool ReadBatch(void* db, void* iter, char* buf, size_t* bufLen);
 
 bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen);
 bool Put(void* db, char* key, size_t keyLen, char* val, size_t valLen);
@@ -45,14 +45,8 @@ uint8 EncodeVarintLength(uint64 len, char* buf);
  */
 uint8 DecodeVarintLength(char* start, char* limit, uint64* len);
 
-#define FILENAMELENGTH 25
-#define READBATCHSIZE 10240
-#define READBATCHFILE "/KVReadBatch"
 
 #ifdef VIDARDB
-#define PERMISSION 0777
-#define RANGEQUERYFILE "/KVRangeQuery"
-
 typedef struct RangeQueryOptions {
     size_t startLen;
     char* start;
@@ -72,8 +66,8 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
 void ParseRangeQueryResult(void* result, char* buf);
 
 void ClearRangeQueryMeta(void* range, void* readOptions);
-
 #endif
+
 
 #if defined(__cplusplus)
 }

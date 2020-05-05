@@ -311,6 +311,8 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     readState->operationId = 0;
     readState->done = false;
     readState->key = NULL;
+    readState->buf = NULL;
+    readState->bufLen = 0;
 
     #ifdef VIDARDB
     ForeignScan *foreignScan = (ForeignScan *) scanState->ss.ps.plan;
@@ -375,22 +377,24 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
                                                    &options,
                                                    &readState->buf,
                                                    &readState->bufLen);
-            readState->operationId = operationId;
-            readState->next = readState->buf;
-
             pfree(options.attrs);
         } else {
-            readState->buf = NULL;
-            readState->hasNext = ReadBatchRequest(relationId, ++operationId, ptr, &readState->buf, &readState->bufLen);
-            readState->next = readState->buf;
-            readState->operationId = operationId;
+            readState->hasNext = ReadBatchRequest(relationId,
+                                                  ++operationId,
+                                                  ptr,
+                                                  &readState->buf,
+                                                  &readState->bufLen);
         }
         #else
-        readState->buf = NULL;
-        readState->hasNext = ReadBatchRequest(relationId, ++operationId, ptr, &readState->buf, &readState->bufLen);
+        readState->hasNext = ReadBatchRequest(relationId,
+                                              ++operationId,
+                                              ptr,
+                                              &readState->buf,
+                                              &readState->bufLen);
+        #endif
+
         readState->next = readState->buf;
         readState->operationId = operationId;
-        #endif
     }
 }
 
@@ -544,21 +548,44 @@ static bool GetNextFromBatch(Oid relationId,
     if (readState->next < readState->buf + readState->bufLen) {
         found = true;
     } else if (readState->hasNext) {
-        readState->hasNext = ReadBatchRequest(relationId, readState->operationId, ptr, &readState->buf, &readState->bufLen);
+        #ifdef VIDARDB
+        if (readState->useColumn) {
+            readState->hasNext = RangeQueryRequest(relationId,
+                                                   readState->operationId,
+                                                   ptr,
+                                                   NULL,
+                                                   &readState->buf,
+                                                   &readState->bufLen);
+        } else {
+            readState->hasNext = ReadBatchRequest(relationId,
+                                                  readState->operationId,
+                                                  ptr,
+                                                  &readState->buf,
+                                                  &readState->bufLen);
+        }
+        #else
+        readState->hasNext = ReadBatchRequest(relationId,
+                                              readState->operationId,
+                                              ptr,
+                                              &readState->buf,
+                                              &readState->bufLen);
+        #endif
+
         readState->next  = readState->buf;
-        if (readState->bufLen > 0) found = true;
+        if (readState->bufLen > 0) {
+            found = true;
+        }
     }
 
     if (found) {
         memcpy(keyLen, readState->next, sizeof(*keyLen));
         readState->next += sizeof(*keyLen);
-        *key = palloc(*keyLen);
-        memcpy(*key, readState->next, *keyLen);
+        *key = readState->next;
         readState->next += *keyLen;
+
         memcpy(valLen, readState->next, sizeof(*valLen));
         readState->next += sizeof(*valLen);
-        *val = palloc(*valLen);
-        memcpy(*val, readState->next, *valLen);
+        *val = readState->next;
         readState->next += *valLen;
     }
     return found;
@@ -608,59 +635,7 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
             readState->done = true;
         }
     } else {
-        #ifdef VIDARDB
-        if (readState->useColumn) {
-
-            if (readState->next < readState->buf + readState->bufLen) {
-                /* still in reading */
-                Assert(readState->bufLen > 0);
-
-                memcpy(&kLen, readState->next, sizeof(kLen));
-                readState->next += sizeof(kLen);
-                k = readState->next;
-                readState->next += kLen;
-
-                memcpy(&vLen, readState->next, sizeof(vLen));
-                readState->next += sizeof(vLen);
-                v = readState->next;
-                readState->next += vLen;
-
-                found = true;
-            } else if (readState->hasNext) {
-                /* finish reading from shared mem */
-                Munmap(readState->buf, readState->bufLen, __func__);
-                readState->hasNext = RangeQueryRequest(relationId,
-                                                       readState->operationId,
-                                                       ptr,
-                                                       NULL,
-                                                       &readState->buf,
-                                                       &readState->bufLen);
-                readState->next = readState->buf;
-
-                if (readState->bufLen > 0) {
-                    memcpy(&kLen, readState->next, sizeof(kLen));
-                    readState->next += sizeof(kLen);
-                    k = readState->next;
-                    readState->next += kLen;
-
-                    memcpy(&vLen, readState->next, sizeof(vLen));
-                    readState->next += sizeof(vLen);
-                    v = readState->next;
-                    readState->next += vLen;
-
-                    found = true;
-                }
-            } else {
-                if (readState->bufLen > 0) {
-                    Munmap(readState->buf, readState->bufLen, __func__);
-                }
-            }
-        } else {
-            found = GetNextFromBatch(relationId, readState, ptr, &k, &kLen, &v, &vLen);
-        }
-        #else
         found = GetNextFromBatch(relationId, readState, ptr, &k, &kLen, &v, &vLen);
-        #endif
     }
 
     if (found) {
@@ -721,7 +696,10 @@ static void EndForeignScan(ForeignScanState *scanState) {
              * unmap for this client process should already be done in
              * IterateForeignScan. Now release resource of server process.
              */
-            ClearRangeQueryMetaRequest(relationId, readState->operationId, ptr);
+            ClearRangeQueryMetaRequest(relationId,
+                                       readState->operationId,
+                                       ptr,
+                                       readState);
         } else {
             DelIterRequest(relationId, readState->operationId, ptr, readState);
         }

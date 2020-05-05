@@ -15,6 +15,8 @@ using namespace rocksdb;
 using namespace std;
 
 #include "kv_storage.h"
+#include "kv_fdw.h"
+
 
 extern "C" {
 
@@ -93,33 +95,35 @@ bool Next(void* db, void* iter, char* buffer) {
     return true;
 }
 
-bool ReadBatch(void* db, void* iter, char* buffer, size_t *dataSize) {
-    *dataSize = 0;
+bool ReadBatch(void* db, void* iter, char* buf, size_t* bufLen) {
+    *bufLen = 0;
 
     Iterator* it = static_cast<Iterator*>(iter);
     while (it != nullptr && it->Valid()) {
         size_t keyLen = it->key().size(), valLen = it->value().size();
-        *dataSize += keyLen + valLen + sizeof(keyLen) + sizeof(valLen);
+        *bufLen += keyLen + valLen + sizeof(keyLen) + sizeof(valLen);
 
-        if (*dataSize > READBATCHSIZE) {
-            *dataSize -= keyLen + valLen + sizeof(keyLen) + sizeof(valLen);
+        if (*bufLen > READBATCHSIZE) {
+            *bufLen -= keyLen + valLen + sizeof(keyLen) + sizeof(valLen);
             break;
         }
 
-        memcpy(buffer, &keyLen, sizeof(keyLen));
-        buffer += sizeof(keyLen);
-        memcpy(buffer, it->key().data(), keyLen);
-        buffer += keyLen;
-        memcpy(buffer, &valLen, sizeof(valLen));
-        buffer += sizeof(valLen);
-        memcpy(buffer, it->value().data(), valLen);
-        buffer += valLen;
+        memcpy(buf, &keyLen, sizeof(keyLen));
+        buf += sizeof(keyLen);
+        memcpy(buf, it->key().data(), keyLen);
+        buf += keyLen;
+        memcpy(buf, &valLen, sizeof(valLen));
+        buf += sizeof(valLen);
+        memcpy(buf, it->value().data(), valLen);
+        buf += valLen;
 
         it->Next();
     }
 
     /* does not have next */
-    if (it == nullptr || !it->Valid()) return false;
+    if (it == nullptr || !it->Valid()) {
+        return false;
+    }
 
     return true;
 }

@@ -1027,33 +1027,30 @@ bool GetRequest(Oid relationId,
 static void GetResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
-    int responseId;
-    memcpy(&responseId, area, sizeof(responseId));
-    area += sizeof(responseId);
+    int *responseId = (int *)area;
+    area += sizeof(*responseId);
 
-    Oid relationId;
-    memcpy(&relationId, area, sizeof(relationId));
-    area += sizeof(relationId);
+    Oid *relationId = (Oid *)area;
+    area += sizeof(*relationId);
 
     bool found;
-    KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
+    KVHashEntry *entry = hash_search(kvTableHash, relationId, HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     }
+    
+    size_t *keyLen = (size_t *)area;
+    area += sizeof(*keyLen);
 
-    size_t keyLen, valLen;
-
-    memcpy(&keyLen, area, sizeof(keyLen));
-    area += sizeof(keyLen);
-
+    size_t valLen;
     char *key = area, *val = NULL;
-    bool res = Get(entry->db, key, keyLen, &val, &valLen);
-    memcpy(ResponseQueue[responseId], &res, sizeof(res));
+    bool res = Get(entry->db, key, *keyLen, &val, &valLen);
+    memcpy(ResponseQueue[*responseId], &res, sizeof(res));
     if (!res) {
         return;
     }
 
-    char *current = ResponseQueue[responseId] + sizeof(res);
+    char *current = ResponseQueue[*responseId] + sizeof(res);
     memcpy(current, &valLen, sizeof(valLen));
 
     current += sizeof(valLen);

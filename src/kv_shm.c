@@ -489,12 +489,11 @@ static void OpenResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     #ifdef VIDARDB
-    bool useColumn = false;
-    memcpy(&useColumn, area, sizeof(useColumn));
-    area += sizeof(useColumn);
-    int attrCount = 0;
-    memcpy(&attrCount, area, sizeof(attrCount));
-    area += sizeof(attrCount);
+    bool *useColumn = (bool *)area;
+    area += sizeof(*useColumn);
+
+    int *attrCount = (int *)area;
+    area += sizeof(*attrCount);
     #endif
 
     char path[PATHMAXLENGTH];
@@ -508,7 +507,7 @@ static void OpenResponse(char *area) {
         entry->relationId = relationId;
         entry->ref = 1;
         #ifdef VIDARDB
-        entry->db = Open(path, useColumn, attrCount);
+        entry->db = Open(path, *useColumn, *attrCount);
         #else
         entry->db = Open(path);
         #endif
@@ -545,11 +544,10 @@ void CloseRequest(Oid relationId, SharedMem *ptr) {
 static void CloseResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
-    Oid relationId;
-    memcpy(&relationId, area, sizeof(relationId));
+    Oid *relationId = (Oid *)area;
 
     bool found;
-    KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
+    KVHashEntry *entry = hash_search(kvTableHash, relationId, HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     }
@@ -588,10 +586,10 @@ uint64 CountRequest(Oid relationId, SharedMem *ptr) {
 static void CountResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
-    uint32 responseId;
-    memcpy(&responseId, area, sizeof(responseId));
-    Oid relationId;
-    memcpy(&relationId, area + sizeof(responseId), sizeof(relationId));
+    uint32 *responseId = (uint32 *)area;
+    area += sizeof(*responseId);
+
+    Oid *relationId = (Oid *)area;
 
     bool found;
     KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
@@ -600,7 +598,7 @@ static void CountResponse(char *area) {
     }
 
     uint64 count = Count(entry->db);
-    memcpy(ResponseQueue[responseId], &count, sizeof(count));
+    memcpy(ResponseQueue[*responseId], &count, sizeof(count));
 }
 
 void GetIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr) {
@@ -638,11 +636,13 @@ static void GetIterResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     KVTableProcOpHashKey iterKey;
-    memcpy(&iterKey.relationId, area, sizeof(iterKey.relationId));
+    iterKey.relationId = *((Oid *)area);
     area += sizeof(iterKey.relationId);
-    memcpy(&iterKey.pid, area, sizeof(iterKey.pid));
+
+    iterKey.pid = *((pid_t *)area);
     area += sizeof(iterKey.pid);
-    memcpy(&iterKey.operationId, area, sizeof(iterKey.operationId));
+
+    iterKey.operationId = *((uint64 *)area);
 
     bool found;
     KVHashEntry *entry = hash_search(kvTableHash,
@@ -716,11 +716,13 @@ static void DelIterResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     KVTableProcOpHashKey iterKey;
-    memcpy(&iterKey.relationId, area, sizeof(iterKey.relationId));
+    iterKey.relationId = *((Oid *)area);
     area += sizeof(iterKey.relationId);
-    memcpy(&iterKey.pid, area, sizeof(iterKey.pid));
+
+    iterKey.pid = *((pid_t *)area);
     area += sizeof(iterKey.pid);
-    memcpy(&iterKey.operationId, area, sizeof(iterKey.operationId));
+
+    iterKey.operationId = *((uint64 *)area);
 
     bool found;
     KVIterHashEntry *entry = hash_search(kvIterHash, &iterKey, HASH_REMOVE, &found);
@@ -796,18 +798,17 @@ bool NextRequest(Oid relationId,
 void NextResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
-    uint32 responseId;
-    memcpy(&responseId, area, sizeof(responseId));
-    area += sizeof(responseId);
+    uint32 *responseId = (uint32 *)area;
+    area += sizeof(*responseId);
 
     KVTableProcOpHashKey iterKey;
-    memcpy(&iterKey.relationId, area, sizeof(iterKey.relationId));
+    iterKey.relationId = *((Oid *)area);
     area += sizeof(iterKey.relationId);
 
-    memcpy(&iterKey.pid, area, sizeof(iterKey.pid));
+    iterKey.pid = *((pid_t *)area);
     area += sizeof(iterKey.pid);
 
-    memcpy(&iterKey.operationId, area, sizeof(iterKey.operationId));
+    iterKey.operationId = *((uint64 *)area);
 
     bool found;
     KVHashEntry *entry = hash_search(kvTableHash,
@@ -827,12 +828,12 @@ void NextResponse(char *area) {
         ereport(ERROR, (errmsg("%s failed in hash search for iterator", __func__)));
     }
 
-    char *current = ResponseQueue[responseId];
+    char *current = ResponseQueue[*responseId];
     bool res = Next(entry->db, iterEntry->iter, current);
     if (!res) {
         /* no next item */
         size_t keyLen = 0;
-        memcpy(ResponseQueue[responseId], &keyLen, sizeof(keyLen));
+        memcpy(ResponseQueue[*responseId], &keyLen, sizeof(keyLen));
     }
 }
 
@@ -909,18 +910,17 @@ bool ReadBatchRequest(Oid relationId,
 void ReadBatchResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
-    uint32 responseId;
-    memcpy(&responseId, area, sizeof(responseId));
-    area += sizeof(responseId);
+    uint32 *responseId = (uint32 *)area;
+    area += sizeof(*responseId);
 
     KVTableProcOpHashKey iterKey;
-    memcpy(&iterKey.relationId, area, sizeof(iterKey.relationId));
+    iterKey.relationId = *((Oid *)area);
     area += sizeof(iterKey.relationId);
 
-    memcpy(&iterKey.pid, area, sizeof(iterKey.pid));
+    iterKey.pid = *((pid_t *)area);
     area += sizeof(iterKey.pid);
 
-    memcpy(&iterKey.operationId, area, sizeof(iterKey.operationId));
+    iterKey.operationId = *((uint64 *)area);
 
     bool found;
     KVHashEntry *entry = hash_search(kvTableHash,
@@ -967,8 +967,8 @@ void ReadBatchResponse(char *area) {
     size_t bufLen = 0;
     bool hasNext = ReadBatch(entry->db, iterEntry->iter, buf, &bufLen);
 
-    memcpy(ResponseQueue[responseId], &bufLen, sizeof(bufLen));
-    memcpy(ResponseQueue[responseId] + sizeof(bufLen), &hasNext, sizeof(hasNext));
+    memcpy(ResponseQueue[*responseId], &bufLen, sizeof(bufLen));
+    memcpy(ResponseQueue[*responseId] + sizeof(bufLen), &hasNext, sizeof(hasNext));
     Munmap(buf, READBATCHSIZE, __func__);
 }
 
@@ -1027,33 +1027,30 @@ bool GetRequest(Oid relationId,
 static void GetResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
-    int responseId;
-    memcpy(&responseId, area, sizeof(responseId));
-    area += sizeof(responseId);
+    int *responseId = (int *)area;
+    area += sizeof(*responseId);
 
-    Oid relationId;
-    memcpy(&relationId, area, sizeof(relationId));
-    area += sizeof(relationId);
+    Oid *relationId = (Oid *)area;
+    area += sizeof(*relationId);
 
     bool found;
-    KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
+    KVHashEntry *entry = hash_search(kvTableHash, relationId, HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     }
 
-    size_t keyLen, valLen;
+    size_t *keyLen = (size_t *)area;
+    area += sizeof(*keyLen);
 
-    memcpy(&keyLen, area, sizeof(keyLen));
-    area += sizeof(keyLen);
-
+    size_t valLen;
     char *key = area, *val = NULL;
-    bool res = Get(entry->db, key, keyLen, &val, &valLen);
-    memcpy(ResponseQueue[responseId], &res, sizeof(res));
+    bool res = Get(entry->db, key, *keyLen, &val, &valLen);
+    memcpy(ResponseQueue[*responseId], &res, sizeof(res));
     if (!res) {
         return;
     }
 
-    char *current = ResponseQueue[responseId] + sizeof(res);
+    char *current = ResponseQueue[*responseId] + sizeof(res);
     memcpy(current, &valLen, sizeof(valLen));
 
     current += sizeof(valLen);
@@ -1114,29 +1111,26 @@ void PutRequest(Oid relationId,
 static void PutResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
-    Oid relationId;
-    memcpy(&relationId, area, sizeof(relationId));
-    area += sizeof(relationId);
+    Oid *relationId = (Oid *)area;
+    area += sizeof(*relationId);
 
     bool found;
-    KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
+    KVHashEntry *entry = hash_search(kvTableHash, relationId, HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     }
 
-    size_t keyLen, valLen;
-
-    memcpy(&keyLen, area, sizeof(keyLen));
-    area += sizeof(keyLen);
+    size_t *keyLen = (size_t *)area;
+    area += sizeof(*keyLen);
 
     char *key = area;
-    area += keyLen;
+    area += *keyLen;
 
-    memcpy(&valLen, area, sizeof(valLen));
-    area += sizeof(valLen);
+    size_t *valLen = (size_t *)area;
+    area += sizeof(*valLen);
 
     char *val = area;
-    if (!Put(entry->db, key, keyLen, val, valLen)) {
+    if (!Put(entry->db, key, *keyLen, val, *valLen)) {
         ereport(ERROR, (errmsg("error from %s", __func__)));
     }
 }
@@ -1174,22 +1168,20 @@ void DeleteRequest(Oid relationId, SharedMem *ptr, char *key, size_t keyLen) {
 static void DeleteResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
-    Oid relationId;
-    memcpy(&relationId, area, sizeof(relationId));
-    area += sizeof(relationId);
+    Oid *relationId = (Oid *)area;
+    area += sizeof(*relationId);
 
     bool found;
-    KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
+    KVHashEntry *entry = hash_search(kvTableHash, relationId, HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     }
 
-    size_t keyLen;
-    memcpy(&keyLen, area, sizeof(keyLen));
-    area += sizeof(keyLen);
+    size_t *keyLen = (size_t *)area;
+    area += sizeof(*keyLen);
 
     char *key = area;
-    if (!Delete(entry->db, key, keyLen)) {
+    if (!Delete(entry->db, key, *keyLen)) {
         ereport(ERROR, (errmsg("error from %s", __func__)));
     }
 }
@@ -1305,18 +1297,17 @@ bool RangeQueryRequest(Oid relationId,
 static void RangeQueryResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
-    uint32 responseId;
-    memcpy(&responseId, area, sizeof(responseId));
-    area += sizeof(responseId);
+    uint32 *responseId = (uint32 *)area;
+    area += sizeof(*responseId);
 
     KVTableProcOpHashKey optionKey;
-    memcpy(&optionKey.relationId, area, sizeof(optionKey.relationId));
+    optionKey.relationId = *((Oid *)area);
     area += sizeof(optionKey.relationId);
 
-    memcpy(&optionKey.pid, area, sizeof(optionKey.pid));
+    optionKey.pid = *((pid_t *)area);
     area += sizeof(optionKey.pid);
 
-    memcpy(&optionKey.operationId, area, sizeof(optionKey.operationId));
+    optionKey.operationId = *((uint64 *)area);
     area += sizeof(optionKey.operationId);
 
     bool found = false;
@@ -1344,7 +1335,7 @@ static void RangeQueryResponse(char *area) {
 
         RangeQueryOptions options;
 
-        memcpy(&(options.startLen), area, sizeof(options.startLen));
+        options.startLen = *((size_t *)area);
         area += sizeof(options.startLen);
         if (options.startLen > 0) {
             options.start = palloc(options.startLen);
@@ -1352,7 +1343,7 @@ static void RangeQueryResponse(char *area) {
             area += options.startLen;
         }
 
-        memcpy(&(options.limitLen), area, sizeof(options.limitLen));
+        options.limitLen = *((size_t *)area);
         area += sizeof(options.limitLen);
         if (options.limitLen > 0) {
             options.limit = palloc(options.limitLen);
@@ -1360,24 +1351,19 @@ static void RangeQueryResponse(char *area) {
             area += options.limitLen;
         }
 
-        memcpy(&(options.batchCapacity), area, sizeof(options.batchCapacity));
+        options.batchCapacity = *((size_t *)area);
         area += sizeof(options.batchCapacity);
 
-        memcpy(&(options.attrCount), area, sizeof(options.attrCount));
+        options.attrCount = *((int *)area);
         area += sizeof(options.attrCount);
         if (options.attrCount > 0) {
-            Size bytes = options.attrCount * sizeof(*(options.attrs));
-            options.attrs = palloc(bytes);
-            memcpy(options.attrs, area, bytes);
+            options.attrs = (AttrNumber *)area;
         }
 
         ParseRangeQueryOptions(&options,
                                &(optionEntry->range),
                                &(optionEntry->readOptions));
 
-        if (options.attrCount > 0) {
-            pfree(options.attrs);
-        }
     }
 
     void *result = NULL;
@@ -1391,7 +1377,7 @@ static void RangeQueryResponse(char *area) {
                          &result);
     } while (ret && bufLen == 0);
 
-    char *current = ResponseQueue[responseId];
+    char *current = ResponseQueue[*responseId];
     memcpy(current, &bufLen, sizeof(bufLen));
     current += sizeof(bufLen);
     memcpy(current, &ret, sizeof(ret));
@@ -1480,11 +1466,13 @@ static void ClearRangeQueryMetaResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     KVTableProcOpHashKey optionKey;
-    memcpy(&optionKey.relationId, area, sizeof(optionKey.relationId));
+    optionKey.relationId = *((Oid *)area);
     area += sizeof(optionKey.relationId);
-    memcpy(&optionKey.pid, area, sizeof(optionKey.pid));
+
+    optionKey.pid = *((pid_t *)area);
     area += sizeof(optionKey.pid);
-    memcpy(&optionKey.operationId, area, sizeof(optionKey.operationId));
+
+    optionKey.operationId = *((uint64 *)area);
 
     bool found;
     KVReadOptionsEntry *entry = hash_search(kvReadOptionsHash,

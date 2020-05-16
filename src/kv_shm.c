@@ -1126,7 +1126,7 @@ static void PutResponse(char *area) {
     char *key = area;
     area += *keyLen;
 
-    size_t *valLen = (size_t *)valLen;
+    size_t *valLen = (size_t *)area;
     area += sizeof(*valLen);
 
     char *val = area;
@@ -1338,14 +1338,16 @@ static void RangeQueryResponse(char *area) {
         options.startLen = *((size_t *)area);
         area += sizeof(options.startLen);
         if (options.startLen > 0) {
-            options.start = area;
+            options.start = palloc(options.startLen);
+            memcpy(options.start, area, options.startLen);
             area += options.startLen;
         }
 
         options.limitLen = *((size_t *)area);
         area += sizeof(options.limitLen);
         if (options.limitLen > 0) {
-            options.limit = area;
+            options.limit = palloc(options.limitLen);
+            memcpy(options.limit, area, options.limitLen);
             area += options.limitLen;
         }
 

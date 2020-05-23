@@ -240,6 +240,7 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
     bool ret = static_cast<DB*>(db)->RangeQuery(*ro, *r, *res, &s);
 
     if (!s.ok()) {
+        *result = res;
         *bufLen = 0;
         return false;
     }
@@ -262,19 +263,23 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
 void ParseRangeQueryResult(void* result, char* buf) {
     Assert(result != NULL);
     list<RangeQueryKeyVal>* res = static_cast<list<RangeQueryKeyVal>*>(result);
-    for (auto it = res->begin(); it != res->end(); ++it) {
-        size_t keyLen = it->user_key.size();
-        memcpy(buf, &keyLen, sizeof(keyLen));
-        buf += sizeof(keyLen);
-        memcpy(buf, it->user_key.c_str(), keyLen);
-        buf += keyLen;
 
-        size_t valLen = it->user_val.size();
-        memcpy(buf, &valLen, sizeof(valLen));
-        buf += sizeof(valLen);
-        memcpy(buf, it->user_val.c_str(), valLen);
-        buf += valLen;
+    if (buf != NULL) {
+        for (auto it = res->begin(); it != res->end(); ++it) {
+            size_t keyLen = it->user_key.size();
+            memcpy(buf, &keyLen, sizeof(keyLen));
+            buf += sizeof(keyLen);
+            memcpy(buf, it->user_key.c_str(), keyLen);
+            buf += keyLen;
+
+            size_t valLen = it->user_val.size();
+            memcpy(buf, &valLen, sizeof(valLen));
+            buf += sizeof(valLen);
+            memcpy(buf, it->user_val.c_str(), valLen);
+            buf += valLen;
+        }
     }
+
     delete res;
 }
 

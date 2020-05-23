@@ -49,7 +49,7 @@
 
 #define COLUMNSTORE "column"
 
-#define BATCHCAPACITY 10000
+#define BATCHCAPACITY 4096*20
 
 #define RANGEQUERYFILE "/KVRangeQuery"
 #endif

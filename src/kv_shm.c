@@ -592,7 +592,7 @@ static void CountResponse(char *area) {
     Oid *relationId = (Oid *)area;
 
     bool found;
-    KVHashEntry *entry = hash_search(kvTableHash, &relationId, HASH_FIND, &found);
+    KVHashEntry *entry = hash_search(kvTableHash, relationId, HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     }

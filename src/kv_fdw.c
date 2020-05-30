@@ -35,6 +35,10 @@ PG_FUNCTION_INFO_V1(kv_fdw_validator);
 static SharedMem *ptr = NULL;  /* in client process */
 static uint64 operationId = 0;
 
+
+Datum DynamicLaunchBackgroundWorker(void);
+
+
 static void GetForeignRelSize(PlannerInfo *root,
                               RelOptInfo *baserel,
                               Oid foreignTableId) {
@@ -121,6 +125,8 @@ static void GetForeignRelSize(PlannerInfo *root,
     baserel->rows = CountRequest(foreignTableId, ptr);
 
     CloseRequest(foreignTableId, ptr);
+
+    DynamicLaunchBackgroundWorker();
 }
 
 static void GetForeignPaths(PlannerInfo *root,

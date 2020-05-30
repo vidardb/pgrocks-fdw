@@ -55,6 +55,9 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
                              char *completionTag);
 static void KVShmemStartup(void);
 
+/* function in kv_process.c*/
+void LaunchBackgroundWorker(void);
+
 
 /*
  * _PG_init is called when the module is loaded. In this function we save the
@@ -67,6 +70,8 @@ void _PG_init(void) {
 
     PreviousShmemStartupHook = shmem_startup_hook;
     shmem_startup_hook = KVShmemStartup;
+
+//    LaunchBackgroundWorker();
 }
 
 /*

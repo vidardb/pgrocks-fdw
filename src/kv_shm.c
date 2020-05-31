@@ -1,5 +1,5 @@
 
-#include "kv_fdw.h"
+#include "kv_shm.h"
 #include "kv_storage.h"
 #include "kv_posix.h"
 
@@ -41,7 +41,7 @@ HTAB *kvReadOptionsHash = NULL;
 #endif
 
 
-pid_t kvWorkerPid = 0;  // in postmaster process
+//pid_t kvWorkerPid = 0;  // in postmaster process
 
 HTAB *kvTableHash = NULL;  // in kvworker process
 
@@ -49,13 +49,6 @@ HTAB *kvIterHash = NULL;  // in kvworker process
 
 long HASHSIZE = 1;  // non-shared hash can be enlarged
 
-/*
- * referenced by thread of postmaster process, client process, worker process
- */
-char *ResponseQueue[RESPONSEQUEUELENGTH];
-
-
-static int StartKVWorker(void);
 
 static void OpenResponse(char *area);
 
@@ -105,7 +98,7 @@ static inline uint32 GetResponseQueueIndex(SharedMem *ptr) {
 /*
  * called by the thread in postmaster process
  */
-static void cleanup_handler(void *arg) {
+void cleanup_handler(void *arg) {
     printf("\n============%s============\n", __func__);
     SharedMem *ptr = *((SharedMem **)arg);
 
@@ -148,7 +141,7 @@ static void cleanup_handler(void *arg) {
  * Initialize shared memory for responses
  * called by the thread in postmaster process
  */
-static void InitResponseArea() {
+void InitResponseArea() {
     for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
         char filename[FILENAMELENGTH];
         snprintf(filename, FILENAMELENGTH, "%s%d", RESPONSEFILE, i);
@@ -213,54 +206,54 @@ static inline int CompareKVTableProcOpHashKey(const void *key1,
     return -1;
 }
 
-void *KVStorageThreadFun(void *arg) {
-    PthreadSetCancelState(PTHREAD_CANCEL_ENABLE, NULL, __func__);
-    PthreadSetCancelType(PTHREAD_CANCEL_DEFERRED, NULL, __func__);
-
-    SharedMem *ptr = NULL;
-    pthread_cleanup_push(cleanup_handler, &ptr);
-
-    ShmUnlink(BACKFILE, __func__);
-    int fd = ShmOpen(BACKFILE, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
-    Ftruncate(fd, sizeof(*ptr), __func__);
-    ptr = Mmap(NULL,
-               sizeof(*ptr),
-               PROT_READ | PROT_WRITE,
-               MAP_SHARED,
-               fd,
-               0,
-               __func__);
-    Fclose(fd, __func__);
-
-    // Initialize the response area
-    InitResponseArea();
-
-    SemInit(&ptr->mutex, 1, 1, __func__);
-    SemInit(&ptr->full, 1, 1, __func__);
-    SemInit(&ptr->agent[0], 1, 0, __func__);
-    SemInit(&ptr->agent[1], 1, 0, __func__);
-    SemInit(&ptr->worker, 1, 0, __func__);
-
-    for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
-        SemInit(&ptr->responseMutex[i], 1, 1, __func__);
-        SemInit(&ptr->responseSync[i], 1, 0, __func__);
-    }
-
-    ptr->workerProcessCreated = false;
-
-    do {
-        // don't create worker process until needed!
-        SemWait(&ptr->agent[0], __func__);
-
-        kvWorkerPid = StartKVWorker();
-        ptr->workerProcessCreated = true;
-
-        SemPost(&ptr->agent[1], __func__);
-    } while (true);
-
-    pthread_cleanup_pop(1);
-    return NULL;
-}
+//void *KVStorageThreadFun(void *arg) {
+//    PthreadSetCancelState(PTHREAD_CANCEL_ENABLE, NULL, __func__);
+//    PthreadSetCancelType(PTHREAD_CANCEL_DEFERRED, NULL, __func__);
+//
+//    SharedMem *ptr = NULL;
+//    pthread_cleanup_push(cleanup_handler, &ptr);
+//
+//    ShmUnlink(BACKFILE, __func__);
+//    int fd = ShmOpen(BACKFILE, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
+//    Ftruncate(fd, sizeof(*ptr), __func__);
+//    ptr = Mmap(NULL,
+//               sizeof(*ptr),
+//               PROT_READ | PROT_WRITE,
+//               MAP_SHARED,
+//               fd,
+//               0,
+//               __func__);
+//    Fclose(fd, __func__);
+//
+//    // Initialize the response area
+//    InitResponseArea();
+//
+//    SemInit(&ptr->mutex, 1, 1, __func__);
+//    SemInit(&ptr->full, 1, 1, __func__);
+//    SemInit(&ptr->agent[0], 1, 0, __func__);
+//    SemInit(&ptr->agent[1], 1, 0, __func__);
+//    SemInit(&ptr->worker, 1, 0, __func__);
+//
+//    for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
+//        SemInit(&ptr->responseMutex[i], 1, 1, __func__);
+//        SemInit(&ptr->responseSync[i], 1, 0, __func__);
+//    }
+//
+//    ptr->workerProcessCreated = false;
+//
+//    do {
+//        // don't create worker process until needed!
+//        SemWait(&ptr->agent[0], __func__);
+//
+//        kvWorkerPid = StartKVWorker();
+//        ptr->workerProcessCreated = true;
+//
+//        SemPost(&ptr->agent[1], __func__);
+//    } while (true);
+//
+//    pthread_cleanup_pop(1);
+//    return NULL;
+//}
 
 /*
  * Main loop for the KVWorker process.
@@ -391,7 +384,7 @@ static void KVWorkerMain(int argc, char *argv[]) {
     proc_exit(0);               /* done */
 }
 
-static int StartKVWorker(void) {
+int StartKVWorker(void) {
     pid_t kvWorkerPid;
 
     switch (kvWorkerPid = fork_process()) {
@@ -400,10 +393,10 @@ static int StartKVWorker(void) {
             return 0;
         case 0:
             /* in postmaster child ... */
-            InitPostmasterChild();
+//            InitPostmasterChild();
 
             /* Close the postmaster's sockets */
-            ClosePostmasterPorts(false);
+//            ClosePostmasterPorts(false);
 
             KVWorkerMain(0, NULL);
             break;

@@ -56,7 +56,7 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
 static void KVShmemStartup(void);
 
 /* function in kv_process.c*/
-void LaunchBackgroundWorker(void);
+void LaunchBackgroundManager(void);
 
 
 /*
@@ -71,7 +71,7 @@ void _PG_init(void) {
     PreviousShmemStartupHook = shmem_startup_hook;
     shmem_startup_hook = KVShmemStartup;
 
-//    LaunchBackgroundWorker();
+    LaunchBackgroundManager();
 }
 
 /*
@@ -792,15 +792,15 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
  */
 static void KVShmemShutdown(int code, Datum arg) {
     printf("\n============%s=============\n", __func__);
-    PthreadCancel(kvStorageThread, __func__);
-
-    void *retVal;
-    PthreadJoin(kvStorageThread, &retVal, __func__);
-    if (retVal == PTHREAD_CANCELED) {
-        printf("\nkvStorageThread cancelled!\n");
-    } else {
-        printf("\nkvStorageThread is not cancelled!\n");
-    }
+//    PthreadCancel(kvStorageThread, __func__);
+//
+//    void *retVal;
+//    PthreadJoin(kvStorageThread, &retVal, __func__);
+//    if (retVal == PTHREAD_CANCELED) {
+//        printf("\nkvStorageThread cancelled!\n");
+//    } else {
+//        printf("\nkvStorageThread is not cancelled!\n");
+//    }
 }
 
 /*
@@ -820,5 +820,5 @@ static void KVShmemStartup(void) {
         before_shmem_exit(KVShmemShutdown, (Datum) 0);
     }
 
-    PthreadCreate(&kvStorageThread, NULL, KVStorageThreadFun, NULL, __func__);
+//    PthreadCreate(&kvStorageThread, NULL, KVStorageThreadFun, NULL, __func__);
 }

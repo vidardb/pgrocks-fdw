@@ -36,7 +36,7 @@ static SharedMem *ptr = NULL;  /* in client process */
 static uint64 operationId = 0;
 
 
-Datum DynamicLaunchBackgroundWorker(void);
+//Datum LaunchBackgroundWorker(void);
 
 
 static void GetForeignRelSize(PlannerInfo *root,
@@ -126,7 +126,7 @@ static void GetForeignRelSize(PlannerInfo *root,
 
     CloseRequest(foreignTableId, ptr);
 
-    DynamicLaunchBackgroundWorker();
+//    LaunchBackgroundWorker();
 }
 
 static void GetForeignPaths(PlannerInfo *root,

@@ -235,9 +235,5 @@ extern void ClearRangeQueryMetaRequest(Oid relationId,
                                        TableReadState *readState);
 #endif
 
-/* global variables */
-
-pthread_t kvStorageThread;
-
 
 #endif

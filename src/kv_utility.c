@@ -31,14 +31,14 @@
         PREVIOUS_UTILITY(plannedStmt, queryString, context, paramListInfo, \
                          queryEnvironment, destReceiver, completionTag)
 
-/* */
-static SharedMem *ptr = NULL;
 
 /*
  * SQL functions
  */
 PG_FUNCTION_INFO_V1(kv_ddl_event_end_trigger);
 
+
+static SharedMem *ptr = NULL;  /* in client process */
 
 /* saved hook value in case of unload */
 static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
@@ -53,6 +53,7 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
                              QueryEnvironment *queryEnvironment,
                              DestReceiver *destReceiver,
                              char *completionTag);
+
 static void KVShmemStartup(void);
 
 /* function in kv_process.c*/
@@ -785,25 +786,6 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
 }
 
 /*
- * Release memory.
- *
- * Note: we don't bother with acquiring lock, because there should be no
- * other processes running when this is called.
- */
-static void KVShmemShutdown(int code, Datum arg) {
-    printf("\n============%s=============\n", __func__);
-//    PthreadCancel(kvStorageThread, __func__);
-//
-//    void *retVal;
-//    PthreadJoin(kvStorageThread, &retVal, __func__);
-//    if (retVal == PTHREAD_CANCELED) {
-//        printf("\nkvStorageThread cancelled!\n");
-//    } else {
-//        printf("\nkvStorageThread is not cancelled!\n");
-//    }
-}
-
-/*
  * Allocate or attach to shared memory while the module is enabled.
  */
 static void KVShmemStartup(void) {
@@ -811,14 +793,4 @@ static void KVShmemStartup(void) {
     if (PreviousShmemStartupHook) {
         PreviousShmemStartupHook();
     }
-
-    /*
-     * If we're in the postmaster (or a standalone backend...), set up a shmem
-     * exit hook to release memory. I wonder what else we can in?
-     */
-    if (!IsUnderPostmaster) {
-        before_shmem_exit(KVShmemShutdown, (Datum) 0);
-    }
-
-//    PthreadCreate(&kvStorageThread, NULL, KVStorageThreadFun, NULL, __func__);
 }

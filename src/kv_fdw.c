@@ -33,10 +33,7 @@ PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 
 static SharedMem *ptr = NULL;  /* in client process */
-static uint64 operationId = 0;
-
-
-//Datum LaunchBackgroundWorker(void);
+static uint64 operationId = 0;  /* a SQL might cause multiple scans */
 
 
 static void GetForeignRelSize(PlannerInfo *root,
@@ -125,8 +122,6 @@ static void GetForeignRelSize(PlannerInfo *root,
     baserel->rows = CountRequest(foreignTableId, ptr);
 
     CloseRequest(foreignTableId, ptr);
-
-//    LaunchBackgroundWorker();
 }
 
 static void GetForeignPaths(PlannerInfo *root,

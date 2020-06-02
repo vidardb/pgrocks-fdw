@@ -138,7 +138,6 @@ typedef enum FuncName {
     COUNT,
     GETITER,
     DELITER,
-    NEXT,
     READBATCH,
     GET,
     PUT,

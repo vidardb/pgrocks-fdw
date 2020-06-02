@@ -67,8 +67,6 @@ static void GetIterResponse(char *area);
 
 static void DelIterResponse(char *area);
 
-static void NextResponse(char *area);
-
 static void ReadBatchResponse(char *area);
 
 static void GetResponse(char *area);
@@ -338,9 +336,6 @@ static void KVWorkerMain(int argc, char *argv[]) {
                 break;
             case DELITER:
                 DelIterResponse(buf + sizeof(responseId));
-                break;
-            case NEXT:
-                NextResponse(buf);
                 break;
             case READBATCH:
                 ReadBatchResponse(buf);
@@ -718,108 +713,6 @@ static void DelIterResponse(char *area) {
     DelIter(entry->iter);
     /* might reuse, so must set NULL */
     entry->iter = NULL;
-}
-
-bool NextRequest(Oid relationId,
-                 uint64 operationId,
-                 SharedMem *ptr,
-                 char **key,
-                 size_t *keyLen,
-                 char **val,
-                 size_t *valLen) {
-//    printf("\n============%s============\n", __func__);
-
-    SemWait(&ptr->mutex, __func__);
-    SemWait(&ptr->full, __func__);
-
-    char *current = ptr->area;
-    FuncName func = NEXT;
-    memcpy(current, &func, sizeof(func));
-    current += sizeof(func);
-
-    uint32 responseId = GetResponseQueueIndex(ptr);
-    memcpy(current, &responseId, sizeof(responseId));
-    current += sizeof(responseId);
-
-    memcpy(current, &relationId, sizeof(relationId));
-    current += sizeof(relationId);
-
-    pid_t pid = getpid();
-    memcpy(current, &pid, sizeof(pid));
-    current += sizeof(pid);
-
-    memcpy(current, &operationId, sizeof(operationId));
-
-
-    SemPost(&ptr->worker, __func__);
-    SemPost(&ptr->mutex, __func__);
-
-    SemWait(&ptr->responseSync[responseId], __func__);
-
-    current = ResponseQueue[responseId];
-    memcpy(keyLen, current, sizeof(*keyLen));
-
-    /* no next item */
-    if (*keyLen == 0) {
-        SemPost(&ptr->responseMutex[responseId], __func__);
-        return false;
-    }
-
-    current += sizeof(*keyLen);
-    *key = palloc(*keyLen);
-    memcpy(*key, current, *keyLen);
-
-    current += *keyLen;
-    memcpy(valLen, current, sizeof(*valLen));
-
-    current += sizeof(*valLen);
-    *val = palloc(*valLen);
-    memcpy(*val, current, *valLen);
-
-    SemPost(&ptr->responseMutex[responseId], __func__);
-    return true;
-}
-
-void NextResponse(char *area) {
-//    printf("\n============%s============\n", __func__);
-
-    uint32 *responseId = (uint32 *)area;
-    area += sizeof(*responseId);
-
-    KVTableProcOpHashKey iterKey;
-    iterKey.relationId = *((Oid *)area);
-    area += sizeof(iterKey.relationId);
-
-    iterKey.pid = *((pid_t *)area);
-    area += sizeof(iterKey.pid);
-
-    iterKey.operationId = *((uint64 *)area);
-
-    bool found;
-    KVHashEntry *entry = hash_search(kvTableHash,
-                                     &iterKey.relationId,
-                                     HASH_FIND,
-                                     &found);
-    if (!found) {
-        ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    }
-
-    bool iterFound;
-    KVIterHashEntry *iterEntry = hash_search(kvIterHash,
-                                             &iterKey,
-                                             HASH_FIND,
-                                             &iterFound);
-    if (!iterFound) {
-        ereport(ERROR, (errmsg("%s failed in hash search for iterator", __func__)));
-    }
-
-    char *current = ResponseQueue[*responseId];
-    bool res = Next(entry->db, iterEntry->iter, current);
-    if (!res) {
-        /* no next item */
-        size_t keyLen = 0;
-        memcpy(ResponseQueue[*responseId], &keyLen, sizeof(keyLen));
-    }
 }
 
 bool ReadBatchRequest(Oid relationId,

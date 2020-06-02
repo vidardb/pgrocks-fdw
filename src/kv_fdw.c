@@ -1,8 +1,6 @@
 
 #include "kv_fdw.h"
 
-#include <pthread.h>
-
 #include "access/reloptions.h"
 #include "foreign/fdwapi.h"
 #include "optimizer/pathnode.h"

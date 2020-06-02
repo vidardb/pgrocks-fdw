@@ -19,8 +19,8 @@
 
 void KVManageWork(Datum);
 void LaunchBackgroundManager(void);
-//void KVDoWork(Datum);
-//Datum LaunchBackgroundWorker(void);
+void KVDoWork(Datum);
+Datum LaunchBackgroundWorker(void);
 
 
 /* flags set by signal handlers */
@@ -127,9 +127,9 @@ void LaunchBackgroundManager(void) {
     RegisterBackgroundWorker(&worker);
 }
 
-//void KVDoWork(Datum main_arg) {
-//    printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
-//
+void KVDoWork(Datum main_arg) {
+    printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
+
 //    /* Establish signal handlers before unblocking signals. */
 //    pqsignal(SIGHUP, KVWorkerSighup);
 //    pqsignal(SIGTERM, KVWorkerSigterm);
@@ -182,49 +182,49 @@ void LaunchBackgroundManager(void) {
 //        pgstat_report_stat(false);
 //        pgstat_report_activity(STATE_IDLE, NULL);
 //    }
-//
-//    proc_exit(1);
-//}
-//
-///*
-// * Dynamically register worker process here.
-// */
-//Datum LaunchBackgroundWorker(void) {
-//    printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
-//
-//    BackgroundWorker worker;
-//    memset(&worker, 0, sizeof(worker));
-//    worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
-//    worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
-//    worker.bgw_restart_time = BGW_NEVER_RESTART;
-//    sprintf(worker.bgw_library_name, "kv_fdw");
-//    sprintf(worker.bgw_function_name, "KVDoWork");
-//    snprintf(worker.bgw_name, BGW_MAXLEN, "KV worker");
-//    snprintf(worker.bgw_type, BGW_MAXLEN, "KV worker");
-//    /* set bgw_notify_pid so that we can use WaitForBackgroundWorkerStartup */
-//    worker.bgw_notify_pid = MyProcPid;
-//    BackgroundWorkerHandle *handle;
-//    if (!RegisterDynamicBackgroundWorker(&worker, &handle)) {
-//        return (Datum) NULL;
-//    }
-//
-//    pid_t pid;
-//    BgwHandleStatus status = WaitForBackgroundWorkerStartup(handle, &pid);
-//
-//    if (status == BGWH_STOPPED) {
-//        ereport(ERROR,
-//                (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
-//                 errmsg("could not start background process"),
-//                 errhint("More details may be available in the server log.")));
-//    }
-//    if (status == BGWH_POSTMASTER_DIED) {
-//        ereport(ERROR,
-//                (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
-//                 errmsg("cannot start background processes without postmaster"),
-//                 errhint("Kill all remaining database processes and restart the database.")));
-//    }
-//    Assert(status == BGWH_STARTED);
-//
-//    printf("\n~~~~~~~~~~~~End of %s~~~~~~~~~~~~~~~\n", __func__);
-//    PG_RETURN_INT32(pid);
-//}
+
+    proc_exit(1);
+}
+
+/*
+ * Entrypoint, dynamically register worker process here, at most one process for
+ * each database containing table created by kv engine.
+ */
+Datum LaunchBackgroundWorker(void) {
+    printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
+
+    BackgroundWorker worker;
+    memset(&worker, 0, sizeof(worker));
+    worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
+    worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
+    worker.bgw_restart_time = BGW_NEVER_RESTART;
+    sprintf(worker.bgw_library_name, "kv_fdw");
+    sprintf(worker.bgw_function_name, "KVDoWork");
+    snprintf(worker.bgw_name, BGW_MAXLEN, "KV worker");
+    snprintf(worker.bgw_type, BGW_MAXLEN, "KV worker");
+    /* set bgw_notify_pid so that we can use WaitForBackgroundWorkerStartup */
+    worker.bgw_notify_pid = MyProcPid;
+    BackgroundWorkerHandle *handle;
+    if (!RegisterDynamicBackgroundWorker(&worker, &handle)) {
+        return (Datum) NULL;
+    }
+
+    pid_t pid;
+    BgwHandleStatus status = WaitForBackgroundWorkerStartup(handle, &pid);
+
+    if (status == BGWH_STOPPED) {
+        ereport(ERROR,
+                (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+                 errmsg("could not start background process"),
+                 errhint("More details may be available in the server log.")));
+    }
+    if (status == BGWH_POSTMASTER_DIED) {
+        ereport(ERROR,
+                (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+                 errmsg("cannot start background processes without postmaster"),
+                 errhint("Kill all remaining database processes and restart the database.")));
+    }
+    Assert(status == BGWH_STARTED);
+
+    PG_RETURN_INT32(pid);
+}

@@ -91,7 +91,7 @@ void KVManageWork(Datum main_arg) {
         /* emergency bailout if postmaster has died */
         if (rc & WL_POSTMASTER_DEATH) {
             cleanup_handler(&ptr);
-            proc_exit(1);
+            proc_exit(0);
         }
 
         CHECK_FOR_INTERRUPTS();
@@ -100,7 +100,7 @@ void KVManageWork(Datum main_arg) {
     }
 
     cleanup_handler(&ptr);
-    proc_exit(1);
+    proc_exit(0);
 }
 
 /*
@@ -156,7 +156,7 @@ void KVDoWork(Datum main_arg) {
 //
 //        /* emergency bailout if postmaster has died */
 //        if (rc & WL_POSTMASTER_DEATH) {
-//            proc_exit(1);
+//            proc_exit(0);
 //        }
 //
 //        CHECK_FOR_INTERRUPTS();
@@ -183,7 +183,7 @@ void KVDoWork(Datum main_arg) {
 //        pgstat_report_activity(STATE_IDLE, NULL);
 //    }
 
-    proc_exit(1);
+    proc_exit(0);
 }
 
 /*

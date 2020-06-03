@@ -138,7 +138,6 @@ typedef enum FuncName {
     COUNT,
     GETITER,
     DELITER,
-    NEXT,
     READBATCH,
     GET,
     PUT,
@@ -234,10 +233,6 @@ extern void ClearRangeQueryMetaRequest(Oid relationId,
                                        SharedMem *ptr,
                                        TableReadState *readState);
 #endif
-
-/* global variables */
-
-pthread_t kvStorageThread;
 
 
 #endif

@@ -1,5 +1,5 @@
 
-#include "kv_fdw.h"
+#include "kv_shm.h"
 #include "kv_storage.h"
 #include "kv_posix.h"
 
@@ -37,22 +37,22 @@ typedef struct KVReadOptionsEntry {
     void *range;
 } KVReadOptionsEntry;
 
-HTAB *kvReadOptionsHash = NULL;
+static HTAB *kvReadOptionsHash = NULL;
 #endif
 
 
-pid_t kvWorkerPid = 0;  // in postmaster process
+static pid_t kvWorkerPid = 0;  // in postmaster process
 
-HTAB *kvTableHash = NULL;  // in kvworker process
+static HTAB *kvTableHash = NULL;  // in kvworker process
 
-HTAB *kvIterHash = NULL;  // in kvworker process
+static HTAB *kvIterHash = NULL;  // in kvworker process
 
-long HASHSIZE = 1;  // non-shared hash can be enlarged
+static long HASHSIZE = 1;  // non-shared hash can be enlarged
 
 /*
  * referenced by thread of postmaster process, client process, worker process
  */
-char *ResponseQueue[RESPONSEQUEUELENGTH];
+static char *ResponseQueue[RESPONSEQUEUELENGTH];
 
 
 static int StartKVWorker(void);
@@ -66,8 +66,6 @@ static void CountResponse(char *area);
 static void GetIterResponse(char *area);
 
 static void DelIterResponse(char *area);
-
-static void NextResponse(char *area);
 
 static void ReadBatchResponse(char *area);
 
@@ -105,7 +103,7 @@ static inline uint32 GetResponseQueueIndex(SharedMem *ptr) {
 /*
  * called by the thread in postmaster process
  */
-static void cleanup_handler(void *arg) {
+void cleanup_handler(void *arg) {
     printf("\n============%s============\n", __func__);
     SharedMem *ptr = *((SharedMem **)arg);
 
@@ -128,7 +126,7 @@ static void cleanup_handler(void *arg) {
         snprintf(filename, FILENAMELENGTH, "%s%d", RESPONSEFILE, i);
         ShmUnlink(filename, __func__);
     }
-    
+
     SemDestroy(&ptr->mutex, __func__);
     SemDestroy(&ptr->full, __func__);
     SemDestroy(&ptr->agent[0], __func__);
@@ -213,12 +211,12 @@ static inline int CompareKVTableProcOpHashKey(const void *key1,
     return -1;
 }
 
-void *KVStorageThreadFun(void *arg) {
-    PthreadSetCancelState(PTHREAD_CANCEL_ENABLE, NULL, __func__);
-    PthreadSetCancelType(PTHREAD_CANCEL_DEFERRED, NULL, __func__);
-
+/*
+ * Initialize shared memory and start worker process
+ */
+SharedMem *InitSharedMem() {
+    kvWorkerPid = 0;
     SharedMem *ptr = NULL;
-    pthread_cleanup_push(cleanup_handler, &ptr);
 
     ShmUnlink(BACKFILE, __func__);
     int fd = ShmOpen(BACKFILE, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
@@ -247,19 +245,10 @@ void *KVStorageThreadFun(void *arg) {
     }
 
     ptr->workerProcessCreated = false;
+    kvWorkerPid = StartKVWorker();
+    ptr->workerProcessCreated = true;
 
-    do {
-        // don't create worker process until needed!
-        SemWait(&ptr->agent[0], __func__);
-
-        kvWorkerPid = StartKVWorker();
-        ptr->workerProcessCreated = true;
-
-        SemPost(&ptr->agent[1], __func__);
-    } while (true);
-
-    pthread_cleanup_pop(1);
-    return NULL;
+    return ptr;
 }
 
 /*
@@ -348,9 +337,6 @@ static void KVWorkerMain(int argc, char *argv[]) {
             case DELITER:
                 DelIterResponse(buf + sizeof(responseId));
                 break;
-            case NEXT:
-                NextResponse(buf);
-                break;
             case READBATCH:
                 ReadBatchResponse(buf);
                 break;
@@ -391,7 +377,7 @@ static void KVWorkerMain(int argc, char *argv[]) {
     proc_exit(0);               /* done */
 }
 
-static int StartKVWorker(void) {
+static int StartKVWorker() {
     pid_t kvWorkerPid;
 
     switch (kvWorkerPid = fork_process()) {
@@ -399,12 +385,6 @@ static int StartKVWorker(void) {
             ereport(ERROR, (errmsg("could not fork kvworker process")));
             return 0;
         case 0:
-            /* in postmaster child ... */
-            InitPostmasterChild();
-
-            /* Close the postmaster's sockets */
-            ClosePostmasterPorts(false);
-
             KVWorkerMain(0, NULL);
             break;
         default:
@@ -421,8 +401,8 @@ SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...) {
     if (!ptr) {
         /*
          * Client process connects to the shared mem created by server.
-         * We don't do unmap in the client side, because the of cost of
-         * mapped area is just one-time for the whole life of client.
+         * We don't do unmap in the client side, because the cost of
+         * mapped area is just one-time for the whole life of a client.
          */
         int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
         ptr = Mmap(NULL,
@@ -733,108 +713,6 @@ static void DelIterResponse(char *area) {
     DelIter(entry->iter);
     /* might reuse, so must set NULL */
     entry->iter = NULL;
-}
-
-bool NextRequest(Oid relationId,
-                 uint64 operationId,
-                 SharedMem *ptr,
-                 char **key,
-                 size_t *keyLen,
-                 char **val,
-                 size_t *valLen) {
-//    printf("\n============%s============\n", __func__);
-
-    SemWait(&ptr->mutex, __func__);
-    SemWait(&ptr->full, __func__);
-
-    char *current = ptr->area;
-    FuncName func = NEXT;
-    memcpy(current, &func, sizeof(func));
-    current += sizeof(func);
-
-    uint32 responseId = GetResponseQueueIndex(ptr);
-    memcpy(current, &responseId, sizeof(responseId));
-    current += sizeof(responseId);
-
-    memcpy(current, &relationId, sizeof(relationId));
-    current += sizeof(relationId);
-
-    pid_t pid = getpid();
-    memcpy(current, &pid, sizeof(pid));
-    current += sizeof(pid);
-
-    memcpy(current, &operationId, sizeof(operationId));
-
-
-    SemPost(&ptr->worker, __func__);
-    SemPost(&ptr->mutex, __func__);
-
-    SemWait(&ptr->responseSync[responseId], __func__);
-
-    current = ResponseQueue[responseId];
-    memcpy(keyLen, current, sizeof(*keyLen));
-
-    /* no next item */
-    if (*keyLen == 0) {
-        SemPost(&ptr->responseMutex[responseId], __func__);
-        return false;
-    }
-
-    current += sizeof(*keyLen);
-    *key = palloc(*keyLen);
-    memcpy(*key, current, *keyLen);
-
-    current += *keyLen;
-    memcpy(valLen, current, sizeof(*valLen));
-
-    current += sizeof(*valLen);
-    *val = palloc(*valLen);
-    memcpy(*val, current, *valLen);
-
-    SemPost(&ptr->responseMutex[responseId], __func__);
-    return true;
-}
-
-void NextResponse(char *area) {
-//    printf("\n============%s============\n", __func__);
-
-    uint32 *responseId = (uint32 *)area;
-    area += sizeof(*responseId);
-
-    KVTableProcOpHashKey iterKey;
-    iterKey.relationId = *((Oid *)area);
-    area += sizeof(iterKey.relationId);
-
-    iterKey.pid = *((pid_t *)area);
-    area += sizeof(iterKey.pid);
-
-    iterKey.operationId = *((uint64 *)area);
-
-    bool found;
-    KVHashEntry *entry = hash_search(kvTableHash,
-                                     &iterKey.relationId,
-                                     HASH_FIND,
-                                     &found);
-    if (!found) {
-        ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    }
-
-    bool iterFound;
-    KVIterHashEntry *iterEntry = hash_search(kvIterHash,
-                                             &iterKey,
-                                             HASH_FIND,
-                                             &iterFound);
-    if (!iterFound) {
-        ereport(ERROR, (errmsg("%s failed in hash search for iterator", __func__)));
-    }
-
-    char *current = ResponseQueue[*responseId];
-    bool res = Next(entry->db, iterEntry->iter, current);
-    if (!res) {
-        /* no next item */
-        size_t keyLen = 0;
-        memcpy(ResponseQueue[*responseId], &keyLen, sizeof(keyLen));
-    }
 }
 
 bool ReadBatchRequest(Oid relationId,

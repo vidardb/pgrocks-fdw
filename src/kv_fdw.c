@@ -1,8 +1,6 @@
 
 #include "kv_fdw.h"
 
-#include <pthread.h>
-
 #include "access/reloptions.h"
 #include "foreign/fdwapi.h"
 #include "optimizer/pathnode.h"
@@ -33,7 +31,8 @@ PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 
 static SharedMem *ptr = NULL;  /* in client process */
-static uint64 operationId = 0;
+static uint64 operationId = 0;  /* a SQL might cause multiple scans */
+
 
 static void GetForeignRelSize(PlannerInfo *root,
                               RelOptInfo *baserel,

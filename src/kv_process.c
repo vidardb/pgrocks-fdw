@@ -117,7 +117,7 @@ void LaunchBackgroundManager(void) {
     memset(&worker, 0, sizeof(worker));
     snprintf(worker.bgw_name, BGW_MAXLEN, "KV manager");
     snprintf(worker.bgw_type, BGW_MAXLEN, "KV manager");
-    worker.bgw_flags = BGWORKER_SHMEM_ACCESS;
+    worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
     worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
     worker.bgw_restart_time = 1;
     sprintf(worker.bgw_library_name, "kv_fdw");

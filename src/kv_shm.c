@@ -41,8 +41,6 @@ static HTAB *kvReadOptionsHash = NULL;
 #endif
 
 
-static pid_t kvWorkerPid = 0;  // in postmaster process
-
 static HTAB *kvTableHash = NULL;  // in kvworker process
 
 static HTAB *kvIterHash = NULL;  // in kvworker process
@@ -50,12 +48,10 @@ static HTAB *kvIterHash = NULL;  // in kvworker process
 static long HASHSIZE = 1;  // non-shared hash can be enlarged
 
 /*
- * referenced by thread of postmaster process, client process, worker process
+ * referenced by thread of manager process, client process, worker process
  */
 static char *ResponseQueue[RESPONSEQUEUELENGTH];
 
-
-static int StartKVWorker(void);
 
 static void OpenResponse(char *area);
 
@@ -244,20 +240,14 @@ SharedMem *InitSharedMem() {
         SemInit(&ptr->responseSync[i], 1, 0, __func__);
     }
 
-    ptr->workerProcessCreated = false;
-    kvWorkerPid = StartKVWorker();
-    ptr->workerProcessCreated = true;
-
     return ptr;
 }
 
 /*
  * Main loop for the KVWorker process.
  */
-static void KVWorkerMain(int argc, char *argv[]) {
-    init_ps_display("kvworker", "", "", "");
-
-    ereport(DEBUG1, (errmsg("kvworker started")));
+void KVWorkerMain(void) {
+    ereport(DEBUG1, (errmsg("KVWorker started")));
 
     int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
     SharedMem *ptr = Mmap(NULL,
@@ -372,27 +362,7 @@ static void KVWorkerMain(int argc, char *argv[]) {
         Close(entry->db);
     }
 
-    ereport(DEBUG1, (errmsg("kvworker shutting down")));
-
-    proc_exit(0);               /* done */
-}
-
-static int StartKVWorker() {
-    pid_t kvWorkerPid;
-
-    switch (kvWorkerPid = fork_process()) {
-        case -1:
-            ereport(ERROR, (errmsg("could not fork kvworker process")));
-            return 0;
-        case 0:
-            KVWorkerMain(0, NULL);
-            break;
-        default:
-            return (int) kvWorkerPid;
-    }
-
-    /* shouldn't get here */
-    return 0;
+    ereport(DEBUG1, (errmsg("KVWorker shutting down")));
 }
 
 SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...) {

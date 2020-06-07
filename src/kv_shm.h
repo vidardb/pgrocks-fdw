@@ -9,5 +9,10 @@ SharedMem *InitSharedMem(void);
 
 void cleanup_handler(void *arg);
 
+void KVWorkerMain(void);
+
+
+pid_t kvWorkerPid;  // in manager process
+
 
 #endif /* SRC_KV_SHM_H_ */

@@ -108,10 +108,14 @@ void SemPost(sem_t *__sem, const char *fun) {
     }
 }
 
-void SemWait(sem_t *__sem, const char *fun) {
+int SemWait(sem_t *__sem, const char *fun) {
     if (sem_wait(__sem) == -1) {
+        if (errno == EINTR) {
+            return -1;
+        }
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }
+    return 0;
 }
 
 int SemTryWait(sem_t *__sem, const char *fun) {

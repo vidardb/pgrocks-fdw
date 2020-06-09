@@ -24,18 +24,18 @@ pid_t LaunchBackgroundWorker(void);
 
 
 /* flags set by signal handlers */
-static volatile sig_atomic_t gotSigterm = false;
+static volatile sig_atomic_t gotSIGTERM = false;
 
 
 /*
  * Signal handler for SIGTERM
  * Set a flag to let the main loop to terminate, and set our latch to wake it up.
  */
-static void KVManagerSigterm(SIGNAL_ARGS) {
+static void KVSIGTERM(SIGNAL_ARGS) {
     printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
     int save_errno = errno;
 
-    gotSigterm = true;
+    gotSIGTERM = true;
     SetLatch(MyLatch);
 
     errno = save_errno;
@@ -44,11 +44,19 @@ static void KVManagerSigterm(SIGNAL_ARGS) {
 /*
  * Initialize shared memory and release it when exits
  */
-void KVManageWork(Datum main_arg) {
+void KVManageWork(Datum arg) {
     printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
 
     /* Establish signal handlers before unblocking signals. */
-    pqsignal(SIGTERM, KVManagerSigterm);
+    /* pqsignal(SIGTERM, KVSIGTERM); */
+    /*
+     * We on purpose do not use pqsignal due to its setting at flags = restart.
+     * With the setting, the process cannot exit on sem_wait.
+     */
+    struct sigaction act;
+    act.sa_handler = KVSIGTERM;
+    act.sa_flags = 0;
+    sigaction(SIGTERM, &act, NULL);
 
     /* We're now ready to receive signals */
     BackgroundWorkerUnblockSignals();
@@ -56,33 +64,20 @@ void KVManageWork(Datum main_arg) {
     SharedMem *ptr = InitSharedMem();
 
     ptr->workerProcessCreated = false;
-    kvWorkerPid = LaunchBackgroundWorker();
-    ptr->workerProcessCreated = true;
 
-    /* Main loop: do this until the SIGTERM handler tells us to terminate */
-    while (!gotSigterm) {
+    while (!gotSIGTERM) {
         /*
-         * Background workers mustn't call usleep() or any direct equivalent:
-         * instead, they may wait on their process latch, which sleeps as
-         * necessary, but is awakened if postmaster dies. That way the
-         * background process goes away immediately in an emergency.
+         * Don't create worker process until needed!
+         * Semaphore here also catches SIGTERN signal.
          */
-        int rc = WaitLatch(MyLatch,
-                           WL_LATCH_SET | WL_POSTMASTER_DEATH,
-                           -1L,
-                           PG_WAIT_EXTENSION);
-        ResetLatch(MyLatch);
-
-        /* emergency bailout if postmaster has died */
-        if (rc & WL_POSTMASTER_DEATH) {
-            cleanup_handler(&ptr);
-            proc_exit(0);
+        if (SemWait(&ptr->agent[0], __func__) == -1) {
+            break;
         }
+        kvWorkerPid = LaunchBackgroundWorker();
+        ptr->workerProcessCreated = true;
 
-        CHECK_FOR_INTERRUPTS();
-
-        printf("\n~~~~~~~~~~~~in the loop~~~~~~~~~~~~~~~\n");
-    }
+        SemPost(&ptr->agent[1], __func__);
+    };
 
     cleanup_handler(&ptr);
     proc_exit(0);

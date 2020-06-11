@@ -37,8 +37,11 @@
  */
 PG_FUNCTION_INFO_V1(kv_ddl_event_end_trigger);
 
-
-static SharedMem *ptr = NULL;  /* in client process */
+/*
+ * in backend process
+ */
+static ManagerSharedMem *manager = NULL;
+static WorkerSharedMem *worker = NULL;
 
 /* saved hook value in case of unload */
 static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
@@ -503,9 +506,9 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
     bool useColumn = (option != NULL) ?
         (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
-    ptr = OpenRequest(relationId, ptr, useColumn, attrCount);
+    worker = OpenRequest(relationId, manager, worker, useColumn, attrCount);
     #else
-    ptr = OpenRequest(relationId, ptr);
+    worker = OpenRequest(relationId, manager, worker);
     #endif
 
     Datum *values = palloc0(attrCount * sizeof(Datum));
@@ -548,7 +551,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                 }
             }
 
-            PutRequest(relationId, ptr, key->data, key->len, val->data, val->len);
+            PutRequest(relationId, worker, key->data, key->len, val->data, val->len);
             rowCount++;
         }
 
@@ -563,7 +566,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
 
     /* end read/write sessions and close the relation */
     EndCopyFrom(copyState);
-    CloseRequest(relationId, ptr);
+    CloseRequest(relationId, worker);
     heap_close(relation, ShareUpdateExclusiveLock);
 
     return rowCount;

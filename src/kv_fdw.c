@@ -30,7 +30,11 @@ PG_FUNCTION_INFO_V1(kv_fdw_handler);
 PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 
-static SharedMem *ptr = NULL;  /* in client process */
+/*
+ * in backend process
+ */
+static ManagerSharedMem *manager = NULL;
+static WorkerSharedMem *worker = NULL;
 static uint64 operationId = 0;  /* a SQL might cause multiple scans */
 
 
@@ -108,18 +112,19 @@ static void GetForeignRelSize(PlannerInfo *root,
 
     baserel->fdw_private = planState;
 
-    ptr = OpenRequest(foreignTableId,
-                      ptr,
-                      planState->fdwOptions->useColumn,
-                      planState->attrCount);
+    worker = OpenRequest(foreignTableId,
+                         manager,
+                         worker,
+                         planState->fdwOptions->useColumn,
+                         planState->attrCount);
     #else
-    ptr = OpenRequest(foreignTableId, ptr);
+    worker = OpenRequest(foreignTableId, manager, worker);
     #endif
 
     /* TODO: better estimation */
-    baserel->rows = CountRequest(foreignTableId, ptr);
+    baserel->rows = CountRequest(foreignTableId, worker);
 
-    CloseRequest(foreignTableId, ptr);
+    CloseRequest(foreignTableId, worker);
 }
 
 static void GetForeignPaths(PlannerInfo *root,
@@ -195,12 +200,13 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
     /* To accommodate min & max, we open file here */
     #ifdef VIDARDB
     TablePlanState *planState = baserel->fdw_private;
-    ptr = OpenRequest(foreignTableId,
-                      ptr,
-                      planState->fdwOptions->useColumn,
-                      planState->attrCount);
+    worker = OpenRequest(foreignTableId,
+                         manager,
+                         worker,
+                         planState->fdwOptions->useColumn,
+                         planState->attrCount);
     #else
-    ptr = OpenRequest(foreignTableId, ptr);
+    worker = OpenRequest(foreignTableId, manager, worker);
     #endif
 
     /* Create the ForeignScan node */
@@ -372,7 +378,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
             readState->hasNext = RangeQueryRequest(relationId,
                                                    ++operationId,
-                                                   ptr,
+                                                   worker,
                                                    &options,
                                                    &readState->buf,
                                                    &readState->bufLen);
@@ -380,14 +386,14 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         } else {
             readState->hasNext = ReadBatchRequest(relationId,
                                                   ++operationId,
-                                                  ptr,
+                                                  worker,
                                                   &readState->buf,
                                                   &readState->bufLen);
         }
         #else
         readState->hasNext = ReadBatchRequest(relationId,
                                               ++operationId,
-                                              ptr,
+                                              worker,
                                               &readState->buf,
                                               &readState->bufLen);
         #endif
@@ -538,7 +544,7 @@ static void DeserializeTuple(StringInfo key,
 
 static bool GetNextFromBatch(Oid relationId,
                              TableReadState *readState,
-                             SharedMem *ptr,
+                             WorkerSharedMem *worker,
                              char **key,
                              size_t *keyLen,
                              char **val,
@@ -551,21 +557,21 @@ static bool GetNextFromBatch(Oid relationId,
         if (readState->useColumn) {
             readState->hasNext = RangeQueryRequest(relationId,
                                                    readState->operationId,
-                                                   ptr,
+                                                   worker,
                                                    NULL,
                                                    &readState->buf,
                                                    &readState->bufLen);
         } else {
             readState->hasNext = ReadBatchRequest(relationId,
                                                   readState->operationId,
-                                                  ptr,
+                                                  worker,
                                                   &readState->buf,
                                                   &readState->bufLen);
         }
         #else
         readState->hasNext = ReadBatchRequest(relationId,
                                               readState->operationId,
-                                              ptr,
+                                              worker,
                                               &readState->buf,
                                               &readState->bufLen);
         #endif
@@ -630,11 +636,17 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
         if (!readState->done) {
             k = readState->key->data;
             kLen = readState->key->len;
-            found = GetRequest(relationId, ptr, k, kLen, &v, &vLen);
+            found = GetRequest(relationId, worker, k, kLen, &v, &vLen);
             readState->done = true;
         }
     } else {
-        found = GetNextFromBatch(relationId, readState, ptr, &k, &kLen, &v, &vLen);
+        found = GetNextFromBatch(relationId,
+                                 readState,
+                                 worker,
+                                 &k,
+                                 &kLen,
+                                 &v,
+                                 &vLen);
     }
 
     if (found) {
@@ -692,22 +704,22 @@ static void EndForeignScan(ForeignScanState *scanState) {
         #ifdef VIDARDB
         if (readState->useColumn) {
             /*
-             * unmap for this client process should already be done in
-             * IterateForeignScan. Now release resource of server process.
+             * unmap for this backend process should already be done in
+             * IterateForeignScan. Now release resource of worker process.
              */
             ClearRangeQueryMetaRequest(relationId,
                                        readState->operationId,
-                                       ptr,
+                                       worker,
                                        readState);
         } else {
-            DelIterRequest(relationId, readState->operationId, ptr, readState);
+            DelIterRequest(relationId, readState->operationId, worker, readState);
         }
         #else
-        DelIterRequest(relationId, readState->operationId, ptr, readState);
+        DelIterRequest(relationId, readState->operationId, worker, readState);
         #endif
     }
 
-    CloseRequest(relationId, ptr);
+    CloseRequest(relationId, worker);
     pfree(readState);
 }
 
@@ -903,12 +915,13 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
 
     if (operation == CMD_INSERT) {
         #ifdef VIDARDB
-        ptr = OpenRequest(foreignTableId,
-                          ptr,
-                          planState->fdwOptions->useColumn,
-                          planState->attrCount);
+        worker = OpenRequest(foreignTableId,
+                             manager,
+                             worker,
+                             planState->fdwOptions->useColumn,
+                             planState->attrCount);
         #else
-        ptr = OpenRequest(foreignTableId, ptr);
+        worker = OpenRequest(foreignTableId, manager, worker);
         #endif
     }
 
@@ -994,7 +1007,7 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
 
     SerializeTuple(key, val, slot);
 
-    PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
+    PutRequest(foreignTableId, worker, key->data, key->len, val->data, val->len);
 
     return slot;
 }
@@ -1048,7 +1061,7 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
 
     SerializeTuple(key, val, slot);
 
-    PutRequest(foreignTableId, ptr, key->data, key->len, val->data, val->len);
+    PutRequest(foreignTableId, worker, key->data, key->len, val->data, val->len);
 
     return slot;
 }
@@ -1094,7 +1107,7 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
 
     SerializeTuple(key, val, planSlot);
 
-    DeleteRequest(foreignTableId, ptr, key->data, key->len);
+    DeleteRequest(foreignTableId, worker, key->data, key->len);
 
     return slot;
 }
@@ -1121,7 +1134,7 @@ static void EndForeignModify(EState *executorState,
 
         CmdType operation = writeState->operation;
         if (operation == CMD_INSERT) {
-            CloseRequest(foreignTableId, ptr);
+            CloseRequest(foreignTableId, worker);
         }
 
         /* CMD_UPDATE and CMD_DELETE close will be taken care of by endScan */

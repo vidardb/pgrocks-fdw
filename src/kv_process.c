@@ -61,25 +61,28 @@ void KVManageWork(Datum arg) {
     /* We're now ready to receive signals */
     BackgroundWorkerUnblockSignals();
 
-    SharedMem *ptr = InitSharedMem();
-
-    ptr->workerProcessCreated = false;
+    ManagerSharedMem *manager = InitManagerSharedMem();
 
     while (!gotSIGTERM) {
         /*
          * Don't create worker process until needed!
          * Semaphore here also catches SIGTERN signal.
          */
-        if (SemWait(&ptr->agent[0], __func__) == -1) {
+        if (SemWait(&manager->manager, __func__) == -1) {
             break;
         }
         kvWorkerPid = LaunchBackgroundWorker();
-        ptr->workerProcessCreated = true;
+        manager->workerProcessCreated = true;
 
-        SemPost(&ptr->agent[1], __func__);
+        SemWait(&manager->ready, __func__);
+        SemPost(&manager->backend, __func__);
     };
 
-    cleanup_handler(&ptr);
+    if (kvWorkerPid != 0) {
+        TerminateWorker();
+    }
+
+    CloseManagerSharedMem(manager);
     proc_exit(0);
 }
 

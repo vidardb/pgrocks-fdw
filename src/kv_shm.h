@@ -5,11 +5,15 @@
 #include "kv_fdw.h"
 
 
-SharedMem *InitSharedMem(void);
+ManagerSharedMem *InitManagerSharedMem(void);
 
-void cleanup_handler(void *arg);
+void CloseManagerSharedMem(ManagerSharedMem *manager);
+
+WorkerSharedMem *InitWorkerSharedMem(void);
 
 void KVWorkerMain(void);
+
+void TerminateWorker(void);
 
 
 pid_t kvWorkerPid;  // in manager process

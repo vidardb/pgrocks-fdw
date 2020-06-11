@@ -18,6 +18,8 @@
 /* Defines */
 #define KVFDWNAME "kv_fdw"
 
+#define MANAGERBACKFILE "/KVManagerSharedMem"
+
 #define BACKFILE "/KVSharedMem"
 
 #define PERMISSION 0777
@@ -57,24 +59,33 @@
 
 /* Shared memory for function requests: 
  * mutex: mutual exclusion of the request buffer;
+ */
+typedef struct ManagerSharedMem {
+    sem_t mutex;
+    sem_t manager;
+    sem_t backend;
+    sem_t ready;
+    bool workerProcessCreated;
+} ManagerSharedMem;
+
+/* Shared memory for function requests:
+ * mutex: mutual exclusion of the request buffer;
  * full: tell whether the request buffer is full;
- * agent[2]: synchronize the creation of the worker process;
  * worker: notify the worker process after a request is submitted;
  * responseMutexes[RESPONSEQUEUELENGTH]:
  *     mutual exclusion of the response buffer;
  * responseSync[RESPONSEQUEUELENGTH]:
  *     notify child processes after the response is ready.
  */
-typedef struct SharedMem {
+typedef struct WorkerSharedMem {
     sem_t mutex;
     sem_t full;
-    sem_t agent[2];
     sem_t worker;
     sem_t responseMutex[RESPONSEQUEUELENGTH];
     sem_t responseSync[RESPONSEQUEUELENGTH];
     bool workerProcessCreated;
     char area[BUFSIZE];  /* assume ~64K for a tuple is enough */
-} SharedMem;
+} WorkerSharedMem;
 
 /* Holds the option values to be used when reading or writing files.
  * To resolve these values, we first check foreign table's options,
@@ -172,24 +183,26 @@ extern char *KVGetOptionValue(Oid foreignTableId, const char *optionName);
 
 extern Datum ShortVarlena(Datum datum, int typeLength, char storage);
 
-extern void *KVStorageThreadFun(void *arg);
+extern WorkerSharedMem *OpenRequest(Oid relationId,
+                                    ManagerSharedMem *manager,
+                                    WorkerSharedMem *worker, ...);
 
-extern SharedMem *OpenRequest(Oid relationId, SharedMem *ptr, ...);
+extern void CloseRequest(Oid relationId, WorkerSharedMem *worker);
 
-extern void CloseRequest(Oid relationId, SharedMem *ptr);
+extern uint64 CountRequest(Oid relationId, WorkerSharedMem *worker);
 
-extern uint64 CountRequest(Oid relationId, SharedMem *ptr);
-
-extern void GetIterRequest(Oid relationId, uint64 operationId, SharedMem *ptr);
+extern void GetIterRequest(Oid relationId,
+                           uint64 operationId,
+                           WorkerSharedMem *worker);
 
 extern void DelIterRequest(Oid relationId,
                            uint64 operationId,
-                           SharedMem *ptr,
+                           WorkerSharedMem *worker,
                            TableReadState *readState);
 
 extern bool NextRequest(Oid relationId,
                         uint64 operationId,
-                        SharedMem *ptr,
+                        WorkerSharedMem *worker,
                         char **key,
                         size_t *keyLen,
                         char **val,
@@ -197,40 +210,40 @@ extern bool NextRequest(Oid relationId,
 
 extern bool ReadBatchRequest(Oid relationId,
                              uint64 operationId,
-                             SharedMem *ptr,
+                             WorkerSharedMem *worker,
                              char **buf,
                              size_t *bufLen);
 
 extern bool GetRequest(Oid relationId,
-                       SharedMem *ptr,
+                       WorkerSharedMem *worker,
                        char *key,
                        size_t keyLen,
                        char **val,
                        size_t *valLen);
 
 extern void PutRequest(Oid relationId,
-                       SharedMem *ptr,
+                       WorkerSharedMem *worker,
                        char *key,
                        size_t keyLen,
                        char *val,
                        size_t valLen);
 
 extern void DeleteRequest(Oid relationId,
-                          SharedMem *ptr,
+                          WorkerSharedMem *worker,
                           char *key,
                           size_t keyLen);
 
 #ifdef VIDARDB
 extern bool RangeQueryRequest(Oid relationId,
                               uint64 operationId,
-                              SharedMem *ptr,
+                              WorkerSharedMem *worker,
                               RangeQueryOptions *options,
                               char **buf,
                               size_t *bufLen);
 
 extern void ClearRangeQueryMetaRequest(Oid relationId,
                                        uint64 operationId,
-                                       SharedMem *ptr,
+                                       WorkerSharedMem *worker,
                                        TableReadState *readState);
 #endif
 

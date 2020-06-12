@@ -506,9 +506,9 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
     bool useColumn = (option != NULL) ?
         (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
-    worker = OpenRequest(relationId, manager, worker, useColumn, attrCount);
+    worker = OpenRequest(relationId, &manager, worker, useColumn, attrCount);
     #else
-    worker = OpenRequest(relationId, manager, worker);
+    worker = OpenRequest(relationId, &manager, worker);
     #endif
 
     Datum *values = palloc0(attrCount * sizeof(Datum));

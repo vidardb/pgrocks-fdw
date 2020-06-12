@@ -113,12 +113,12 @@ static void GetForeignRelSize(PlannerInfo *root,
     baserel->fdw_private = planState;
 
     worker = OpenRequest(foreignTableId,
-                         manager,
+                         &manager,
                          worker,
                          planState->fdwOptions->useColumn,
                          planState->attrCount);
     #else
-    worker = OpenRequest(foreignTableId, manager, worker);
+    worker = OpenRequest(foreignTableId, &manager, worker);
     #endif
 
     /* TODO: better estimation */
@@ -201,12 +201,12 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
     #ifdef VIDARDB
     TablePlanState *planState = baserel->fdw_private;
     worker = OpenRequest(foreignTableId,
-                         manager,
+                         &manager,
                          worker,
                          planState->fdwOptions->useColumn,
                          planState->attrCount);
     #else
-    worker = OpenRequest(foreignTableId, manager, worker);
+    worker = OpenRequest(foreignTableId, &manager, worker);
     #endif
 
     /* Create the ForeignScan node */
@@ -916,12 +916,12 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     if (operation == CMD_INSERT) {
         #ifdef VIDARDB
         worker = OpenRequest(foreignTableId,
-                             manager,
+                             &manager,
                              worker,
                              planState->fdwOptions->useColumn,
                              planState->attrCount);
         #else
-        worker = OpenRequest(foreignTableId, manager, worker);
+        worker = OpenRequest(foreignTableId, &manager, worker);
         #endif
     }
 

@@ -9,8 +9,6 @@ ManagerSharedMem *InitManagerSharedMem(void);
 
 void CloseManagerSharedMem(ManagerSharedMem *manager);
 
-WorkerSharedMem *InitWorkerSharedMem(void);
-
 void KVWorkerMain(void);
 
 void TerminateWorker(void);

@@ -74,12 +74,17 @@ void KVManageWork(Datum arg) {
         kvWorkerPid = LaunchBackgroundWorker();
         manager->workerProcessCreated = true;
 
+        /*
+         * Make sure worker process has inited to avoid race between backend and
+         * worker.
+         */
         SemWait(&manager->ready, __func__);
         SemPost(&manager->backend, __func__);
     };
 
     if (kvWorkerPid != 0) {
         TerminateWorker();
+        kvWorkerPid = 0;
     }
 
     CloseManagerSharedMem(manager);

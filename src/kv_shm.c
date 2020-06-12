@@ -95,28 +95,6 @@ static inline uint32 GetResponseQueueIndex(WorkerSharedMem *worker) {
     }
 }
 
-void TerminateWorker() {
-    int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
-    WorkerSharedMem *worker = Mmap(NULL,
-                                   sizeof(*worker),
-                                   PROT_READ | PROT_WRITE,
-                                   MAP_SHARED,
-                                   fd,
-                                   0,
-                                   __func__);
-    Fclose(fd, __func__);
-
-    FuncName func = TERMINATE;
-    SemWait(&worker->mutex, __func__);
-    SemWait(&worker->full, __func__);
-    memcpy(worker->area, &func, sizeof(func));
-    uint32 responseId = GetResponseQueueIndex(worker);
-    memcpy(worker->area + sizeof(func), &responseId, sizeof(responseId));
-    SemPost(&worker->worker, __func__);
-    SemWait(&worker->responseSync[responseId], __func__);
-    kvWorkerPid = 0;
-}
-
 /*
  * Initialize shared memory for responses
  * called by worker process
@@ -216,20 +194,44 @@ ManagerSharedMem *InitManagerSharedMem() {
 }
 
 void CloseManagerSharedMem(ManagerSharedMem *manager) {
-    printf("\n============%s============\n", __func__);
-
     SemDestroy(&manager->mutex, __func__);
     SemDestroy(&manager->manager, __func__);
     SemDestroy(&manager->backend, __func__);
+    SemDestroy(&manager->ready, __func__);
 
     Munmap(manager, sizeof(*manager), __func__);
     ShmUnlink(MANAGERBACKFILE, __func__);
 }
 
+/* called by manager process to terminate worker process */
+void TerminateWorker() {
+    int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
+    WorkerSharedMem *worker = Mmap(NULL,
+                                   sizeof(*worker),
+                                   PROT_READ | PROT_WRITE,
+                                   MAP_SHARED,
+                                   fd,
+                                   0,
+                                   __func__);
+    Fclose(fd, __func__);
+
+    FuncName func = TERMINATE;
+    SemWait(&worker->mutex, __func__);
+    SemWait(&worker->full, __func__);
+    memcpy(worker->area, &func, sizeof(func));
+    uint32 responseId = GetResponseQueueIndex(worker);
+    memcpy(worker->area + sizeof(func), &responseId, sizeof(responseId));
+    SemPost(&worker->worker, __func__);
+    SemWait(&worker->responseSync[responseId], __func__);
+    SemPost(&worker->mutex, __func__);
+
+    Munmap(worker, sizeof(*worker), __func__);
+}
+
 /*
  * Initialize worker shared memory
  */
-WorkerSharedMem *InitWorkerSharedMem() {
+static WorkerSharedMem *InitWorkerSharedMem() {
     WorkerSharedMem *worker = NULL;
 
     ShmUnlink(BACKFILE, __func__);
@@ -244,7 +246,7 @@ WorkerSharedMem *InitWorkerSharedMem() {
                   __func__);
     Fclose(fd, __func__);
 
-    // Initialize the response area
+    /* Initialize the response area */
     InitResponseArea();
 
     SemInit(&worker->mutex, 1, 1, __func__);
@@ -260,8 +262,6 @@ WorkerSharedMem *InitWorkerSharedMem() {
 }
 
 static void CloseWorkerSharedMem(WorkerSharedMem *worker) {
-    printf("\n============%s============\n", __func__);
-
     // release the response area first
     for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
         Munmap(ResponseQueue[i], BUFSIZE, __func__);
@@ -284,13 +284,15 @@ static void CloseWorkerSharedMem(WorkerSharedMem *worker) {
 }
 
 /*
- * Main loop for the KVWorker process.
+ * Main loop for the worker process.
  */
 void KVWorkerMain(void) {
     ereport(DEBUG1, (errmsg("KVWorker started")));
 
+    /* first init the worker specific shared mem */
     WorkerSharedMem *worker = InitWorkerSharedMem();
 
+    /* build channel with manager to notify init is done */
     int fd = ShmOpen(MANAGERBACKFILE, O_RDWR, PERMISSION, __func__);
     ManagerSharedMem *manager = Mmap(NULL,
                                      sizeof(*manager),
@@ -300,7 +302,6 @@ void KVWorkerMain(void) {
                                      0,
                                      __func__);
     Fclose(fd, __func__);
-
     SemPost(&manager->ready, __func__);
 
     HASHCTL hash_ctl;
@@ -409,41 +410,44 @@ void KVWorkerMain(void) {
 }
 
 WorkerSharedMem *OpenRequest(Oid relationId,
-                             ManagerSharedMem *manager,
+                             ManagerSharedMem **managerPtr,
                              WorkerSharedMem *worker, ...) {
 //    printf("\n============%s============\n", __func__);
 
+    ManagerSharedMem *manager = *managerPtr;
     if (!manager) {
         /*
-         * backend process connects to the shared mem created by manager
-         * to talk to manager about worker info
+         * backend process talks to manager about worker info
          */
         int fd = ShmOpen(MANAGERBACKFILE, O_RDWR, PERMISSION, __func__);
-        manager = Mmap(NULL,
-                       sizeof(*manager),
-                       PROT_READ | PROT_WRITE,
-                       MAP_SHARED,
-                       fd,
-                       0,
-                       __func__);
+        manager = *managerPtr = Mmap(NULL,
+                                     sizeof(*manager),
+                                     PROT_READ | PROT_WRITE,
+                                     MAP_SHARED,
+                                     fd,
+                                     0,
+                                     __func__);
         Fclose(fd, __func__);
+
+        /*
+         * Lock among child processes.
+         * Manager only serves one backend process.
+         */
+        SemWait(&manager->mutex, __func__);
+
+        if (!manager->workerProcessCreated) {
+           SemPost(&manager->manager, __func__);
+           SemWait(&manager->backend, __func__);
+        }
+
+        /* unlock */
+        SemPost(&manager->mutex, __func__);
     }
-
-    /* lock among child processes */
-    SemWait(&manager->mutex, __func__);
-
-    if (!manager->workerProcessCreated) {
-        SemPost(&manager->manager, __func__);
-        SemWait(&manager->backend, __func__);
-    }
-
-    /* unlock */
-    SemPost(&manager->mutex, __func__);
 
     if (!worker) {
         /*
-         * backend process connects to the shared mem created by worker
-         * to talk to worker and do the real work.
+         * backend process talks to worker and do the real work.
+         * Each worker has its own set of shared memory.
          */
         int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
         worker = Mmap(NULL,

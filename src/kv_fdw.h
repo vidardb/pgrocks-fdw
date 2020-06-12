@@ -83,7 +83,6 @@ typedef struct WorkerSharedMem {
     sem_t worker;
     sem_t responseMutex[RESPONSEQUEUELENGTH];
     sem_t responseSync[RESPONSEQUEUELENGTH];
-    bool workerProcessCreated;
     char area[BUFSIZE];  /* assume ~64K for a tuple is enough */
 } WorkerSharedMem;
 
@@ -184,7 +183,7 @@ extern char *KVGetOptionValue(Oid foreignTableId, const char *optionName);
 extern Datum ShortVarlena(Datum datum, int typeLength, char storage);
 
 extern WorkerSharedMem *OpenRequest(Oid relationId,
-                                    ManagerSharedMem *manager,
+                                    ManagerSharedMem **managerPtr,
                                     WorkerSharedMem *worker, ...);
 
 extern void CloseRequest(Oid relationId, WorkerSharedMem *worker);

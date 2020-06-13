@@ -9,12 +9,9 @@ ManagerSharedMem *InitManagerSharedMem(void);
 
 void CloseManagerSharedMem(ManagerSharedMem *manager);
 
-void KVWorkerMain(void);
+void KVWorkerMain(Oid databaseId);
 
-void TerminateWorker(void);
-
-
-pid_t kvWorkerPid;  // in manager process
+void TerminateWorker(Oid databaseId);
 
 
 #endif /* SRC_KV_SHM_H_ */

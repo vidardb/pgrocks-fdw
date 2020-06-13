@@ -11,6 +11,9 @@
 #include "storage/ipc.h"
 #include "utils/ps_status.h"
 #include "utils/hsearch.h"
+#include "postmaster/bgworker.h"
+#include "utils/typcache.h"
+#include "access/xact.h"
 
 
 typedef struct KVHashEntry {
@@ -41,11 +44,15 @@ static HTAB *kvReadOptionsHash = NULL;
 #endif
 
 
-static HTAB *kvTableHash = NULL;  // in kvworker process
+/*
+ * reference by worker process
+ */
+static HTAB *kvTableHash = NULL;
 
-static HTAB *kvIterHash = NULL;  // in kvworker process
+static HTAB *kvIterHash = NULL;
 
-static long HASHSIZE = 1;  // non-shared hash can be enlarged
+/* non-shared hash can be enlarged */
+static long HASHSIZE = 1;
 
 /*
  * referenced by worker process, backend process
@@ -99,10 +106,10 @@ static inline uint32 GetResponseQueueIndex(WorkerSharedMem *worker) {
  * Initialize shared memory for responses
  * called by worker process
  */
-static void InitResponseArea() {
+static void InitResponseArea(Oid databaseId) {
     for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
         char filename[FILENAMELENGTH];
-        snprintf(filename, FILENAMELENGTH, "%s%d", RESPONSEFILE, i);
+        snprintf(filename, FILENAMELENGTH, "%s%d%u", RESPONSEFILE, i, databaseId);
         ShmUnlink(filename, __func__);
         int fd = ShmOpen(filename,
                          O_CREAT | O_RDWR | O_EXCL,
@@ -124,11 +131,11 @@ static void InitResponseArea() {
  * Open shared memory for responses
  * called by backend process
  */
-static void OpenResponseArea() {
+static void OpenResponseArea(Oid databaseId) {
     for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
         if (ResponseQueue[i] == NULL) {
             char filename[FILENAMELENGTH];
-            snprintf(filename, FILENAMELENGTH, "%s%d", RESPONSEFILE, i);
+            snprintf(filename, FILENAMELENGTH, "%s%d%u", RESPONSEFILE, i, databaseId);
             int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
             ResponseQueue[i] = Mmap(NULL,
                                     BUFSIZE,
@@ -168,11 +175,10 @@ static inline int CompareKVTableProcOpHashKey(const void *key1,
  * Initialize manager shared memory
  */
 ManagerSharedMem *InitManagerSharedMem() {
-    kvWorkerPid = 0;
     ManagerSharedMem *manager = NULL;
 
-    ShmUnlink(MANAGERBACKFILE, __func__);
-    int fd = ShmOpen(MANAGERBACKFILE, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
+    ShmUnlink(BACKFILE, __func__);
+    int fd = ShmOpen(BACKFILE, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
     Ftruncate(fd, sizeof(*manager), __func__);
     manager = Mmap(NULL,
                    sizeof(*manager),
@@ -188,7 +194,7 @@ ManagerSharedMem *InitManagerSharedMem() {
     SemInit(&manager->backend, 1, 0, __func__);
     SemInit(&manager->ready, 1, 0, __func__);
 
-    manager->workerProcessCreated = false;
+    manager->databaseId = InvalidOid;
 
     return manager;
 }
@@ -200,12 +206,14 @@ void CloseManagerSharedMem(ManagerSharedMem *manager) {
     SemDestroy(&manager->ready, __func__);
 
     Munmap(manager, sizeof(*manager), __func__);
-    ShmUnlink(MANAGERBACKFILE, __func__);
+    ShmUnlink(BACKFILE, __func__);
 }
 
 /* called by manager process to terminate worker process */
-void TerminateWorker() {
-    int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
+void TerminateWorker(Oid databaseId) {
+    char filename[FILENAMELENGTH];
+    snprintf(filename, FILENAMELENGTH, "%s%u", BACKFILE, databaseId);
+    int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
     WorkerSharedMem *worker = Mmap(NULL,
                                    sizeof(*worker),
                                    PROT_READ | PROT_WRITE,
@@ -231,11 +239,13 @@ void TerminateWorker() {
 /*
  * Initialize worker shared memory
  */
-static WorkerSharedMem *InitWorkerSharedMem() {
-    WorkerSharedMem *worker = NULL;
+static WorkerSharedMem *InitWorkerSharedMem(Oid databaseId) {
+    char filename[FILENAMELENGTH];
+    snprintf(filename, FILENAMELENGTH, "%s%u", BACKFILE, databaseId);
 
-    ShmUnlink(BACKFILE, __func__);
-    int fd = ShmOpen(BACKFILE, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
+    WorkerSharedMem *worker = NULL;
+    ShmUnlink(filename, __func__);
+    int fd = ShmOpen(filename, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
     Ftruncate(fd, sizeof(*worker), __func__);
     worker = Mmap(NULL,
                   sizeof(*worker),
@@ -247,7 +257,7 @@ static WorkerSharedMem *InitWorkerSharedMem() {
     Fclose(fd, __func__);
 
     /* Initialize the response area */
-    InitResponseArea();
+    InitResponseArea(databaseId);
 
     SemInit(&worker->mutex, 1, 1, __func__);
     SemInit(&worker->full, 1, 1, __func__);
@@ -261,12 +271,12 @@ static WorkerSharedMem *InitWorkerSharedMem() {
     return worker;
 }
 
-static void CloseWorkerSharedMem(WorkerSharedMem *worker) {
+static void CloseWorkerSharedMem(WorkerSharedMem *worker, Oid databaseId) {
     // release the response area first
     for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
         Munmap(ResponseQueue[i], BUFSIZE, __func__);
         char filename[FILENAMELENGTH];
-        snprintf(filename, FILENAMELENGTH, "%s%d", RESPONSEFILE, i);
+        snprintf(filename, FILENAMELENGTH, "%s%d%u", RESPONSEFILE, i, databaseId);
         ShmUnlink(filename, __func__);
     }
 
@@ -280,20 +290,22 @@ static void CloseWorkerSharedMem(WorkerSharedMem *worker) {
     }
 
     Munmap(worker, sizeof(*worker), __func__);
-    ShmUnlink(BACKFILE, __func__);
+    char filename[FILENAMELENGTH];
+    snprintf(filename, FILENAMELENGTH, "%s%u", BACKFILE, databaseId);
+    ShmUnlink(filename, __func__);
 }
 
 /*
  * Main loop for the worker process.
  */
-void KVWorkerMain(void) {
+void KVWorkerMain(Oid databaseId) {
     ereport(DEBUG1, (errmsg("KVWorker started")));
 
     /* first init the worker specific shared mem */
-    WorkerSharedMem *worker = InitWorkerSharedMem();
+    WorkerSharedMem *worker = InitWorkerSharedMem(databaseId);
 
     /* build channel with manager to notify init is done */
-    int fd = ShmOpen(MANAGERBACKFILE, O_RDWR, PERMISSION, __func__);
+    int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
     ManagerSharedMem *manager = Mmap(NULL,
                                      sizeof(*manager),
                                      PROT_READ | PROT_WRITE,
@@ -303,6 +315,9 @@ void KVWorkerMain(void) {
                                      __func__);
     Fclose(fd, __func__);
     SemPost(&manager->ready, __func__);
+
+    /* Connect to our database */
+    BackgroundWorkerInitializeConnectionByOid(databaseId, InvalidOid, 0);
 
     HASHCTL hash_ctl;
     memset(&hash_ctl, 0, sizeof(hash_ctl));
@@ -404,7 +419,7 @@ void KVWorkerMain(void) {
         Close(entry->db);
     }
 
-    CloseWorkerSharedMem(worker);
+    CloseWorkerSharedMem(worker, databaseId);
 
     ereport(DEBUG1, (errmsg("KVWorker shutting down")));
 }
@@ -419,7 +434,7 @@ WorkerSharedMem *OpenRequest(Oid relationId,
         /*
          * backend process talks to manager about worker info
          */
-        int fd = ShmOpen(MANAGERBACKFILE, O_RDWR, PERMISSION, __func__);
+        int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
         manager = *managerPtr = Mmap(NULL,
                                      sizeof(*manager),
                                      PROT_READ | PROT_WRITE,
@@ -435,10 +450,9 @@ WorkerSharedMem *OpenRequest(Oid relationId,
          */
         SemWait(&manager->mutex, __func__);
 
-        if (!manager->workerProcessCreated) {
-           SemPost(&manager->manager, __func__);
-           SemWait(&manager->backend, __func__);
-        }
+        manager->databaseId = MyDatabaseId;
+        SemPost(&manager->manager, __func__);
+        SemWait(&manager->backend, __func__);
 
         /* unlock */
         SemPost(&manager->mutex, __func__);
@@ -449,7 +463,9 @@ WorkerSharedMem *OpenRequest(Oid relationId,
          * backend process talks to worker and do the real work.
          * Each worker has its own set of shared memory.
          */
-        int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
+        char filename[FILENAMELENGTH];
+        snprintf(filename, FILENAMELENGTH, "%s%u", BACKFILE, MyDatabaseId);
+        int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
         worker = Mmap(NULL,
                       sizeof(*worker),
                       PROT_READ | PROT_WRITE,
@@ -459,7 +475,7 @@ WorkerSharedMem *OpenRequest(Oid relationId,
                       __func__);
         Fclose(fd, __func__);
 
-        OpenResponseArea();
+        OpenResponseArea(MyDatabaseId);
     }
 
     SemWait(&worker->mutex, __func__);
@@ -505,6 +521,12 @@ WorkerSharedMem *OpenRequest(Oid relationId,
 
 static void OpenResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
+
+//    /* reference code: get cmp func according to data type id, txn is required */
+//    StartTransactionCommand();
+//    TypeCacheEntry *typentry = lookup_type_cache(23, TYPECACHE_CMP_PROC_FINFO);
+//    printf("\n TypeCacheEntry: %d, %d\n", 23, typentry->cmp_proc);
+//    CommitTransactionCommand();
 
     #ifdef VIDARDB
     bool *useColumn = (bool *)area;

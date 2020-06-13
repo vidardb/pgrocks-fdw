@@ -18,8 +18,6 @@
 /* Defines */
 #define KVFDWNAME "kv_fdw"
 
-#define MANAGERBACKFILE "/KVManagerSharedMem"
-
 #define BACKFILE "/KVSharedMem"
 
 #define PERMISSION 0777
@@ -57,18 +55,21 @@
 #endif
 
 
-/* Shared memory for function requests: 
- * mutex: mutual exclusion of the request buffer;
+/* Shared memory for communication with manager:
+ * mutex: manager serves only one backend at a time;
+ * manager, backend: coordinate between the two roles;
+ * ready: to avoid race between worker and backend at worker init;
+ * databaseId: backend tells manager the database it wants;
  */
 typedef struct ManagerSharedMem {
     sem_t mutex;
     sem_t manager;
     sem_t backend;
     sem_t ready;
-    bool workerProcessCreated;
+    Oid databaseId;
 } ManagerSharedMem;
 
-/* Shared memory for function requests:
+/* Shared memory for function requests with worker:
  * mutex: mutual exclusion of the request buffer;
  * full: tell whether the request buffer is full;
  * worker: notify the worker process after a request is submitted;

@@ -11,17 +11,17 @@
 #include "storage/shmem.h"
 
 /* these headers are used by this particular worker's code */
-#include "access/xact.h"
-#include "pgstat.h"
-#include "tcop/utility.h"
 #include "kv_shm.h"
 
 
 void KVManageWork(Datum);
 void LaunchBackgroundManager(void);
 void KVDoWork(Datum);
-pid_t LaunchBackgroundWorker(void);
+pid_t LaunchBackgroundWorker(Oid databaseId);
 
+
+/* non-shared hash can be enlarged */
+static long HASHSIZE = 1;
 
 /* flags set by signal handlers */
 static volatile sig_atomic_t gotSIGTERM = false;
@@ -32,7 +32,6 @@ static volatile sig_atomic_t gotSIGTERM = false;
  * Set a flag to let the main loop to terminate, and set our latch to wake it up.
  */
 static void KVSIGTERM(SIGNAL_ARGS) {
-    printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
     int save_errno = errno;
 
     gotSIGTERM = true;
@@ -45,8 +44,6 @@ static void KVSIGTERM(SIGNAL_ARGS) {
  * Initialize shared memory and release it when exits
  */
 void KVManageWork(Datum arg) {
-    printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
-
     /* Establish signal handlers before unblocking signals. */
     /* pqsignal(SIGTERM, KVSIGTERM); */
     /*
@@ -63,6 +60,14 @@ void KVManageWork(Datum arg) {
 
     ManagerSharedMem *manager = InitManagerSharedMem();
 
+    HASHCTL hashCtl;
+    memset(&hashCtl, 0, sizeof(hashCtl));
+    hashCtl.entrysize = hashCtl.keysize = sizeof(MyDatabaseId);
+    HTAB *wokerHash = hash_create("wokerHash",
+                                  HASHSIZE,
+                                  &hashCtl,
+                                  HASH_ELEM | HASH_BLOBS);
+
     while (!gotSIGTERM) {
         /*
          * Don't create worker process until needed!
@@ -71,20 +76,30 @@ void KVManageWork(Datum arg) {
         if (SemWait(&manager->manager, __func__) == -1) {
             break;
         }
-        kvWorkerPid = LaunchBackgroundWorker();
-        manager->workerProcessCreated = true;
 
-        /*
-         * Make sure worker process has inited to avoid race between backend and
-         * worker.
-         */
-        SemWait(&manager->ready, __func__);
+        /* check whether the requested database has the process */
+        Oid databaseId = manager->databaseId;
+        bool found = false;
+        Oid *entry = hash_search(wokerHash, &databaseId, HASH_ENTER, &found);
+        if (!found) {
+            *entry = databaseId;
+            LaunchBackgroundWorker(databaseId);
+
+            /*
+             * Make sure worker process has inited to avoid race between
+             * backend and worker.
+             */
+            SemWait(&manager->ready, __func__);
+        }
+
         SemPost(&manager->backend, __func__);
     };
 
-    if (kvWorkerPid != 0) {
-        TerminateWorker();
-        kvWorkerPid = 0;
+    HASH_SEQ_STATUS status;
+    hash_seq_init(&status, wokerHash);
+    Oid *entry = NULL;
+    while ((entry = hash_seq_search(&status)) != NULL) {
+        TerminateWorker(*entry);
     }
 
     CloseManagerSharedMem(manager);
@@ -116,8 +131,8 @@ void LaunchBackgroundManager(void) {
 }
 
 void KVDoWork(Datum arg) {
-    printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
-    KVWorkerMain();
+    Oid databaseId = DatumGetObjectId(arg);
+    KVWorkerMain(databaseId);
     proc_exit(0);
 }
 
@@ -125,7 +140,7 @@ void KVDoWork(Datum arg) {
  * Entrypoint, dynamically register worker process here, at most one process for
  * each database containing table created by kv engine.
  */
-pid_t LaunchBackgroundWorker(void) {
+pid_t LaunchBackgroundWorker(Oid databaseId) {
     printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
 
     BackgroundWorker worker;
@@ -137,6 +152,7 @@ pid_t LaunchBackgroundWorker(void) {
     sprintf(worker.bgw_function_name, "KVDoWork");
     snprintf(worker.bgw_name, BGW_MAXLEN, "KV worker");
     snprintf(worker.bgw_type, BGW_MAXLEN, "KV worker");
+    worker.bgw_main_arg = ObjectIdGetDatum(databaseId);
     /* set bgw_notify_pid so that we can use WaitForBackgroundWorkerStartup */
     worker.bgw_notify_pid = MyProcPid;
     BackgroundWorkerHandle *handle;

@@ -76,6 +76,8 @@ void KVManageWork(Datum arg) {
         if (SemWait(&manager->manager, __func__) == -1) {
             break;
         }
+        kvWorkerPid = LaunchBackgroundWorker();
+        ptr->workerProcessCreated = true;
 
         /* check whether the requested database has the process */
         Oid databaseId = manager->databaseId;

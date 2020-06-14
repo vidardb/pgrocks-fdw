@@ -5,14 +5,13 @@
 #include "kv_fdw.h"
 
 
-SharedMem *InitSharedMem(void);
+ManagerSharedMem *InitManagerSharedMem(void);
 
-void cleanup_handler(void *arg);
+void CloseManagerSharedMem(ManagerSharedMem *manager);
 
-void KVWorkerMain(void);
+void KVWorkerMain(Oid databaseId);
 
-
-pid_t kvWorkerPid;  // in manager process
+void TerminateWorker(Oid databaseId);
 
 
 #endif /* SRC_KV_SHM_H_ */

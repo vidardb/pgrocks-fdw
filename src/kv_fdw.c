@@ -111,12 +111,16 @@ static void GetForeignRelSize(PlannerInfo *root,
     }
 
     baserel->fdw_private = planState;
-
+    Relation relation = heap_open(foreignTableId, AccessShareLock);
+    ComparatorOptions opts;
+    FillRelationComparatorOptions(relation, &opts);
     worker = OpenRequest(foreignTableId,
                          &manager,
                          worker,
                          planState->fdwOptions->useColumn,
-                         planState->attrCount);
+                         planState->attrCount,
+                         &opts);
+    heap_close(relation, AccessShareLock);
     #else
     worker = OpenRequest(foreignTableId, &manager, worker);
     #endif
@@ -200,11 +204,16 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
     /* To accommodate min & max, we open file here */
     #ifdef VIDARDB
     TablePlanState *planState = baserel->fdw_private;
+    Relation relation = heap_open(foreignTableId, AccessShareLock);
+    ComparatorOptions opts;
+    FillRelationComparatorOptions(relation, &opts);
     worker = OpenRequest(foreignTableId,
                          &manager,
                          worker,
                          planState->fdwOptions->useColumn,
-                         planState->attrCount);
+                         planState->attrCount,
+                         &opts);
+    heap_close(relation, AccessShareLock);
     #else
     worker = OpenRequest(foreignTableId, &manager, worker);
     #endif
@@ -915,11 +924,14 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
 
     if (operation == CMD_INSERT) {
         #ifdef VIDARDB
+        ComparatorOptions opts;
+        FillRelationComparatorOptions(relation, &opts);
         worker = OpenRequest(foreignTableId,
                              &manager,
                              worker,
                              planState->fdwOptions->useColumn,
-                             planState->attrCount);
+                             planState->attrCount,
+                             &opts);
         #else
         worker = OpenRequest(foreignTableId, &manager, worker);
         #endif

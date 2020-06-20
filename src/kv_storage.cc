@@ -4,6 +4,7 @@
 #include "vidardb/options.h"
 #include "vidardb/table.h"
 #include "vidardb/splitter.h"
+#include "vidardb/comparator.h"
 using namespace vidardb;
 #include <list>
 #include <algorithm>
@@ -15,17 +16,23 @@ using namespace rocksdb;
 using namespace std;
 
 #include "kv_storage.h"
-#include "kv_fdw.h"
 
 
 extern "C" {
 
+#include "kv_fdw.h"
+#include "fmgr.h"
+#include "access/xact.h"
+#include "access/tupmacs.h"
+
+
 #ifdef VIDARDB
-void* Open(char* path, bool useColumn, int attrCount) {
+void* Open(char* path, bool useColumn, int attrCount, ComparatorOptions* opts) {
     DB* db = nullptr;
     Options options;
     options.OptimizeAdaptiveLevelStyleCompaction();
     options.create_if_missing = true;
+    options.comparator = static_cast<Comparator*>(NewDataTypeComparator(opts));
 
     shared_ptr<TableFactory> block_based_table(NewBlockBasedTableFactory());
     shared_ptr<TableFactory> column_table(NewColumnTableFactory());
@@ -55,7 +62,12 @@ void* Open(char* path) {
 #endif
 
 void Close(void* db) {
-    delete static_cast<DB*>(db);
+    DB* db_ptr = static_cast<DB*>(db);
+    Options opts = db_ptr->GetOptions();
+    const Comparator* wrap_cmp = opts.comparator;
+    const Comparator* root_cmp = wrap_cmp->GetRootComparator();
+    delete root_cmp;
+    delete db_ptr;
 }
 
 uint64 Count(void* db) {
@@ -297,6 +309,95 @@ void ClearRangeQueryMeta(void* range, void* readOptions) {
     delete options;
 }
 
+/* Comparator wrapper for PG datatype's comparison function */
+class PGDataTypeComparator : public Comparator {
+  public:
+    PGDataTypeComparator(ComparatorOptions* options) : options_(*options) {
+        if (OidIsValid(options_.cmpFuncOid)) {
+            fmgr_info(options_.cmpFuncOid, &fmgr_info_);
+        }
+    }
+
+    /*
+     * The name of the comparator.  Used to check for comparator
+     * mismatches (i.e., a DB created with one comparator is
+     * accessed using a different comparator.
+     *
+     * The client of this package should switch to a new name whenever
+     * the comparator implementation changes in a way that will cause
+     * the relative ordering of any two keys to change.
+     */
+    virtual const char* Name() const override {
+        return KVDATATYPECOMPARATOR;
+    }
+
+    /*
+     * Three-way comparison.  Returns value:
+     *   < 0 iff "a" < "b",
+     *   == 0 iff "a" == "b",
+     *   > 0 iff "a" > "b"
+     */
+    virtual int Compare(const Slice& a, const Slice& b) const override {
+        /* datatype comparison func does not exist */
+        if (!OidIsValid(options_.cmpFuncOid)) {
+            return a.compare(b);
+        }
+
+        /* fetch attribute value */
+        Datum arg1 = fetch_att(a.data(), options_.attrByVal, options_.attrLength);
+        Datum arg2 = fetch_att(b.data(), options_.attrByVal, options_.attrLength);
+
+        /* generally, the return type is int4 (pg_proc.dat) */
+        StartTransactionCommand();  /* nessary transaction */
+        int ret = DatumGetInt32(FunctionCall2Coll((FmgrInfo*) &fmgr_info_,
+                                                  options_.attrCollOid,
+                                                  arg1, arg2));
+        CommitTransactionCommand();  /* nessary transaction */
+
+        return ret;
+    }
+
+    /*
+     * Compares two slices for equality. The following invariant should always
+     * hold (and is the default implementation):
+     *   Equal(a, b) iff Compare(a, b) == 0
+     * Overwrite only if equality comparisons can be done more efficiently than
+     * three-way comparisons.
+     */
+    virtual bool Equal(const Slice& a, const Slice& b) const override {
+        return Compare(a, b) == 0;
+    }
+
+    /*
+     * Advanced functions: these are used to reduce the space requirements
+     * for internal data structures like index blocks.
+     *
+     * If *start < limit, changes *start to a short string in [start,limit).
+     * Simple comparator implementations may return with *start unchanged,
+     * i.e., an implementation of this method that does nothing is correct.
+     */
+    virtual void FindShortestSeparator(std::string* start,
+                                       const Slice& limit) const override {
+        /* do nothing */
+    }
+
+    /*
+     * Changes *key to a short string >= *key.
+     * Simple comparator implementations may return with *key unchanged,
+     * i.e., an implementation of this method that does nothing is correct.
+     */
+    virtual void FindShortSuccessor(std::string* key) const override {
+        /* do nothing */
+    }
+
+  private:
+    ComparatorOptions options_;
+    FmgrInfo fmgr_info_;
+};
+
+void* NewDataTypeComparator(ComparatorOptions* options) {
+    return new PGDataTypeComparator(options);
+}
 #endif
 
 }

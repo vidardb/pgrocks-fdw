@@ -14,12 +14,23 @@ extern "C" {
 #include "access/attnum.h"
 
 
+/* Defines */
+#define KVDATATYPECOMPARATOR "kv.PGDataTypeComparator"
+
+
 /**
  * C wrapper
  */
 
 #ifdef VIDARDB
-void* Open(char* path, bool useColumn, int attrCount);
+typedef struct ComparatorOptions {
+    Oid   cmpFuncOid;   /* datatype comparison func id */
+    Oid   attrCollOid;  /* attribute datatype coll id */
+    bool  attrByVal;    /* store attribute by value? */
+    int16 attrLength;   /* attribute datatype length */
+} ComparatorOptions;
+
+void* Open(char* path, bool useColumn, int attrCount, ComparatorOptions* opts);
 #else
 void* Open(char* path);
 #endif
@@ -66,6 +77,9 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
 void ParseRangeQueryResult(void* result, char* buf);
 
 void ClearRangeQueryMeta(void* range, void* readOptions);
+
+/* Create a datatype comparator wrapper for storage engine */
+void* NewDataTypeComparator(ComparatorOptions* options);
 #endif
 
 

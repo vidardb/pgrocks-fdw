@@ -8,6 +8,9 @@
 using namespace vidardb;
 #include <list>
 #include <algorithm>
+#include <mutex>
+#include <thread>
+#include <iostream>
 #else
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -24,6 +27,8 @@ extern "C" {
 #include "fmgr.h"
 #include "access/xact.h"
 #include "access/tupmacs.h"
+#include "utils/typcache.h"
+#include "miscadmin.h"
 
 
 #ifdef VIDARDB
@@ -316,6 +321,7 @@ class PGDataTypeComparator : public Comparator {
         if (OidIsValid(options_.cmpFuncOid)) {
             fmgr_info(options_.cmpFuncOid, &fmgr_info_);
         }
+        name_map_mutex_ = new std::mutex;
     }
 
     /*
@@ -343,16 +349,23 @@ class PGDataTypeComparator : public Comparator {
             return a.compare(b);
         }
 
+        std::cout<<std::this_thread::get_id()<<std::endl;
+
         /* fetch attribute value */
         Datum arg1 = fetch_att(a.data(), options_.attrByVal, options_.attrLength);
         Datum arg2 = fetch_att(b.data(), options_.attrByVal, options_.attrLength);
 
+
+        name_map_mutex_->lock();
+        set_stack_base();
         /* generally, the return type is int4 (pg_proc.dat) */
-        StartTransactionCommand();  /* nessary transaction */
+        StartTransactionCommand();  /* necessary transaction */
+//        TypeCacheEntry *typentry = lookup_type_cache(23, TYPECACHE_CMP_PROC_FINFO);
         int ret = DatumGetInt32(FunctionCall2Coll((FmgrInfo*) &fmgr_info_,
                                                   options_.attrCollOid,
                                                   arg1, arg2));
-        CommitTransactionCommand();  /* nessary transaction */
+        CommitTransactionCommand();  /* necessary transaction */
+        name_map_mutex_->unlock();
 
         return ret;
     }
@@ -393,11 +406,13 @@ class PGDataTypeComparator : public Comparator {
   private:
     ComparatorOptions options_;
     FmgrInfo fmgr_info_;
+    std::mutex *name_map_mutex_;
 };
 
 void* NewDataTypeComparator(ComparatorOptions* options) {
     return new PGDataTypeComparator(options);
 }
+
 #endif
 
 }

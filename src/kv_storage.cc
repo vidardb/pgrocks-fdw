@@ -9,7 +9,6 @@ using namespace vidardb;
 #include <list>
 #include <algorithm>
 #include <mutex>
-#include <thread>
 #include <iostream>
 #else
 #include "rocksdb/db.h"
@@ -27,8 +26,8 @@ extern "C" {
 #include "fmgr.h"
 #include "access/xact.h"
 #include "access/tupmacs.h"
-#include "utils/typcache.h"
 #include "miscadmin.h"
+#include "utils/resowner.h"
 
 
 #ifdef VIDARDB
@@ -93,23 +92,6 @@ void* GetIter(void* db) {
 
 void DelIter(void* it) {
     delete static_cast<Iterator*>(it);
-}
-
-bool Next(void* db, void* iter, char* buffer) {
-    Iterator* it = static_cast<Iterator*>(iter);
-    if (it == nullptr || !it->Valid()) return false;
-
-    size_t keyLen = it->key().size(), valLen = it->value().size();
-    memcpy(buffer, &keyLen, sizeof(keyLen));
-    buffer += sizeof(keyLen);
-    memcpy(buffer, it->key().data(), keyLen);
-    buffer += keyLen;
-    memcpy(buffer, &valLen, sizeof(valLen));
-    buffer += sizeof(valLen);
-    memcpy(buffer, it->value().data(), valLen);
-
-    it->Next();
-    return true;
 }
 
 bool ReadBatch(void* db, void* iter, char* buf, size_t* bufLen) {
@@ -318,10 +300,30 @@ void ClearRangeQueryMeta(void* range, void* readOptions) {
 class PGDataTypeComparator : public Comparator {
   public:
     PGDataTypeComparator(ComparatorOptions* options) : options_(*options) {
-        if (OidIsValid(options_.cmpFuncOid)) {
-            fmgr_info(options_.cmpFuncOid, &fmgr_info_);
+        if (!OidIsValid(options_.cmpFuncOid)) {
+            return;
         }
-        name_map_mutex_ = new std::mutex;
+        fmgr_info(options_.cmpFuncOid, &funcManager_);
+        mutex_ = new std::mutex;
+        firstCall_ = new bool;
+        *firstCall_ = true;
+        resourceOwner_ = ResourceOwnerCreate(NULL, "ComparatorResourceOwner");
+        funcCallInfo_ = (FunctionCallInfoData*) palloc0(sizeof(*funcCallInfo_));
+        InitFunctionCallInfoData(*funcCallInfo_,
+                                 &funcManager_,
+                                 2,
+                                 options_.attrCollOid,
+                                 NULL,
+                                 NULL);
+        funcCallInfo_->argnull[0] = false;
+        funcCallInfo_->argnull[1] = false;
+    }
+
+    virtual ~PGDataTypeComparator() {
+        pfree(funcCallInfo_);
+        ResourceOwnerDelete(resourceOwner_);
+        delete firstCall_;
+        delete mutex_;
     }
 
     /*
@@ -349,23 +351,42 @@ class PGDataTypeComparator : public Comparator {
             return a.compare(b);
         }
 
-        std::cout<<std::this_thread::get_id()<<std::endl;
-
         /* fetch attribute value */
         Datum arg1 = fetch_att(a.data(), options_.attrByVal, options_.attrLength);
         Datum arg2 = fetch_att(b.data(), options_.attrByVal, options_.attrLength);
+        int ret = 0;
 
+        /* contention area */
+        mutex_->lock();
 
-        name_map_mutex_->lock();
-        set_stack_base();
-        /* generally, the return type is int4 (pg_proc.dat) */
-        StartTransactionCommand();  /* necessary transaction */
-//        TypeCacheEntry *typentry = lookup_type_cache(23, TYPECACHE_CMP_PROC_FINFO);
-        int ret = DatumGetInt32(FunctionCall2Coll((FmgrInfo*) &fmgr_info_,
-                                                  options_.attrCollOid,
-                                                  arg1, arg2));
-        CommitTransactionCommand();  /* necessary transaction */
-        name_map_mutex_->unlock();
+        funcCallInfo_->arg[0] = arg1;
+        funcCallInfo_->arg[1] = arg2;
+
+        if (*firstCall_ == true) {
+            /*
+             * must start a transaction to pass through system cache check,
+             * but it is fine, just for one time
+             */
+            StartTransactionCommand();  /* necessary transaction */
+            /* generally, the return type is int4 (pg_proc.dat) */
+            ret = DatumGetInt32(FunctionCallInvoke(funcCallInfo_));
+            CommitTransactionCommand();  /* necessary transaction */
+            *firstCall_ = false;
+        } else {
+            /*
+             * set CurrentResourceOwner and stack_base to pass checks
+             */
+            ResourceOwner old_owner = CurrentResourceOwner;
+            CurrentResourceOwner = resourceOwner_;
+            pg_stack_base_t old = set_stack_base();
+
+            ret = DatumGetInt32(FunctionCallInvoke(funcCallInfo_));
+
+            restore_stack_base(old);
+            CurrentResourceOwner = old_owner;
+        }
+
+        mutex_->unlock();
 
         return ret;
     }
@@ -405,8 +426,11 @@ class PGDataTypeComparator : public Comparator {
 
   private:
     ComparatorOptions options_;
-    FmgrInfo fmgr_info_;
-    std::mutex *name_map_mutex_;
+    FmgrInfo funcManager_;
+    std::mutex *mutex_;
+    bool *firstCall_;
+    ResourceOwner resourceOwner_;
+    FunctionCallInfoData *funcCallInfo_;
 };
 
 void* NewDataTypeComparator(ComparatorOptions* options) {

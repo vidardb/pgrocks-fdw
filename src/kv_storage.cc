@@ -4,9 +4,11 @@
 #include "vidardb/options.h"
 #include "vidardb/table.h"
 #include "vidardb/splitter.h"
+#include "vidardb/comparator.h"
 using namespace vidardb;
 #include <list>
 #include <algorithm>
+#include <mutex>
 #else
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -15,17 +17,25 @@ using namespace rocksdb;
 using namespace std;
 
 #include "kv_storage.h"
-#include "kv_fdw.h"
 
 
 extern "C" {
 
+#include "kv_fdw.h"
+#include "fmgr.h"
+#include "access/xact.h"
+#include "access/tupmacs.h"
+#include "miscadmin.h"
+#include "utils/resowner.h"
+
+
 #ifdef VIDARDB
-void* Open(char* path, bool useColumn, int attrCount) {
+void* Open(char* path, bool useColumn, int attrCount, ComparatorOptions* opts) {
     DB* db = nullptr;
     Options options;
     options.OptimizeAdaptiveLevelStyleCompaction();
     options.create_if_missing = true;
+    options.comparator = static_cast<Comparator*>(NewDataTypeComparator(opts));
 
     shared_ptr<TableFactory> block_based_table(NewBlockBasedTableFactory());
     shared_ptr<TableFactory> column_table(NewColumnTableFactory());
@@ -55,7 +65,13 @@ void* Open(char* path) {
 #endif
 
 void Close(void* db) {
-    delete static_cast<DB*>(db);
+    DB* db_ptr = static_cast<DB*>(db);
+    #ifdef VIDARDB
+    const Comparator* wrap_cmp = db_ptr->GetOptions().comparator;
+    const Comparator* root_cmp = wrap_cmp->GetRootComparator();
+    delete root_cmp;
+    #endif
+    delete db_ptr;
 }
 
 uint64 Count(void* db) {
@@ -76,23 +92,6 @@ void* GetIter(void* db) {
 
 void DelIter(void* it) {
     delete static_cast<Iterator*>(it);
-}
-
-bool Next(void* db, void* iter, char* buffer) {
-    Iterator* it = static_cast<Iterator*>(iter);
-    if (it == nullptr || !it->Valid()) return false;
-
-    size_t keyLen = it->key().size(), valLen = it->value().size();
-    memcpy(buffer, &keyLen, sizeof(keyLen));
-    buffer += sizeof(keyLen);
-    memcpy(buffer, it->key().data(), keyLen);
-    buffer += keyLen;
-    memcpy(buffer, &valLen, sizeof(valLen));
-    buffer += sizeof(valLen);
-    memcpy(buffer, it->value().data(), valLen);
-
-    it->Next();
-    return true;
 }
 
 bool ReadBatch(void* db, void* iter, char* buf, size_t* bufLen) {
@@ -295,6 +294,152 @@ void ClearRangeQueryMeta(void* range, void* readOptions) {
 
     ReadOptions* options = static_cast<ReadOptions*>(readOptions);
     delete options;
+}
+
+/* Comparator wrapper for PG datatype's comparison function */
+class PGDataTypeComparator : public Comparator {
+  public:
+    PGDataTypeComparator(ComparatorOptions* options) : options_(*options) {
+        if (!OidIsValid(options_.cmpFuncOid)) {
+            return;
+        }
+        fmgr_info(options_.cmpFuncOid, &funcManager_);
+        mutex_ = new std::mutex;
+        firstCall_ = new bool;
+        *firstCall_ = true;
+        resourceOwner_ = ResourceOwnerCreate(NULL, "ComparatorResourceOwner");
+        funcCallInfo_ = (FunctionCallInfoData*) palloc0(sizeof(*funcCallInfo_));
+        InitFunctionCallInfoData(*funcCallInfo_,
+                                 &funcManager_,
+                                 2,
+                                 options_.attrCollOid,
+                                 NULL,
+                                 NULL);
+        funcCallInfo_->argnull[0] = false;
+        funcCallInfo_->argnull[1] = false;
+    }
+
+    virtual ~PGDataTypeComparator() {
+        if (!OidIsValid(options_.cmpFuncOid)) {
+            return;
+        }
+        pfree(funcCallInfo_);
+        ResourceOwnerDelete(resourceOwner_);
+        delete firstCall_;
+        delete mutex_;
+    }
+
+    /*
+     * The name of the comparator.  Used to check for comparator
+     * mismatches (i.e., a DB created with one comparator is
+     * accessed using a different comparator.
+     *
+     * The client of this package should switch to a new name whenever
+     * the comparator implementation changes in a way that will cause
+     * the relative ordering of any two keys to change.
+     */
+    virtual const char* Name() const override {
+        return "kv.PGDataTypeComparator";
+    }
+
+    /*
+     * Three-way comparison.  Returns value:
+     *   < 0 iff "a" < "b",
+     *   == 0 iff "a" == "b",
+     *   > 0 iff "a" > "b"
+     */
+    virtual int Compare(const Slice& a, const Slice& b) const override {
+        /* datatype comparison func does not exist */
+        if (!OidIsValid(options_.cmpFuncOid)) {
+            return a.compare(b);
+        }
+
+        /* fetch attribute value */
+        Datum arg1 = fetch_att(a.data(), options_.attrByVal, options_.attrLength);
+        Datum arg2 = fetch_att(b.data(), options_.attrByVal, options_.attrLength);
+        int ret = 0;
+
+        /* contention area */
+        mutex_->lock();
+
+        funcCallInfo_->arg[0] = arg1;
+        funcCallInfo_->arg[1] = arg2;
+
+        if (*firstCall_ == true) {
+            /*
+             * must start a transaction to build the type cache, and pass
+             * through system cache check, but it is fine, just for one time.
+             * TODO: We have to be careful about cache invalidation problem.
+             * currently, we assume tbl schema never get changed after creation.
+             */
+            StartTransactionCommand();  /* necessary transaction */
+            /* generally, the return type is int4 (pg_proc.dat) */
+            ret = DatumGetInt32(FunctionCallInvoke(funcCallInfo_));
+            CommitTransactionCommand();  /* necessary transaction */
+            *firstCall_ = false;
+        } else {
+            /*
+             * set CurrentResourceOwner and stack_base to pass checks
+             */
+            ResourceOwner old_owner = CurrentResourceOwner;
+            CurrentResourceOwner = resourceOwner_;
+            pg_stack_base_t old = set_stack_base();
+
+            ret = DatumGetInt32(FunctionCallInvoke(funcCallInfo_));
+
+            restore_stack_base(old);
+            CurrentResourceOwner = old_owner;
+        }
+
+        mutex_->unlock();
+
+        return ret;
+    }
+
+    /*
+     * Compares two slices for equality. The following invariant should always
+     * hold (and is the default implementation):
+     *   Equal(a, b) iff Compare(a, b) == 0
+     * Overwrite only if equality comparisons can be done more efficiently than
+     * three-way comparisons.
+     */
+    virtual bool Equal(const Slice& a, const Slice& b) const override {
+        return Compare(a, b) == 0;
+    }
+
+    /*
+     * Advanced functions: these are used to reduce the space requirements
+     * for internal data structures like index blocks.
+     *
+     * If *start < limit, changes *start to a short string in [start,limit).
+     * Simple comparator implementations may return with *start unchanged,
+     * i.e., an implementation of this method that does nothing is correct.
+     */
+    virtual void FindShortestSeparator(std::string* start,
+                                       const Slice& limit) const override {
+        /* do nothing */
+    }
+
+    /*
+     * Changes *key to a short string >= *key.
+     * Simple comparator implementations may return with *key unchanged,
+     * i.e., an implementation of this method that does nothing is correct.
+     */
+    virtual void FindShortSuccessor(std::string* key) const override {
+        /* do nothing */
+    }
+
+  private:
+    ComparatorOptions options_;
+    FmgrInfo funcManager_;
+    std::mutex *mutex_;
+    bool *firstCall_;
+    ResourceOwner resourceOwner_;
+    FunctionCallInfoData *funcCallInfo_;
+};
+
+void* NewDataTypeComparator(ComparatorOptions* options) {
+    return new PGDataTypeComparator(options);
 }
 
 #endif

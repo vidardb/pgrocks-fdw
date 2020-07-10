@@ -23,7 +23,9 @@ DATA         = sql/kv_fdw--0.0.1.sql
 
 
 # Users need to specify their own path
+ifndef PG_CONFIG
 PG_CONFIG    = /usr/bin/pg_config
+endif
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 

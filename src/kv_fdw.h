@@ -55,6 +55,12 @@
 #endif
 
 
+#ifdef VIDARDB
+/* Fill the specified relation's comparator options */
+extern void FillRelationComparatorOptions(Relation relation,
+                                          ComparatorOptions* opts);
+#endif
+
 /* Shared memory for communication with manager:
  * mutex: manager serves only one backend at a time;
  * manager, backend: coordinate between the two roles;

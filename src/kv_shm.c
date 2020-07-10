@@ -12,8 +12,6 @@
 #include "utils/ps_status.h"
 #include "utils/hsearch.h"
 #include "postmaster/bgworker.h"
-#include "utils/typcache.h"
-#include "access/xact.h"
 
 
 typedef struct KVHashEntry {
@@ -503,6 +501,11 @@ WorkerSharedMem *OpenRequest(Oid relationId,
     int attrCount = va_arg(vl, int);
     memcpy(current, &attrCount, sizeof(attrCount));
     current += sizeof(attrCount);
+
+    ComparatorOptions* opts = va_arg(vl, ComparatorOptions*);
+    memcpy(current, opts, sizeof(*opts));
+    current += sizeof(*opts);
+
     va_end(vl);
     #endif
 
@@ -522,18 +525,15 @@ WorkerSharedMem *OpenRequest(Oid relationId,
 static void OpenResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
-//    /* reference code: get cmp func according to data type id, txn is required */
-//    StartTransactionCommand();
-//    TypeCacheEntry *typentry = lookup_type_cache(23, TYPECACHE_CMP_PROC_FINFO);
-//    printf("\n TypeCacheEntry: %d, %d\n", 23, typentry->cmp_proc);
-//    CommitTransactionCommand();
-
     #ifdef VIDARDB
     bool *useColumn = (bool *)area;
     area += sizeof(*useColumn);
 
     int *attrCount = (int *)area;
     area += sizeof(*attrCount);
+
+    ComparatorOptions *opts = (ComparatorOptions *)area;
+    area += sizeof(*opts);
     #endif
 
     char path[PATHMAXLENGTH];
@@ -547,7 +547,7 @@ static void OpenResponse(char *area) {
         entry->relationId = relationId;
         entry->ref = 1;
         #ifdef VIDARDB
-        entry->db = Open(path, *useColumn, *attrCount);
+        entry->db = Open(path, *useColumn, *attrCount, opts);
         #else
         entry->db = Open(path);
         #endif

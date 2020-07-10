@@ -21,6 +21,7 @@
 #include "parser/parse_coerce.h"
 #include "parser/parse_type.h"
 #include "executor/executor.h"
+#include "utils/typcache.h"
 
 
 #define PREVIOUS_UTILITY (PreviousProcessUtilityHook != NULL ? \
@@ -228,7 +229,10 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
             bool useColumn = (option != NULL) ?
                 (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
             TupleDesc tupleDescriptor = RelationGetDescr(relation);
-            void *kvDB = Open(kvPath->data, useColumn, tupleDescriptor->natts);
+            ComparatorOptions opts;
+            FillRelationComparatorOptions(relation, &opts);
+            void *kvDB = Open(kvPath->data, useColumn, tupleDescriptor->natts,
+                              &opts);
             #else
             void *kvDB = Open(kvPath->data);
             #endif
@@ -467,6 +471,22 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
     buffer->len = datumLength + headerLen;
 }
 
+#ifdef VIDARDB
+void FillRelationComparatorOptions(Relation relation, ComparatorOptions* opts) {
+    TupleDesc tupleDescriptor = RelationGetDescr(relation);
+
+    /* TODO: we assume the 1st column is primary key */
+    FormData_pg_attribute *key = TupleDescAttr(tupleDescriptor, 0);
+    opts->attrByVal = key->attbyval;
+    opts->attrLength = key->attlen;
+    opts->attrCollOid = key->attcollation;
+
+    TypeCacheEntry *typeEntry = lookup_type_cache(key->atttypid,
+                                                  TYPECACHE_CMP_PROC_FINFO);
+    opts->cmpFuncOid = typeEntry->cmp_proc; /* maybe not exist */
+}
+#endif
+
 /*
  * Handles a "COPY kv_table FROM" statement. This function uses the COPY
  * command's functions to read and parse rows from the data source specified
@@ -506,7 +526,10 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
     bool useColumn = (option != NULL) ?
         (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
-    worker = OpenRequest(relationId, &manager, worker, useColumn, attrCount);
+    ComparatorOptions opts;
+    FillRelationComparatorOptions(relation, &opts);
+    worker = OpenRequest(relationId, &manager, worker, useColumn, attrCount,
+                         &opts);
     #else
     worker = OpenRequest(relationId, &manager, worker);
     #endif

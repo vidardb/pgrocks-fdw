@@ -10,3 +10,4 @@
 *.code-workspace
 
 src/tools/pgindent/typedefs.list
+.deps

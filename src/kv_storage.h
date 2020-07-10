@@ -14,10 +14,6 @@ extern "C" {
 #include "access/attnum.h"
 
 
-/* Defines */
-#define KVDATATYPECOMPARATOR "kv.PGDataTypeComparator"
-
-
 /**
  * C wrapper
  */

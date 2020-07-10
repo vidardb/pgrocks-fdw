@@ -9,7 +9,6 @@ using namespace vidardb;
 #include <list>
 #include <algorithm>
 #include <mutex>
-#include <iostream>
 #else
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -67,10 +66,11 @@ void* Open(char* path) {
 
 void Close(void* db) {
     DB* db_ptr = static_cast<DB*>(db);
-    Options opts = db_ptr->GetOptions();
-    const Comparator* wrap_cmp = opts.comparator;
+    #ifdef VIDARDB
+    const Comparator* wrap_cmp = db_ptr->GetOptions().comparator;
     const Comparator* root_cmp = wrap_cmp->GetRootComparator();
     delete root_cmp;
+    #endif
     delete db_ptr;
 }
 
@@ -320,6 +320,9 @@ class PGDataTypeComparator : public Comparator {
     }
 
     virtual ~PGDataTypeComparator() {
+        if (!OidIsValid(options_.cmpFuncOid)) {
+            return;
+        }
         pfree(funcCallInfo_);
         ResourceOwnerDelete(resourceOwner_);
         delete firstCall_;
@@ -336,7 +339,7 @@ class PGDataTypeComparator : public Comparator {
      * the relative ordering of any two keys to change.
      */
     virtual const char* Name() const override {
-        return KVDATATYPECOMPARATOR;
+        return "kv.PGDataTypeComparator";
     }
 
     /*

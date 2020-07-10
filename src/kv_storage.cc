@@ -367,8 +367,10 @@ class PGDataTypeComparator : public Comparator {
 
         if (*firstCall_ == true) {
             /*
-             * must start a transaction to pass through system cache check,
-             * but it is fine, just for one time
+             * must start a transaction to build the type cache, and pass
+             * through system cache check, but it is fine, just for one time.
+             * TODO: We have to be careful about cache invalidation problem.
+             * currently, we assume tbl schema never get changed after creation.
              */
             StartTransactionCommand();  /* necessary transaction */
             /* generally, the return type is int4 (pg_proc.dat) */

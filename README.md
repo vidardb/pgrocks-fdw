@@ -92,7 +92,6 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
 
 - ACID relies on the storage engine.
 
-- Data types of Postgres are not natively supported. 
 
 # Usage
 

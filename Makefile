@@ -36,6 +36,7 @@ IMAGE ?= postgresql
 DOCKER ?= docker
 NETWORK ?= default
 APT_OPTS ?=
+ENV_EXTS ?=
 
 src/kv_storage.bc:
 	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_storage.cc
@@ -45,6 +46,7 @@ docker-image:
 	@echo "Building docker image..."
 	$(DOCKER) build --no-cache --pull --network $(NETWORK) \
 		--build-arg apt_opts="$(APT_OPTS)" \
+		--build-arg env_exts="$(ENV_EXTS)" \
 		-t $(REGISTRY)/$(IMAGE):$(TAG) docker_image
 
 .PHONY: indent

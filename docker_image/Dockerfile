@@ -4,6 +4,10 @@ FROM vidardb/postgres:11.7
 ARG apt_opts
 ARG env_exts
 
+# Install Start Entrypoint
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod 777 /usr/local/bin/docker-entrypoint.sh
+
 # Install RocksDB Engine
 ENV ROCKSDB_VERSION=6.2.4
 RUN set -xe && export $env_exts && apt-get $apt_opts update && apt-get $apt_opts install -y --no-install-recommends gcc-6 g++-6 make wget && \
@@ -23,6 +27,3 @@ RUN set -xe && export $env_exts && apt-get $apt_opts update && \
     tar zxvf PostgresForeignDataWrapper.tar.gz && cd PostgresForeignDataWrapper-${FDW_VERSION} && make && make install && cd .. && \
     apt-get purge -y --auto-remove make wget ca-certificates postgresql-server-dev-${POSTGRES_VERSION} && \
     rm -rf /var/lib/apt/lists/* /tmp/* PostgresForeignDataWrapper.tar.gz PostgresForeignDataWrapper-${FDW_VERSION}
-
-# Install Start Entrypoint
-COPY docker-entrypoint.sh /usr/local/bin/

@@ -34,6 +34,8 @@ REGISTRY ?= vidardb
 TAG ?= rocksdb-6.2.4
 IMAGE ?= postgresql
 DOCKER ?= docker
+NETWORK ?= default
+APT_OPTS ?=
 
 src/kv_storage.bc:
 	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_storage.cc
@@ -41,7 +43,9 @@ src/kv_storage.bc:
 .PHONY: docker-image
 docker-image:
 	@echo "Building docker image..."
-	$(DOCKER) build --no-cache --pull -t $(REGISTRY)/$(IMAGE):$(TAG) docker_image
+	$(DOCKER) build --no-cache --pull --network $(NETWORK) \
+		--build-arg apt_opts="$(APT_OPTS)" \
+		-t $(REGISTRY)/$(IMAGE):$(TAG) docker_image
 
 .PHONY: indent
 indent:

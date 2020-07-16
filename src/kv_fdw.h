@@ -55,11 +55,11 @@
 #endif
 
 
-#ifdef VIDARDB
-/* Fill the specified relation's comparator options */
-extern void FillRelationComparatorOptions(Relation relation,
-                                          ComparatorOptions* opts);
-#endif
+/* Defines for load operation */
+#define LOADFILE "/KVLoad"
+
+#define LOADBUFFSIZE 65536
+
 
 /* Shared memory for communication with manager:
  * mutex: manager serves only one backend at a time;
@@ -92,6 +92,29 @@ typedef struct WorkerSharedMem {
     sem_t responseSync[RESPONSEQUEUELENGTH];
     char area[BUFSIZE];  /* assume ~64K for a tuple is enough */
 } WorkerSharedMem;
+
+/* Ring buffer shared memory for load operation:
+ * mutext: mutual exclusion for offset;
+ * empty: tell whether the buffer is empty;
+ * full: tell whether the buffer is full;
+ * worker: tell whether worker has put all data;
+ * in: the offset producer can put data;
+ * out: the offset consumer can get data;
+ * count: record the inserted row number;
+ * finish: tell whether has read all data;
+ * area: the temporary data storage area;
+ */
+typedef struct RingBufferSharedMem {
+    sem_t mutext;
+    sem_t empty;
+    sem_t full;
+    sem_t worker;
+    volatile uint64 in;
+    volatile uint64 out;
+    volatile uint64 count;
+    volatile bool finish;
+    char area[LOADBUFFSIZE];  /* assume ~64K for a tuple is enough */
+} RingBufferSharedMem;
 
 /* Holds the option values to be used when reading or writing files.
  * To resolve these values, we first check foreign table's options,
@@ -163,7 +186,8 @@ typedef enum FuncName {
     RANGEQUERY,
     CLEARRQMETA,
     #endif
-    TERMINATE
+    TERMINATE,
+    LOAD
 } FuncName;
 
 
@@ -172,6 +196,11 @@ extern void _PG_init(void);
 
 extern void _PG_fini(void);
 
+#ifdef VIDARDB
+/* Fill the specified relation's comparator options */
+extern void FillRelationComparatorOptions(Relation relation,
+                                          ComparatorOptions* opts);
+#endif
 
 /* Functions used across files in kv_fdw */
 extern KVFdwOptions *KVGetOptions(Oid foreignTableId);
@@ -238,6 +267,19 @@ extern void DeleteRequest(Oid relationId,
                           WorkerSharedMem *worker,
                           char *key,
                           size_t keyLen);
+
+extern RingBufferSharedMem* BeginLoadRequest(Oid relationId,
+                                             WorkerSharedMem *worker);
+
+extern void LoadRequest(RingBufferSharedMem* buf,
+                        char *key,
+                        size_t keyLen,
+                        char *val,
+                        size_t valLen);
+
+extern uint64 EndLoadRequest(Oid relationId,
+                             WorkerSharedMem *worker,
+                             RingBufferSharedMem* buf);
 
 #ifdef VIDARDB
 extern bool RangeQueryRequest(Oid relationId,

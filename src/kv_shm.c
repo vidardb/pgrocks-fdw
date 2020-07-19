@@ -1146,6 +1146,27 @@ RingBufferSharedMem* BeginLoadRequest(Oid relationId,
     return buf;
 }
 
+static void WriteRingBuffer(RingBufferSharedMem* buf, uint64* offset,
+                            const char* data, size_t size) {
+    char *input = buf->area + *offset;
+    if (*offset + size > LOADBUFFSIZE) {
+        /* circular write */
+        size_t n = LOADBUFFSIZE - *offset;
+        memcpy(input, data, n);
+        input = buf->area;
+        *offset = 0;
+
+        memcpy(input, data + n, size - n);
+        *offset = *offset + (size - n);
+    } else {
+        memcpy(input, data, size);
+        *offset = *offset + size;
+        if (*offset == LOADBUFFSIZE) {
+            *offset = 0;
+        }
+    }
+}
+
 void LoadRequest(RingBufferSharedMem* buf,
                  char *key,
                  size_t keyLen,
@@ -1156,13 +1177,6 @@ void LoadRequest(RingBufferSharedMem* buf,
     /* total_size + key_size + key + value */
     size_t tupleLen = sizeof(size_t) + sizeof(size_t) +
                       keyLen + valLen;
-    StringInfoData tuple;
-    initStringInfo(&tuple);
-    enlargeStringInfo(&tuple, tupleLen);
-    appendBinaryStringInfo(&tuple, (const char *) &tupleLen, sizeof(size_t));
-    appendBinaryStringInfo(&tuple, (const char *) &keyLen, sizeof(size_t));
-    appendBinaryStringInfo(&tuple, key, keyLen);
-    appendBinaryStringInfo(&tuple, val, valLen);
 
     /* check whether the buffer is enough */
     while (true) {
@@ -1194,30 +1208,45 @@ void LoadRequest(RingBufferSharedMem* buf,
         }
     }
 
-    /* write data into ring buffer */
-    char *input = buf->area + buf->in;
-    uint64 offset = buf->in + tupleLen;
-    if (offset > LOADBUFFSIZE) {
-        /* circular write */
-        size_t n = LOADBUFFSIZE - buf->in;
-        memcpy(input, tuple.data, n);
+    /* write tuple into ring buffer */
+    uint64 offset = buf->in;  /* current write offset */
+    WriteRingBuffer(buf, &offset, (const char *) &tupleLen, sizeof(size_t));
+    WriteRingBuffer(buf, &offset, (const char *) &keyLen, sizeof(size_t));
+    WriteRingBuffer(buf, &offset, key, keyLen);
+    WriteRingBuffer(buf, &offset, val, valLen);
 
-        input = buf->area;
-        memcpy(input, tuple.data + n, tupleLen - n);
-    } else {
-        memcpy(input, tuple.data, tupleLen);
-    }
-    pfree(tuple.data);
-
-    /* forward the in offset */
+    /* reset the in offset */
     SemWait(&buf->mutext, __func__);
-    if (offset < LOADBUFFSIZE) {
-        buf->in = offset;
-    } else {
-        buf->in = offset - LOADBUFFSIZE;
-    }
+    buf->in = offset;
     SemPost(&buf->mutext, __func__);
     SemPost(&buf->empty, __func__);
+}
+
+static void ReadRingBuffer(RingBufferSharedMem* buf, uint64* offset,
+                           char* data, size_t size) {
+    char *output = buf->area + *offset;
+    size_t n = LOADBUFFSIZE - *offset;
+
+    if (n < size) {  /* circular read */
+        memcpy(data, output, n);
+        memset(output, 0, n);
+        output = buf->area;
+        data = data + n;
+        *offset = 0;
+
+        memcpy(data, output, size - n);
+        memset(output, 0, size - n);
+        data = data + (size - n);
+        *offset = *offset + (size - n);
+    } else {
+        memcpy(data, output, size);
+        memset(output, 0, size);
+        data = data + size;
+        *offset = *offset + size;
+        if (*offset == LOADBUFFSIZE) {
+            *offset = 0;
+        }
+    }
 }
 
 static void LoadResponse(char *area) {
@@ -1286,60 +1315,20 @@ static void LoadResponse(char *area) {
             break;
         }
 
-        memset(tuple, 0, BUFSIZ);  /* reset */
-        char *tupptr = tuple;  /* tuple ptr */
-        char *output = buf->area + buf->out;
+        memset(tuple, 0, BUFSIZ);  /* reset tuple buffer */
+        char *tupleptr = tuple;    /* tuple write ptr */
+        uint64 offset = buf->out;  /* current read offset */
 
-        /* extract next tuple's total size */
-        size_t n = LOADBUFFSIZE - buf->out;
-        if (n < sizeof(size_t)) {  /* circular read */
-            memcpy(tupptr, output, n);
-            output = buf->area;
-            tupptr = tupptr + n;
-
-            memcpy(tupptr, output, sizeof(size_t) - n);
-            output = output + (sizeof(size_t) - n);
-            tupptr = tupptr + (sizeof(size_t) - n);
-        } else {
-            memcpy(tupptr, output, sizeof(size_t));
-            output = output + sizeof(size_t);
-            tupptr = tupptr + sizeof(size_t);
-            if (n == sizeof(size_t)) {
-                output = buf->area;
-            }
-        }
-
-        /* extract next tuple kv data */
+        /* extract the tuple's total size */
+        ReadRingBuffer(buf, &offset, tupleptr, sizeof(size_t));
+        /* extract the tuple's kv data */
         size_t* tupleLen = (size_t*) tuple;
-        n = LOADBUFFSIZE - (output - buf->area);
-        if (n < *tupleLen - sizeof(size_t)) {
-            /* circular read */
-            memcpy(tupptr, output, n);
-            output = buf->area;
-            tupptr = tupptr + n;
+        size_t dataLen = *tupleLen - sizeof(size_t);
+        ReadRingBuffer(buf, &offset, tupleptr, dataLen);
 
-            memcpy(tupptr, output, *tupleLen - n);
-        } else {
-            memcpy(tupptr, output, *tupleLen - sizeof(size_t));
-        }
-
-        /* reset the tuple's buffer memory */
-        uint64 offset = buf->out + *tupleLen;
-        if (offset > LOADBUFFSIZE) {
-            n = LOADBUFFSIZE - buf->out;
-            memset(buf->area + buf->out, 0, n);
-            memset(buf->area, 0, *tupleLen - n);
-        } else {
-            memset(buf->area + buf->out, 0, *tupleLen);
-        }
-
-        /* forward the out offset */
+        /* reset the out offset */
         SemWait(&buf->mutext, __func__);
-        if (offset < LOADBUFFSIZE) {
-            buf->out = offset;
-        } else {
-            buf->out = offset - LOADBUFFSIZE;
-        }
+        buf->out = offset;
         SemPost(&buf->mutext, __func__);
         SemPost(&buf->full, __func__);
 

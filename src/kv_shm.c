@@ -1223,25 +1223,25 @@ void LoadRequest(RingBufferSharedMem* buf,
 }
 
 static void ReadRingBuffer(RingBufferSharedMem* buf, uint64* offset,
-                           char* data, size_t size) {
+                           char** data, size_t size) {
     char *output = buf->area + *offset;
     size_t n = LOADBUFFSIZE - *offset;
 
     if (n < size) {  /* circular read */
-        memcpy(data, output, n);
+        memcpy(*data, output, n);
         memset(output, 0, n);
         output = buf->area;
-        data = data + n;
+        *data = *data + n;
         *offset = 0;
 
-        memcpy(data, output, size - n);
+        memcpy(*data, output, size - n);
         memset(output, 0, size - n);
-        data = data + (size - n);
+        *data = *data + (size - n);
         *offset = *offset + (size - n);
     } else {
-        memcpy(data, output, size);
+        memcpy(*data, output, size);
         memset(output, 0, size);
-        data = data + size;
+        *data = *data + size;
         *offset = *offset + size;
         if (*offset == LOADBUFFSIZE) {
             *offset = 0;
@@ -1320,11 +1320,11 @@ static void LoadResponse(char *area) {
         uint64 offset = buf->out;  /* current read offset */
 
         /* extract the tuple's total size */
-        ReadRingBuffer(buf, &offset, tupleptr, sizeof(size_t));
+        ReadRingBuffer(buf, &offset, &tupleptr, sizeof(size_t));
         /* extract the tuple's kv data */
         size_t* tupleLen = (size_t*) tuple;
         size_t dataLen = *tupleLen - sizeof(size_t);
-        ReadRingBuffer(buf, &offset, tupleptr, dataLen);
+        ReadRingBuffer(buf, &offset, &tupleptr, dataLen);
 
         /* reset the out offset */
         SemWait(&buf->mutext, __func__);

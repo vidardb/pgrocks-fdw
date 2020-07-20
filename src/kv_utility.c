@@ -574,7 +574,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                 }
             }
 
-            LoadRequest(buf, key->data, key->len, val->data, val->len);
+            LoadTuple(buf, key->data, key->len, val->data, val->len);
         }
 
         MemoryContextSwitchTo(oldContext);

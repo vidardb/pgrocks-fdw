@@ -1081,6 +1081,60 @@ static void PutResponse(char *area) {
     }
 }
 
+void DeleteRequest(Oid relationId,
+                   WorkerSharedMem *worker,
+                   char *key,
+                   size_t keyLen) {
+//    printf("\n============%s============\n", __func__);
+
+    SemWait(&worker->mutex, __func__);
+    SemWait(&worker->full, __func__);
+
+    char *current = worker->area;
+    FuncName func = DELETE;
+    memcpy(current, &func, sizeof(func));
+    current += sizeof(func);
+
+    uint32 responseId = GetResponseQueueIndex(worker);
+    memcpy(current, &responseId, sizeof(responseId));
+    current += sizeof(responseId);
+
+    memcpy(current, &relationId, sizeof(relationId));
+    current += sizeof(relationId);
+
+    memcpy(current, &keyLen, sizeof(keyLen));
+    current += sizeof(keyLen);
+
+    memcpy(current, key, keyLen);
+
+    SemPost(&worker->worker, __func__);
+    SemPost(&worker->mutex, __func__);
+
+    SemWait(&worker->responseSync[responseId], __func__);
+    SemPost(&worker->responseMutex[responseId], __func__);
+}
+
+static void DeleteResponse(char *area) {
+//    printf("\n============%s============\n", __func__);
+
+    Oid *relationId = (Oid *)area;
+    area += sizeof(*relationId);
+
+    bool found;
+    KVHashEntry *entry = hash_search(kvTableHash, relationId, HASH_FIND, &found);
+    if (!found) {
+        ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
+    }
+
+    size_t *keyLen = (size_t *)area;
+    area += sizeof(*keyLen);
+
+    char *key = area;
+    if (!Delete(entry->db, key, *keyLen)) {
+        ereport(ERROR, (errmsg("error from %s", __func__)));
+    }
+}
+
 RingBufferSharedMem* BeginLoadRequest(Oid relationId,
                                       WorkerSharedMem *worker) {
     // printf("\n============%s============\n", __func__);
@@ -1167,11 +1221,11 @@ static void WriteRingBuffer(RingBufferSharedMem* buf, uint64* offset,
     }
 }
 
-void LoadRequest(RingBufferSharedMem* buf,
-                 char *key,
-                 size_t keyLen,
-                 char *val,
-                 size_t valLen) {
+void LoadTuple(RingBufferSharedMem* buf,
+               char *key,
+               size_t keyLen,
+               char *val,
+               size_t valLen) {
     // printf("\n============%s============\n", __func__);
 
     /* total_size + key_size + key + value */
@@ -1386,60 +1440,6 @@ uint64 EndLoadRequest(Oid relationId,
     ShmUnlink(filename, __func__);
 
     return count;
-}
-
-void DeleteRequest(Oid relationId,
-                   WorkerSharedMem *worker,
-                   char *key,
-                   size_t keyLen) {
-//    printf("\n============%s============\n", __func__);
-
-    SemWait(&worker->mutex, __func__);
-    SemWait(&worker->full, __func__);
-
-    char *current = worker->area;
-    FuncName func = DELETE;
-    memcpy(current, &func, sizeof(func));
-    current += sizeof(func);
-
-    uint32 responseId = GetResponseQueueIndex(worker);
-    memcpy(current, &responseId, sizeof(responseId));
-    current += sizeof(responseId);
-
-    memcpy(current, &relationId, sizeof(relationId));
-    current += sizeof(relationId);
-
-    memcpy(current, &keyLen, sizeof(keyLen));
-    current += sizeof(keyLen);
-
-    memcpy(current, key, keyLen);
-
-    SemPost(&worker->worker, __func__);
-    SemPost(&worker->mutex, __func__);
-
-    SemWait(&worker->responseSync[responseId], __func__);
-    SemPost(&worker->responseMutex[responseId], __func__);
-}
-
-static void DeleteResponse(char *area) {
-//    printf("\n============%s============\n", __func__);
-
-    Oid *relationId = (Oid *)area;
-    area += sizeof(*relationId);
-
-    bool found;
-    KVHashEntry *entry = hash_search(kvTableHash, relationId, HASH_FIND, &found);
-    if (!found) {
-        ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
-    }
-
-    size_t *keyLen = (size_t *)area;
-    area += sizeof(*keyLen);
-
-    char *key = area;
-    if (!Delete(entry->db, key, *keyLen)) {
-        ereport(ERROR, (errmsg("error from %s", __func__)));
-    }
 }
 
 #ifdef VIDARDB

@@ -271,11 +271,11 @@ extern void DeleteRequest(Oid relationId,
 extern RingBufferSharedMem* BeginLoadRequest(Oid relationId,
                                              WorkerSharedMem *worker);
 
-extern void LoadRequest(RingBufferSharedMem* buf,
-                        char *key,
-                        size_t keyLen,
-                        char *val,
-                        size_t valLen);
+extern void LoadTuple(RingBufferSharedMem* buf,
+                      char *key,
+                      size_t keyLen,
+                      char *val,
+                      size_t valLen);
 
 extern uint64 EndLoadRequest(Oid relationId,
                              WorkerSharedMem *worker,

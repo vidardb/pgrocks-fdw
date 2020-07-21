@@ -9,6 +9,8 @@
 #include "storage/lwlock.h"
 #include "storage/proc.h"
 #include "storage/shmem.h"
+#include "access/hash.h"
+#include "utils/hashutils.h"
 
 /* these headers are used by this particular worker's code */
 #include "kv_shm.h"
@@ -17,14 +19,27 @@
 void KVManageWork(Datum);
 void LaunchBackgroundManager(void);
 void KVDoWork(Datum);
-pid_t LaunchBackgroundWorker(Oid databaseId);
+pid_t LaunchBackgroundWorker(WorkerProcOid *workerOid,
+                             ManagerSharedMem *manager);
+void ShutOffBackgroundWorker(WorkerProcOid *workerOid,
+                             ManagerSharedMem *manager);
 
 
 /* non-shared hash can be enlarged */
 static long HASHSIZE = 1;
 
+/* reference by manager process */
+static HTAB *workerHash = NULL;
+
+typedef struct WorkerProcData {
+    pid_t pid;
+    WorkerProcOid oid;
+    BackgroundWorkerHandle *handle;
+} WorkerProcData;
+
 /* flags set by signal handlers */
 static volatile sig_atomic_t gotSIGTERM = false;
+
 
 
 /*
@@ -38,6 +53,34 @@ static void KVSIGTERM(SIGNAL_ARGS) {
     SetLatch(MyLatch);
 
     errno = save_errno;
+}
+
+/*
+ * Compare function for WorkerProcOid
+ */
+int CompareWorkerProcOid(const void *key1, const void *key2, Size keysize) {
+    const WorkerProcOid *k1 = (const WorkerProcOid *) key1;
+    const WorkerProcOid *k2 = (const WorkerProcOid *) key2;
+
+    if (k1 == NULL || k2 == NULL) {
+        return -1;
+    }
+
+    if (k1->relationId == k2->relationId &&
+        k1->databaseId == k2->databaseId) {
+        return 0;
+    }
+
+    return -1;
+}
+
+/*
+ * Hash function for WorkerProcOid
+ */
+uint32 HashWorkerProcOid(const void *key, Size keysize) {
+    const WorkerProcOid *k = (const WorkerProcOid *) key;
+    uint32 s = hash_combine(0, hash_uint32(k->databaseId));
+    return hash_combine(s, hash_uint32(k->relationId));
 }
 
 /*
@@ -60,13 +103,16 @@ void KVManageWork(Datum arg) {
 
     ManagerSharedMem *manager = InitManagerSharedMem();
 
-    HASHCTL hashCtl;
-    memset(&hashCtl, 0, sizeof(hashCtl));
-    hashCtl.entrysize = hashCtl.keysize = sizeof(MyDatabaseId);
-    HTAB *wokerHash = hash_create("wokerHash",
-                                  HASHSIZE,
-                                  &hashCtl,
-                                  HASH_ELEM | HASH_BLOBS);
+    HASHCTL hash_ctl;
+    memset(&hash_ctl, 0, sizeof(hash_ctl));
+    hash_ctl.keysize = sizeof(WorkerProcOid);
+    hash_ctl.entrysize = sizeof(WorkerProcData);
+    hash_ctl.match = CompareWorkerProcOid;
+    hash_ctl.hash = HashWorkerProcOid;
+    workerHash = hash_create("workerHash",
+                             HASHSIZE,
+                             &hash_ctl,
+                             HASH_ELEM | HASH_COMPARE | HASH_FUNCTION);
 
     while (!gotSIGTERM) {
         /*
@@ -77,29 +123,30 @@ void KVManageWork(Datum arg) {
             break;
         }
 
-        /* check whether the requested database has the process */
-        Oid databaseId = manager->databaseId;
-        bool found = false;
-        Oid *entry = hash_search(wokerHash, &databaseId, HASH_ENTER, &found);
-        if (!found) {
-            *entry = databaseId;
-            LaunchBackgroundWorker(databaseId);
+        WorkerProcOid workerOid;
+        workerOid.databaseId = manager->databaseId;
+        workerOid.relationId = manager->relationId;
+        FuncName func = manager->func;
 
-            /*
-             * Make sure worker process has inited to avoid race between
-             * backend and worker.
-             */
-            SemWait(&manager->ready, __func__);
+        switch (func) {
+            case OPEN:
+                LaunchBackgroundWorker(&workerOid, manager);
+                break;
+            case CLOSE:
+                ShutOffBackgroundWorker(&workerOid, manager);
+                break;
+            default:
+                ereport(ERROR, (errmsg("%s failed in switch", __func__)));
         }
 
         SemPost(&manager->backend, __func__);
     };
 
     HASH_SEQ_STATUS status;
-    hash_seq_init(&status, wokerHash);
-    Oid *entry = NULL;
+    hash_seq_init(&status, workerHash);
+    WorkerProcData *entry = NULL;
     while ((entry = hash_seq_search(&status)) != NULL) {
-        TerminateWorker(*entry);
+        ShutOffBackgroundWorker(&entry->oid, manager);
     }
 
     CloseManagerSharedMem(manager);
@@ -131,17 +178,27 @@ void LaunchBackgroundManager(void) {
 }
 
 void KVDoWork(Datum arg) {
-    Oid databaseId = DatumGetObjectId(arg);
-    KVWorkerMain(databaseId);
+    WorkerProcOid workerOid;
+    workerOid.databaseId = DatumGetObjectId(arg);
+    workerOid.relationId = *((Oid *) (MyBgworkerEntry->bgw_extra));
+    KVWorkerMain(&workerOid);
     proc_exit(0);
 }
 
 /*
- * Entrypoint, dynamically register worker process here, at most one process for
- * each database containing table created by kv engine.
+ * Entrypoint, dynamically register worker process here, at most one process
+ * for each foreign table created by kv engine.
  */
-pid_t LaunchBackgroundWorker(Oid databaseId) {
+pid_t LaunchBackgroundWorker(WorkerProcOid *workerOid,
+                             ManagerSharedMem *manager) {
     printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
+
+    /* check whether the requested relation has the process */
+    bool found = false;
+    WorkerProcData *entry = hash_search(workerHash, workerOid, HASH_ENTER, &found);
+    if (found) {  /* worker has already been created */
+        return entry->pid;
+    }
 
     BackgroundWorker worker;
     memset(&worker, 0, sizeof(worker));
@@ -152,7 +209,10 @@ pid_t LaunchBackgroundWorker(Oid databaseId) {
     sprintf(worker.bgw_function_name, "KVDoWork");
     snprintf(worker.bgw_name, BGW_MAXLEN, "KV worker");
     snprintf(worker.bgw_type, BGW_MAXLEN, "KV worker");
-    worker.bgw_main_arg = ObjectIdGetDatum(databaseId);
+    worker.bgw_main_arg = ObjectIdGetDatum(workerOid->databaseId);
+    memcpy(worker.bgw_extra,
+           (const char *) (&(workerOid->relationId)),
+           sizeof(workerOid->relationId));
     /* set bgw_notify_pid so that we can use WaitForBackgroundWorkerStartup */
     worker.bgw_notify_pid = MyProcPid;
     BackgroundWorkerHandle *handle;
@@ -162,7 +222,6 @@ pid_t LaunchBackgroundWorker(Oid databaseId) {
 
     pid_t pid;
     BgwHandleStatus status = WaitForBackgroundWorkerStartup(handle, &pid);
-
     if (status == BGWH_STOPPED) {
         ereport(ERROR,
                 (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
@@ -178,5 +237,55 @@ pid_t LaunchBackgroundWorker(Oid databaseId) {
     }
     Assert(status == BGWH_STARTED);
 
+    /*
+     * Make sure worker process has inited to avoid race between
+     * backend and worker.
+     */
+    SemWait(&manager->ready, __func__);
+    entry->pid = pid;
+    entry->oid = *workerOid;
+    entry->handle = handle;
+
     return pid;
+}
+
+/*
+ * Terminate the specified dynamically register worker process.
+ */
+void ShutOffBackgroundWorker(WorkerProcOid *workerOid,
+                             ManagerSharedMem *manager) {
+    printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
+
+    if (!OidIsValid(workerOid->relationId)) {
+        /* terminate all workers related to the databse */
+        HASH_SEQ_STATUS status;
+        hash_seq_init(&status, workerHash);
+
+        WorkerProcData *entry = NULL;
+        while ((entry = hash_seq_search(&status)) != NULL) {
+            if (entry->oid.databaseId != workerOid->databaseId) {
+                continue;
+            }
+
+            TerminateWorker(&entry->oid);
+            TerminateBackgroundWorker(entry->handle);
+            WaitForBackgroundWorkerShutdown(entry->handle);
+            pfree(entry->handle);
+        }
+    } else {
+        /* check whether the requested relation has the process */
+        bool found = false;
+        WorkerProcData *entry = hash_search(workerHash,
+                                            workerOid,
+                                            HASH_REMOVE,
+                                            &found);
+        if (!found) {
+            return;
+        }
+
+        TerminateWorker(workerOid);
+        TerminateBackgroundWorker(entry->handle);
+        WaitForBackgroundWorkerShutdown(entry->handle);
+        pfree(entry->handle);
+    }
 }

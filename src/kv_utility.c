@@ -42,7 +42,7 @@ PG_FUNCTION_INFO_V1(kv_ddl_event_end_trigger);
  * in backend process
  */
 static ManagerSharedMem *manager = NULL;
-static WorkerSharedMem *worker = NULL;
+static HTAB *workerShmHash = NULL;
 
 /* saved hook value in case of unload */
 static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
@@ -240,6 +240,29 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
 
             heap_close(relation, AccessExclusiveLock);
         }
+    } else if (nodeTag(parseTree) == T_DropStmt) {
+        DropStmt *dropStmt = (DropStmt *) parseTree;
+        if (dropStmt->removeType == OBJECT_FOREIGN_TABLE) {
+            ListCell *cell;
+            foreach(cell, dropStmt->objects) {
+                RangeVar *rel = makeRangeVarFromNameList((List *) lfirst(cell));
+                Oid relationId = RangeVarGetRelid(rel, AccessExclusiveLock,
+                                                  dropStmt->missing_ok);
+                if (!OidIsValid(relationId)) {
+                    continue;
+                }
+
+                WorkerProcOid workerOid;
+                workerOid.databaseId = MyDatabaseId;
+                workerOid.relationId = relationId;
+                TerminateRequest(&workerOid, manager);
+            }
+        }
+    } else if (nodeTag(parseTree) == T_DropdbStmt) {
+        WorkerProcOid workerOid;
+        workerOid.databaseId = MyDatabaseId;
+        workerOid.relationId = InvalidOid;  /* all */
+        TerminateRequest(&workerOid, manager);
     }
 
     PG_RETURN_NULL();
@@ -528,10 +551,10 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
         (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
     ComparatorOptions opts;
     FillRelationComparatorOptions(relation, &opts);
-    worker = OpenRequest(relationId, &manager, worker, useColumn, attrCount,
-                         &opts);
+    WorkerSharedMem *worker = OpenRequest(relationId, &manager, &workerShmHash,
+                                          useColumn, attrCount, &opts);
     #else
-    worker = OpenRequest(relationId, &manager, worker);
+    WorkerSharedMem *worker = OpenRequest(relationId, &manager, &workerShmHash);
     #endif
 
     Datum *values = palloc0(attrCount * sizeof(Datum));

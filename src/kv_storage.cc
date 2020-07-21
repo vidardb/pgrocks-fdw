@@ -168,7 +168,7 @@ uint8 EncodeVarintLength(uint64 len, char* buf) {
 
 /* copied from the storage engine */
 inline const char* GetVarint64Ptr(const char* p, const char* limit,
-                                  uint64_t* value) {
+                                  uint64* value) {
     uint64_t result = 0;
     for (uint32_t shift = 0; shift <= 63 && p < limit; shift += 7) {
         uint64_t byte = *(reinterpret_cast<const unsigned char*>(p));

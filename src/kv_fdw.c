@@ -16,6 +16,7 @@
 #include "commands/defrem.h"
 #include "foreign/foreign.h"
 #include "utils/builtins.h"
+#include "miscadmin.h"
 
 #ifdef VIDARDB
 #include "parser/parsetree.h"
@@ -34,9 +35,25 @@ PG_FUNCTION_INFO_V1(kv_fdw_validator);
  * in backend process
  */
 static ManagerSharedMem *manager = NULL;
-static WorkerSharedMem *worker = NULL;
+static HTAB *workerShmHash = NULL;
 static uint64 operationId = 0;  /* a SQL might cause multiple scans */
 
+
+static inline WorkerSharedMem* GetRelationWorker(Oid relationId) {
+    bool found = false;
+    WorkerProcOid workerOid;
+    workerOid.databaseId = MyDatabaseId;
+    workerOid.relationId = relationId;
+    WorkerSharedMem **worker = hash_search(workerShmHash,
+                                           &workerOid,
+                                           HASH_FIND,
+                                           &found);
+    if (found) {
+        return *worker;
+    }
+
+    ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
+}
 
 static void GetForeignRelSize(PlannerInfo *root,
                               RelOptInfo *baserel,
@@ -114,15 +131,16 @@ static void GetForeignRelSize(PlannerInfo *root,
     Relation relation = heap_open(foreignTableId, AccessShareLock);
     ComparatorOptions opts;
     FillRelationComparatorOptions(relation, &opts);
-    worker = OpenRequest(foreignTableId,
-                         &manager,
-                         worker,
-                         planState->fdwOptions->useColumn,
-                         planState->attrCount,
-                         &opts);
+    WorkerSharedMem *worker = OpenRequest(foreignTableId,
+                                          &manager,
+                                          &workerShmHash,
+                                          planState->fdwOptions->useColumn,
+                                          planState->attrCount,
+                                          &opts);
     heap_close(relation, AccessShareLock);
     #else
-    worker = OpenRequest(foreignTableId, &manager, worker);
+    WorkerSharedMem *worker = OpenRequest(foreignTableId, &manager,
+                                          &workerShmHash);
     #endif
 
     /* TODO: better estimation */
@@ -207,15 +225,15 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
     Relation relation = heap_open(foreignTableId, AccessShareLock);
     ComparatorOptions opts;
     FillRelationComparatorOptions(relation, &opts);
-    worker = OpenRequest(foreignTableId,
-                         &manager,
-                         worker,
-                         planState->fdwOptions->useColumn,
-                         planState->attrCount,
-                         &opts);
+    OpenRequest(foreignTableId,
+                &manager,
+                &workerShmHash,
+                planState->fdwOptions->useColumn,
+                planState->attrCount,
+                &opts);
     heap_close(relation, AccessShareLock);
     #else
-    worker = OpenRequest(foreignTableId, &manager, worker);
+    OpenRequest(foreignTableId, &manager, &workerShmHash);
     #endif
 
     /* Create the ForeignScan node */
@@ -387,7 +405,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
             readState->hasNext = RangeQueryRequest(relationId,
                                                    ++operationId,
-                                                   worker,
+                                                   GetRelationWorker(relationId),
                                                    &options,
                                                    &readState->buf,
                                                    &readState->bufLen);
@@ -395,14 +413,14 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         } else {
             readState->hasNext = ReadBatchRequest(relationId,
                                                   ++operationId,
-                                                  worker,
+                                                  GetRelationWorker(relationId),
                                                   &readState->buf,
                                                   &readState->bufLen);
         }
         #else
         readState->hasNext = ReadBatchRequest(relationId,
                                               ++operationId,
-                                              worker,
+                                              GetRelationWorker(relationId),
                                               &readState->buf,
                                               &readState->bufLen);
         #endif
@@ -645,13 +663,18 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
         if (!readState->done) {
             k = readState->key->data;
             kLen = readState->key->len;
-            found = GetRequest(relationId, worker, k, kLen, &v, &vLen);
+            found = GetRequest(relationId,
+                               GetRelationWorker(relationId),
+                               k,
+                               kLen,
+                               &v,
+                               &vLen);
             readState->done = true;
         }
     } else {
         found = GetNextFromBatch(relationId,
                                  readState,
-                                 worker,
+                                 GetRelationWorker(relationId),
                                  &k,
                                  &kLen,
                                  &v,
@@ -718,17 +741,23 @@ static void EndForeignScan(ForeignScanState *scanState) {
              */
             ClearRangeQueryMetaRequest(relationId,
                                        readState->operationId,
-                                       worker,
+                                       GetRelationWorker(relationId),
                                        readState);
         } else {
-            DelIterRequest(relationId, readState->operationId, worker, readState);
+            DelIterRequest(relationId,
+                           readState->operationId,
+                           GetRelationWorker(relationId),
+                           readState);
         }
         #else
-        DelIterRequest(relationId, readState->operationId, worker, readState);
+        DelIterRequest(relationId,
+                       readState->operationId,
+                       GetRelationWorker(relationId),
+                       readState);
         #endif
     }
 
-    CloseRequest(relationId, worker);
+    CloseRequest(relationId, GetRelationWorker(relationId));
     pfree(readState);
 }
 
@@ -926,14 +955,14 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
         #ifdef VIDARDB
         ComparatorOptions opts;
         FillRelationComparatorOptions(relation, &opts);
-        worker = OpenRequest(foreignTableId,
-                             &manager,
-                             worker,
-                             planState->fdwOptions->useColumn,
-                             planState->attrCount,
-                             &opts);
+        OpenRequest(foreignTableId,
+                    &manager,
+                    &workerShmHash,
+                    planState->fdwOptions->useColumn,
+                    planState->attrCount,
+                    &opts);
         #else
-        worker = OpenRequest(foreignTableId, &manager, worker);
+        OpenRequest(foreignTableId, &manager, &workerShmHash);
         #endif
     }
 
@@ -1019,7 +1048,12 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
 
     SerializeTuple(key, val, slot);
 
-    PutRequest(foreignTableId, worker, key->data, key->len, val->data, val->len);
+    PutRequest(foreignTableId,
+               GetRelationWorker(foreignTableId),
+               key->data,
+               key->len,
+               val->data,
+               val->len);
 
     return slot;
 }
@@ -1073,7 +1107,12 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
 
     SerializeTuple(key, val, slot);
 
-    PutRequest(foreignTableId, worker, key->data, key->len, val->data, val->len);
+    PutRequest(foreignTableId,
+               GetRelationWorker(foreignTableId),
+               key->data,
+               key->len,
+               val->data,
+               val->len);
 
     return slot;
 }
@@ -1119,7 +1158,10 @@ static TupleTableSlot *ExecForeignDelete(EState *executorState,
 
     SerializeTuple(key, val, planSlot);
 
-    DeleteRequest(foreignTableId, worker, key->data, key->len);
+    DeleteRequest(foreignTableId,
+                  GetRelationWorker(foreignTableId),
+                  key->data,
+                  key->len);
 
     return slot;
 }
@@ -1146,7 +1188,7 @@ static void EndForeignModify(EState *executorState,
 
         CmdType operation = writeState->operation;
         if (operation == CMD_INSERT) {
-            CloseRequest(foreignTableId, worker);
+            CloseRequest(foreignTableId, GetRelationWorker(foreignTableId));
         }
 
         /* CMD_UPDATE and CMD_DELETE close will be taken care of by endScan */

@@ -539,8 +539,8 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
 
     EState *estate = CreateExecutorState();
     ExprContext *econtext = GetPerTupleExprContext(estate);
+    RingBufferSharedMem *buf = BeginLoadRequest(relationId, worker);
 
-    uint64 rowCount = 0;
     bool found = true;
     while (found) {
         /* read the next row in tupleContext */
@@ -574,8 +574,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
                 }
             }
 
-            PutRequest(relationId, worker, key->data, key->len, val->data, val->len);
-            rowCount++;
+            LoadTuple(buf, key->data, key->len, val->data, val->len);
         }
 
         MemoryContextSwitchTo(oldContext);
@@ -588,6 +587,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     }
 
     /* end read/write sessions and close the relation */
+    uint64 rowCount = EndLoadRequest(relationId, worker, buf);
     EndCopyFrom(copyState);
     CloseRequest(relationId, worker);
     heap_close(relation, ShareUpdateExclusiveLock);

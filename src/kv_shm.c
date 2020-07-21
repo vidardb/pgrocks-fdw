@@ -74,6 +74,8 @@ static void GetResponse(char *area);
 
 static void PutResponse(char *area);
 
+static void LoadResponse(char *area);
+
 static void DeleteResponse(char *area);
 
 #ifdef VIDARDB
@@ -402,11 +404,17 @@ void KVWorkerMain(Oid databaseId) {
                 ClearRangeQueryMetaResponse(buf + sizeof(responseId));
                 break;
             #endif
+            case LOAD:
+                SemPost(&worker->responseSync[responseId], __func__);
+                LoadResponse(buf + sizeof(responseId));
+                break;
             default:
                 ereport(ERROR, (errmsg("%s failed in switch", __func__)));
         }
 
-        SemPost(&worker->responseSync[responseId], __func__);
+        if (func != LOAD) {
+            SemPost(&worker->responseSync[responseId], __func__);
+        }
     } while (true);
 
     HASH_SEQ_STATUS status;
@@ -1125,6 +1133,313 @@ static void DeleteResponse(char *area) {
     if (!Delete(entry->db, key, *keyLen)) {
         ereport(ERROR, (errmsg("error from %s", __func__)));
     }
+}
+
+RingBufferSharedMem* BeginLoadRequest(Oid relationId,
+                                      WorkerSharedMem *worker) {
+    // printf("\n============%s============\n", __func__);
+
+    pid_t pid = getpid();
+
+    /* mmap ring buffer shared memory */
+    char filename[FILENAMELENGTH];
+    snprintf(filename,
+             FILENAMELENGTH,
+             "%s%d%d",
+             LOADFILE,
+             pid,
+             relationId);
+
+    ShmUnlink(filename, __func__);
+    int fd = ShmOpen(filename,
+                     O_CREAT | O_RDWR | O_EXCL,
+                     PERMISSION,
+                     __func__);
+    Ftruncate(fd, sizeof(RingBufferSharedMem), __func__);
+    RingBufferSharedMem* buf = Mmap(NULL,
+                                    sizeof(RingBufferSharedMem),
+                                    PROT_READ | PROT_WRITE,
+                                    MAP_SHARED,
+                                    fd,
+                                    0,
+                                    __func__);
+    Fclose(fd, __func__);
+
+    /* init ring buffer shared memory */
+    buf->finish = false;
+    buf->in = buf->out = buf->count = 0;
+    SemInit(&buf->mutext, 1, 1, __func__);
+    SemInit(&buf->empty, 1, 0, __func__);
+    SemInit(&buf->full, 1, 0, __func__);
+    SemInit(&buf->worker, 1, 0, __func__);
+
+    /* send load request */
+    SemWait(&worker->mutex, __func__);
+    SemWait(&worker->full, __func__);
+
+    char *current = worker->area;
+    FuncName func = LOAD;
+    memcpy(current, &func, sizeof(func));
+    current += sizeof(func);
+
+    uint32 responseId = GetResponseQueueIndex(worker);
+    memcpy(current, &responseId, sizeof(responseId));
+    current += sizeof(responseId);
+
+    memcpy(current, &relationId, sizeof(relationId));
+    current += sizeof(relationId);
+
+    memcpy(current, &pid, sizeof(pid));
+
+    SemPost(&worker->worker, __func__);
+    SemPost(&worker->mutex, __func__);
+
+    SemWait(&worker->responseSync[responseId], __func__);
+    SemPost(&worker->responseMutex[responseId], __func__);
+
+    return buf;
+}
+
+static void WriteRingBuffer(RingBufferSharedMem* buf, uint64* offset,
+                            const char* data, size_t size) {
+    char *input = buf->area + *offset;
+    if (*offset + size > LOADBUFFSIZE) {
+        /* circular write */
+        size_t n = LOADBUFFSIZE - *offset;
+        memcpy(input, data, n);
+        input = buf->area;
+        *offset = 0;
+
+        memcpy(input, data + n, size - n);
+        *offset = *offset + (size - n);
+    } else {
+        memcpy(input, data, size);
+        *offset = *offset + size;
+        if (*offset == LOADBUFFSIZE) {
+            *offset = 0;
+        }
+    }
+}
+
+void LoadTuple(RingBufferSharedMem* buf,
+               char *key,
+               size_t keyLen,
+               char *val,
+               size_t valLen) {
+    // printf("\n============%s============\n", __func__);
+
+    /* total_size + key_size + key + value */
+    size_t tupleLen = sizeof(size_t) + sizeof(size_t) +
+                      keyLen + valLen;
+
+    /* check whether the buffer is enough */
+    while (true) {
+        uint64 empty_slot = 0;
+
+        SemWait(&buf->mutext, __func__);
+        if (buf->out > buf->in) {
+            empty_slot = buf->out - buf->in;
+        } else {
+            empty_slot = LOADBUFFSIZE - buf->in + buf->out;
+        }
+        SemPost(&buf->mutext, __func__);
+
+        /*
+         * reserve an empty slot to avoid that
+         * the in offset is equal to the out
+         * offset when the buffer is full, namely,
+         * the in offset will never catch up with
+         * the out offset.
+         */
+        if (empty_slot < tupleLen + 1) {
+            SemWait(&buf->full, __func__);
+            /*
+             * maybe the empty slot is still unenough
+             * even if has read some small tuples.
+             */
+        } else {  /* enough */
+            break;
+        }
+    }
+
+    /* write tuple into ring buffer */
+    uint64 offset = buf->in;  /* current write offset */
+    WriteRingBuffer(buf, &offset, (const char *) &tupleLen, sizeof(size_t));
+    WriteRingBuffer(buf, &offset, (const char *) &keyLen, sizeof(size_t));
+    WriteRingBuffer(buf, &offset, key, keyLen);
+    WriteRingBuffer(buf, &offset, val, valLen);
+
+    /* reset the in offset */
+    SemWait(&buf->mutext, __func__);
+    buf->in = offset;
+    SemPost(&buf->mutext, __func__);
+    SemPost(&buf->empty, __func__);
+}
+
+static void ReadRingBuffer(RingBufferSharedMem* buf, uint64* offset,
+                           char** data, size_t size) {
+    char *output = buf->area + *offset;
+    size_t n = LOADBUFFSIZE - *offset;
+
+    if (n < size) {  /* circular read */
+        memcpy(*data, output, n);
+        memset(output, 0, n);
+        output = buf->area;
+        *data = *data + n;
+        *offset = 0;
+
+        memcpy(*data, output, size - n);
+        memset(output, 0, size - n);
+        *data = *data + (size - n);
+        *offset = *offset + (size - n);
+    } else {
+        memcpy(*data, output, size);
+        memset(output, 0, size);
+        *data = *data + size;
+        *offset = *offset + size;
+        if (*offset == LOADBUFFSIZE) {
+            *offset = 0;
+        }
+    }
+}
+
+static void LoadResponse(char *area) {
+    // printf("\n============%s============\n", __func__);
+
+    Oid *relationId = (Oid *)area;
+    area += sizeof(*relationId);
+
+    pid_t *pid = (pid_t*)area;
+    area += sizeof(*pid);
+
+    bool found;
+    KVHashEntry *entry = hash_search(kvTableHash, relationId, HASH_FIND, &found);
+    if (!found) {
+        ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
+    }
+
+    /* mmap ring buffer shared memory */
+    char filename[FILENAMELENGTH];
+    snprintf(filename,
+             FILENAMELENGTH,
+             "%s%d%d",
+             LOADFILE,
+             *pid,
+             *relationId);
+    int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
+    RingBufferSharedMem* buf = Mmap(NULL,
+                                    sizeof(RingBufferSharedMem),
+                                    PROT_READ | PROT_WRITE,
+                                    MAP_SHARED,
+                                    fd,
+                                    0,
+                                    __func__);
+    Fclose(fd, __func__);
+
+    char tuple[BUFSIZE];
+    bool finish = false;
+    buf->count = 0;
+
+    while (true) {
+        /*
+         * the buffer is empty when the out offset
+         * catches up with the in offset, namely,
+         * the out offset is equal to the in offset.
+         */
+        while (true) {
+            uint64 delta = 0;
+
+            SemWait(&buf->mutext, __func__);
+            delta = buf->in - buf->out;
+            SemPost(&buf->mutext, __func__);
+
+            if (delta == 0) {  /* empty */
+                if (buf->finish) {
+                    finish = true;
+                    break;  /* has read all data */
+                } else {
+                    SemWait(&buf->empty, __func__);
+                }
+            } else {  /* at least one tuple */
+                break;
+            }
+        }
+
+        if (finish) {
+            break;
+        }
+
+        memset(tuple, 0, BUFSIZ);  /* reset tuple buffer */
+        char *tupleptr = tuple;    /* tuple write ptr */
+        uint64 offset = buf->out;  /* current read offset */
+
+        /* extract the tuple's total size */
+        ReadRingBuffer(buf, &offset, &tupleptr, sizeof(size_t));
+        /* extract the tuple's kv data */
+        size_t* tupleLen = (size_t*) tuple;
+        size_t dataLen = *tupleLen - sizeof(size_t);
+        ReadRingBuffer(buf, &offset, &tupleptr, dataLen);
+
+        /* reset the out offset */
+        SemWait(&buf->mutext, __func__);
+        buf->out = offset;
+        SemPost(&buf->mutext, __func__);
+        SemPost(&buf->full, __func__);
+
+        /* put tuple into storage engine */
+        char *current = tuple + sizeof(size_t);
+        size_t *keyLen = (size_t *) current;
+        current = current + sizeof(*keyLen);
+        char *key = (char *) current;
+        current = current + *keyLen;
+        char *val = (char *) current;
+        /* total_size + key_size + key + value */
+        size_t valLen = *tupleLen - 2*sizeof(size_t) - *keyLen;
+        if (!Put(entry->db, key, *keyLen, val, valLen)) {
+            ereport(ERROR, (errmsg("error from %s", __func__)));
+        }
+
+        buf->count = buf->count + 1;
+    }
+
+    // printf("\nLOAD %ld rows\n", buf->count);
+    SemPost(&buf->worker, __func__);
+
+    /* clean temporary resource */
+    Munmap(buf, sizeof(*buf), __func__);
+    ShmUnlink(filename, __func__);
+}
+
+uint64 EndLoadRequest(Oid relationId,
+                      WorkerSharedMem *worker,
+                      RingBufferSharedMem* buf) {
+    // printf("\n============%s============\n", __func__);
+
+    /* mark the finish flag */
+    buf->finish = true;
+    SemPost(&buf->empty, __func__);
+    SemWait(&buf->worker, __func__);
+
+    uint64 count = buf->count;
+
+    /* clean temporary resource */
+    SemDestroy(&buf->full, __func__);
+    SemDestroy(&buf->empty, __func__);
+    SemDestroy(&buf->mutext, __func__);
+    SemDestroy(&buf->worker, __func__);
+
+    pid_t pid = getpid();
+    char filename[FILENAMELENGTH];
+    snprintf(filename,
+             FILENAMELENGTH,
+             "%s%d%d",
+             LOADFILE,
+             pid,
+             relationId);
+    Munmap(buf, sizeof(*buf), __func__);
+    ShmUnlink(filename, __func__);
+
+    return count;
 }
 
 #ifdef VIDARDB

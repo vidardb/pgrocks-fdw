@@ -1634,7 +1634,6 @@ static void LoadResponse(char *area) {
 
     /* clean temporary resource */
     Munmap(buf, sizeof(*buf), __func__);
-    ShmUnlink(filename, __func__);
 }
 
 static void WriteRingBuf(RingBufSharedMem *buf,

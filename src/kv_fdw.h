@@ -24,7 +24,7 @@
 
 #define PATHMAXLENGTH 4096
 
-#define FILENAMELENGTH 25
+#define FILENAMELENGTH 64
 
 #define BUFSIZE 65536
 
@@ -58,7 +58,7 @@
 /* Defines for load operation */
 #define LOADFILE "/KVLoad"
 
-#define LOADBUFFSIZE 65536
+#define LOADBUFSIZE 65536
 
 
 /* Shared memory for communication with manager:
@@ -94,27 +94,27 @@ typedef struct WorkerSharedMem {
 } WorkerSharedMem;
 
 /* Ring buffer shared memory for load operation:
- * mutext: mutual exclusion for offset;
+ * mutex: mutual exclusion for offset;
  * empty: tell whether the buffer is empty;
  * full: tell whether the buffer is full;
- * worker: tell whether worker has put all data;
+ * done: tell whether worker has put all data;
  * in: the offset producer can put data;
  * out: the offset consumer can get data;
  * count: record the inserted row number;
  * finish: tell whether has read all data;
  * area: the temporary data storage area;
  */
-typedef struct RingBufferSharedMem {
-    sem_t mutext;
+typedef struct RingBufSharedMem {
+    sem_t mutex;
     sem_t empty;
     sem_t full;
-    sem_t worker;
+    sem_t done;
     volatile uint64 in;
     volatile uint64 out;
     volatile uint64 count;
     volatile bool finish;
-    char area[LOADBUFFSIZE];  /* assume ~64K for a tuple is enough */
-} RingBufferSharedMem;
+    char area[LOADBUFSIZE];  /* assume ~64K for a tuple is enough */
+} RingBufSharedMem;
 
 /* Holds the option values to be used when reading or writing files.
  * To resolve these values, we first check foreign table's options,
@@ -186,8 +186,8 @@ typedef enum FuncName {
     RANGEQUERY,
     CLEARRQMETA,
     #endif
-    TERMINATE,
-    LOAD
+    LOAD,
+    TERMINATE
 } FuncName;
 
 
@@ -199,7 +199,7 @@ extern void _PG_fini(void);
 #ifdef VIDARDB
 /* Fill the specified relation's comparator options */
 extern void FillRelationComparatorOptions(Relation relation,
-                                          ComparatorOptions* opts);
+                                          ComparatorOptions *opts);
 #endif
 
 /* Functions used across files in kv_fdw */
@@ -268,10 +268,10 @@ extern void DeleteRequest(Oid relationId,
                           char *key,
                           size_t keyLen);
 
-extern RingBufferSharedMem* BeginLoadRequest(Oid relationId,
-                                             WorkerSharedMem *worker);
+extern RingBufSharedMem* BeginLoadRequest(Oid relationId,
+                                          WorkerSharedMem *worker);
 
-extern void LoadTuple(RingBufferSharedMem* buf,
+extern void LoadTuple(RingBufSharedMem *buf,
                       char *key,
                       size_t keyLen,
                       char *val,
@@ -279,7 +279,7 @@ extern void LoadTuple(RingBufferSharedMem* buf,
 
 extern uint64 EndLoadRequest(Oid relationId,
                              WorkerSharedMem *worker,
-                             RingBufferSharedMem* buf);
+                             RingBufSharedMem* buf);
 
 #ifdef VIDARDB
 extern bool RangeQueryRequest(Oid relationId,

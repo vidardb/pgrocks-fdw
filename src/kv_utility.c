@@ -539,7 +539,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
 
     EState *estate = CreateExecutorState();
     ExprContext *econtext = GetPerTupleExprContext(estate);
-    RingBufferSharedMem *buf = BeginLoadRequest(relationId, worker);
+    RingBufSharedMem *buf = BeginLoadRequest(relationId, worker);
 
     bool found = true;
     while (found) {

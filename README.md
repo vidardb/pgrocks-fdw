@@ -86,13 +86,11 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
 
 # Limitations
 
-- The first attribute in the table definition must be the primary key.
+- The first attribute in the table definition must be the primary key. Composite primary key can be achieved via creating a new data type `CREATE TYPE ... AS`.
 
-- Composite primary key can be achieved via creating a new data type `CREATE TYPE ... AS`.
+- Currently no rollback, abort.
 
 - Do not support secondary index.
-
-- ACID relies on the storage engine.
 
 
 # Usage

@@ -90,6 +90,8 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
 
 - Currently no rollback, abort.
 
+- Currently once the table is created, cannot drop or add columns.
+
 - Do not support secondary index.
 
 

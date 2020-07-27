@@ -500,11 +500,10 @@ WorkerSharedMem *OpenRequest(Oid relationId,
         hash_ctl.keysize = sizeof(WorkerProcOid);
         hash_ctl.entrysize = sizeof(WorkerSharedMem *);
         hash_ctl.match = CompareWorkerProcOid;
-        hash_ctl.hash = HashWorkerProcOid;
         *workerShmHashPtr = hash_create("workerShmHash",
                                         HASHSIZE,
                                         &hash_ctl,
-                                        HASH_ELEM | HASH_COMPARE | HASH_FUNCTION);
+                                        HASH_ELEM | HASH_COMPARE);
     }
 
     bool found = false;
@@ -548,7 +547,6 @@ WorkerSharedMem *OpenRequest(Oid relationId,
         Fclose(fd, __func__);
 
         OpenResponseArea(&workerOid);
-        (*worker)->relationId = workerOid.relationId;
     }
 
     SemWait(&(*worker)->mutex, __func__);
@@ -1811,7 +1809,23 @@ uint64 EndLoadRequest(Oid relationId,
     return count;
 }
 
-void TerminateRequest(WorkerProcOid *workerOid, ManagerSharedMem *manager) {
+void TerminateRequest(WorkerProcOid *workerOid, ManagerSharedMem **managerPtr) {
+    ManagerSharedMem *manager = *managerPtr;
+    if (!manager) {
+        /*
+         * backend process talks to manager about worker info
+         */
+        int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
+        manager = *managerPtr = Mmap(NULL,
+                                     sizeof(*manager),
+                                     PROT_READ | PROT_WRITE,
+                                     MAP_SHARED,
+                                     fd,
+                                     0,
+                                     __func__);
+        Fclose(fd, __func__);
+    }
+
     /*
      * Lock among child processes.
      * Manager only serves one backend process.

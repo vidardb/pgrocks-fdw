@@ -116,7 +116,6 @@ typedef struct WorkerSharedMem {
     sem_t responseMutex[RESPONSEQUEUELENGTH];
     sem_t responseSync[RESPONSEQUEUELENGTH];
     char area[BUFSIZE];  /* assume ~64K for a tuple is enough */
-    Oid relationId;
 } WorkerSharedMem;
 
 /* Composite Oid for worker process:
@@ -313,16 +312,13 @@ extern void ClearRangeQueryMetaRequest(Oid relationId,
 #endif
 
 extern void TerminateRequest(WorkerProcOid *workerOid,
-                             ManagerSharedMem *manager);
+                             ManagerSharedMem **managerPtr);
 
 /*
  * Utility for worker hash table
  */
 extern int CompareWorkerProcOid(const void *key1,
                                 const void *key2,
-                                Size keysize);
-
-extern uint32 HashWorkerProcOid(const void *key,
                                 Size keysize);
 
 #endif

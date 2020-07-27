@@ -9,8 +9,6 @@
 #include "storage/lwlock.h"
 #include "storage/proc.h"
 #include "storage/shmem.h"
-#include "access/hash.h"
-#include "utils/hashutils.h"
 
 /* these headers are used by this particular worker's code */
 #include "kv_shm.h"
@@ -75,15 +73,6 @@ int CompareWorkerProcOid(const void *key1, const void *key2, Size keysize) {
 }
 
 /*
- * Hash function for WorkerProcOid
- */
-uint32 HashWorkerProcOid(const void *key, Size keysize) {
-    const WorkerProcOid *k = (const WorkerProcOid *) key;
-    uint32 s = hash_combine(0, hash_uint32(k->databaseId));
-    return hash_combine(s, hash_uint32(k->relationId));
-}
-
-/*
  * Initialize shared memory and release it when exits
  */
 void KVManageWork(Datum arg) {
@@ -108,11 +97,10 @@ void KVManageWork(Datum arg) {
     hash_ctl.keysize = sizeof(WorkerProcOid);
     hash_ctl.entrysize = sizeof(WorkerProcData);
     hash_ctl.match = CompareWorkerProcOid;
-    hash_ctl.hash = HashWorkerProcOid;
     workerHash = hash_create("workerHash",
                              HASHSIZE,
                              &hash_ctl,
-                             HASH_ELEM | HASH_COMPARE | HASH_FUNCTION);
+                             HASH_ELEM | HASH_COMPARE);
 
     while (!gotSIGTERM) {
         /*
@@ -261,6 +249,7 @@ void ShutOffBackgroundWorker(WorkerProcOid *workerOid,
         HASH_SEQ_STATUS status;
         hash_seq_init(&status, workerHash);
 
+        List *removedList = NIL;
         WorkerProcData *entry = NULL;
         while ((entry = hash_seq_search(&status)) != NULL) {
             if (entry->oid.databaseId != workerOid->databaseId) {
@@ -270,7 +259,14 @@ void ShutOffBackgroundWorker(WorkerProcOid *workerOid,
             TerminateWorker(&entry->oid);
             TerminateBackgroundWorker(entry->handle);
             WaitForBackgroundWorkerShutdown(entry->handle);
-            pfree(entry->handle);
+            removedList = lappend(removedList, entry);
+        }
+
+        ListCell *cell = NULL;
+        foreach(cell, removedList) {
+            WorkerProcData *data = lfirst(cell);
+            pfree(data->handle);
+            hash_search(workerHash, &data->oid, HASH_REMOVE, NULL);
         }
     } else {
         /* check whether the requested relation has the process */

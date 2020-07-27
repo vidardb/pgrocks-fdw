@@ -22,6 +22,7 @@
 #include "parser/parse_type.h"
 #include "executor/executor.h"
 #include "utils/typcache.h"
+#include "commands/dbcommands.h"
 
 
 #define PREVIOUS_UTILITY (PreviousProcessUtilityHook != NULL ? \
@@ -62,6 +63,12 @@ static void KVShmemStartup(void);
 
 /* function in kv_process.c*/
 void LaunchBackgroundManager(void);
+
+/* saved dropped object info */
+typedef struct DroppedObject {
+    Oid  objectId;
+    char *path;
+} DroppedObject;
 
 
 /*
@@ -240,29 +247,6 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
 
             heap_close(relation, AccessExclusiveLock);
         }
-    } else if (nodeTag(parseTree) == T_DropStmt) {
-        DropStmt *dropStmt = (DropStmt *) parseTree;
-        if (dropStmt->removeType == OBJECT_FOREIGN_TABLE) {
-            ListCell *cell;
-            foreach(cell, dropStmt->objects) {
-                RangeVar *rel = makeRangeVarFromNameList((List *) lfirst(cell));
-                Oid relationId = RangeVarGetRelid(rel, AccessExclusiveLock,
-                                                  dropStmt->missing_ok);
-                if (!OidIsValid(relationId)) {
-                    continue;
-                }
-
-                WorkerProcOid workerOid;
-                workerOid.databaseId = MyDatabaseId;
-                workerOid.relationId = relationId;
-                TerminateRequest(&workerOid, manager);
-            }
-        }
-    } else if (nodeTag(parseTree) == T_DropdbStmt) {
-        WorkerProcOid workerOid;
-        workerOid.databaseId = MyDatabaseId;
-        workerOid.relationId = InvalidOid;  /* all */
-        TerminateRequest(&workerOid, manager);
     }
 
     PG_RETURN_NULL();
@@ -375,8 +359,10 @@ static List *KVDroppedFilenameList(DropStmt *dropStmt) {
             Oid relationId = RangeVarGetRelid(rangeVar, AccessShareLock, true);
 
             if (KVTable(relationId)) {
-                char *defaultFilename = KVDefaultFilePath(relationId);
-                droppedFileList = lappend(droppedFileList, defaultFilename);
+                DroppedObject *obj = palloc0(sizeof(DroppedObject));
+                obj->objectId = relationId;
+                obj->path = KVDefaultFilePath(relationId);
+                droppedFileList = lappend(droppedFileList, obj);
             }
         }
     }
@@ -790,6 +776,11 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
 
             if (removeDirectory) {
                 KVRemoveDatabaseDirectory(MyDatabaseId);
+
+                WorkerProcOid workerOid;
+                workerOid.databaseId = MyDatabaseId;
+                workerOid.relationId = InvalidOid;  /* all */
+                TerminateRequest(&workerOid, &manager);
             }
         } else {
             /* drop table & drop server */
@@ -803,20 +794,44 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
                                   destReceiver,
                                   completionTag);
 
-            /* delete real data */
+            /* delete real data and worker */
             ListCell *fileCell = NULL;
             foreach(fileCell, droppedTables) {
-                char *path = lfirst(fileCell);
+                DroppedObject *obj = lfirst(fileCell);
                 StringInfo tablePath = makeStringInfo();
-                appendStringInfo(tablePath, "%s", path);
+                appendStringInfo(tablePath, "%s", obj->path);
                 if (KVDirectoryExists(tablePath)) {
-                    rmtree(path, true);
+                    rmtree(obj->path, true);
                 }
+
+                WorkerProcOid workerOid;
+                workerOid.databaseId = MyDatabaseId;
+                workerOid.relationId = obj->objectId;
+                TerminateRequest(&workerOid, &manager);
             }
         }
     } else if (nodeTag(parseTree) == T_AlterTableStmt) {
         AlterTableStmt *alterStmt = (AlterTableStmt *) parseTree;
         KVCheckAlterTable(alterStmt);
+        CALL_PREVIOUS_UTILITY(parseTree,
+                              queryString,
+                              context,
+                              paramListInfo,
+                              destReceiver,
+                              completionTag);
+    } else if (nodeTag(parseTree) == T_DropdbStmt) {
+        DropdbStmt *dropdbStmt = (DropdbStmt *) parseTree;
+        Oid dbId = get_database_oid(dropdbStmt->dbname, true);
+
+        /* delete worker */
+        if (OidIsValid(dbId)) {
+            WorkerProcOid workerOid;
+            workerOid.databaseId = dbId;
+            workerOid.relationId = InvalidOid;  /* all */
+            TerminateRequest(&workerOid, &manager);
+        }
+
+        /* delete metadata */
         CALL_PREVIOUS_UTILITY(parseTree,
                               queryString,
                               context,

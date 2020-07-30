@@ -777,10 +777,10 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
             if (removeDirectory) {
                 KVRemoveDatabaseDirectory(MyDatabaseId);
 
-                WorkerProcOid workerOid;
-                workerOid.databaseId = MyDatabaseId;
-                workerOid.relationId = InvalidOid;  /* all */
-                TerminateRequest(&workerOid, &manager);
+                WorkerProcKey workerKey;
+                workerKey.databaseId = MyDatabaseId;
+                workerKey.relationId = InvalidOid;  /* all */
+                TerminateRequest(&workerKey, &manager);
             }
         } else {
             /* drop table & drop server */
@@ -804,10 +804,10 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
                     rmtree(obj->path, true);
                 }
 
-                WorkerProcOid workerOid;
-                workerOid.databaseId = MyDatabaseId;
-                workerOid.relationId = obj->objectId;
-                TerminateRequest(&workerOid, &manager);
+                WorkerProcKey workerKey;
+                workerKey.databaseId = MyDatabaseId;
+                workerKey.relationId = obj->objectId;
+                TerminateRequest(&workerKey, &manager);
             }
         }
     } else if (nodeTag(parseTree) == T_AlterTableStmt) {
@@ -825,10 +825,10 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
 
         /* delete worker */
         if (OidIsValid(dbId)) {
-            WorkerProcOid workerOid;
-            workerOid.databaseId = dbId;
-            workerOid.relationId = InvalidOid;  /* all */
-            TerminateRequest(&workerOid, &manager);
+            WorkerProcKey workerKey;
+            workerKey.databaseId = dbId;
+            workerKey.relationId = InvalidOid;  /* all */
+            TerminateRequest(&workerKey, &manager);
         }
 
         /* delete metadata */

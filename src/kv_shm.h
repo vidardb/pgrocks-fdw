@@ -9,9 +9,9 @@ ManagerSharedMem *InitManagerSharedMem(void);
 
 void CloseManagerSharedMem(ManagerSharedMem *manager);
 
-void KVWorkerMain(WorkerProcOid *workerOid);
+void KVWorkerMain(WorkerProcKey *workerKey);
 
-void TerminateWorker(WorkerProcOid *workerOid);
+void TerminateWorker(WorkerProcKey *workerKey);
 
 
 #endif /* SRC_KV_SHM_H_ */

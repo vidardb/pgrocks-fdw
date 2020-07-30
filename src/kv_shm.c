@@ -106,7 +106,7 @@ static inline uint32 GetResponseQueueIndex(WorkerSharedMem *worker) {
  * Initialize shared memory for responses
  * called by worker process
  */
-static void InitResponseArea(WorkerProcOid *workerOid) {
+static void InitResponseArea(WorkerProcKey *workerKey) {
     for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
         char filename[FILENAMELENGTH];
         snprintf(filename,
@@ -114,8 +114,8 @@ static void InitResponseArea(WorkerProcOid *workerOid) {
                  "%s%d%u%u",
                  RESPONSEFILE,
                  i,
-                 workerOid->databaseId,
-                 workerOid->relationId);
+                 workerKey->databaseId,
+                 workerKey->relationId);
         ShmUnlink(filename, __func__);
         int fd = ShmOpen(filename,
                          O_CREAT | O_RDWR | O_EXCL,
@@ -137,7 +137,7 @@ static void InitResponseArea(WorkerProcOid *workerOid) {
  * Open shared memory for responses
  * called by backend process
  */
-static void OpenResponseArea(WorkerProcOid *workerOid) {
+static void OpenResponseArea(WorkerProcKey *workerKey) {
     for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
         if (ResponseQueue[i] == NULL) {
             char filename[FILENAMELENGTH];
@@ -146,8 +146,8 @@ static void OpenResponseArea(WorkerProcOid *workerOid) {
                      "%s%d%u%u",
                      RESPONSEFILE,
                      i,
-                     workerOid->databaseId,
-                     workerOid->relationId);
+                     workerKey->databaseId,
+                     workerKey->relationId);
             int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
             ResponseQueue[i] = Mmap(NULL,
                                     BUFSIZE,
@@ -223,14 +223,14 @@ void CloseManagerSharedMem(ManagerSharedMem *manager) {
 }
 
 /* called by manager process to terminate worker process */
-void TerminateWorker(WorkerProcOid *workerOid) {
+void TerminateWorker(WorkerProcKey *workerKey) {
     char filename[FILENAMELENGTH];
     snprintf(filename,
              FILENAMELENGTH,
              "%s%u%u",
              BACKFILE,
-             workerOid->databaseId,
-             workerOid->relationId);
+             workerKey->databaseId,
+             workerKey->relationId);
     int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
     WorkerSharedMem *worker = Mmap(NULL,
                                    sizeof(*worker),
@@ -257,14 +257,14 @@ void TerminateWorker(WorkerProcOid *workerOid) {
 /*
  * Initialize worker shared memory
  */
-static WorkerSharedMem *InitWorkerSharedMem(WorkerProcOid *workerOid) {
+static WorkerSharedMem *InitWorkerSharedMem(WorkerProcKey *workerKey) {
     char filename[FILENAMELENGTH];
     snprintf(filename,
              FILENAMELENGTH,
              "%s%u%u",
              BACKFILE,
-             workerOid->databaseId,
-             workerOid->relationId);
+             workerKey->databaseId,
+             workerKey->relationId);
 
     WorkerSharedMem *worker = NULL;
     ShmUnlink(filename, __func__);
@@ -280,7 +280,7 @@ static WorkerSharedMem *InitWorkerSharedMem(WorkerProcOid *workerOid) {
     Fclose(fd, __func__);
 
     /* Initialize the response area */
-    InitResponseArea(workerOid);
+    InitResponseArea(workerKey);
 
     SemInit(&worker->mutex, 1, 1, __func__);
     SemInit(&worker->full, 1, 1, __func__);
@@ -295,7 +295,7 @@ static WorkerSharedMem *InitWorkerSharedMem(WorkerProcOid *workerOid) {
 }
 
 static void CloseWorkerSharedMem(WorkerSharedMem *worker,
-                                 WorkerProcOid *workerOid) {
+                                 WorkerProcKey *workerKey) {
     // release the response area first
     for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
         Munmap(ResponseQueue[i], BUFSIZE, __func__);
@@ -305,8 +305,8 @@ static void CloseWorkerSharedMem(WorkerSharedMem *worker,
                  "%s%d%u%u",
                  RESPONSEFILE,
                  i,
-                 workerOid->databaseId,
-                 workerOid->relationId);
+                 workerKey->databaseId,
+                 workerKey->relationId);
         ShmUnlink(filename, __func__);
     }
 
@@ -325,19 +325,19 @@ static void CloseWorkerSharedMem(WorkerSharedMem *worker,
              FILENAMELENGTH,
              "%s%u%u",
              BACKFILE,
-             workerOid->databaseId,
-             workerOid->relationId);
+             workerKey->databaseId,
+             workerKey->relationId);
     ShmUnlink(filename, __func__);
 }
 
 /*
  * Main loop for the worker process.
  */
-void KVWorkerMain(WorkerProcOid *workerOid) {
+void KVWorkerMain(WorkerProcKey *workerKey) {
     ereport(DEBUG1, (errmsg("KVWorker started")));
 
     /* first init the worker specific shared mem */
-    WorkerSharedMem *worker = InitWorkerSharedMem(workerOid);
+    WorkerSharedMem *worker = InitWorkerSharedMem(workerKey);
 
     /* build channel with manager to notify init is done */
     int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
@@ -352,7 +352,7 @@ void KVWorkerMain(WorkerProcOid *workerOid) {
     SemPost(&manager->ready, __func__);
 
     /* Connect to our database */
-    BackgroundWorkerInitializeConnectionByOid(workerOid->databaseId,
+    BackgroundWorkerInitializeConnectionByOid(workerKey->databaseId,
                                               InvalidOid, 0);
 
     HASHCTL hash_ctl;
@@ -461,7 +461,7 @@ void KVWorkerMain(WorkerProcOid *workerOid) {
         Close(entry->db);
     }
 
-    CloseWorkerSharedMem(worker, workerOid);
+    CloseWorkerSharedMem(worker, workerKey);
 
     ereport(DEBUG1, (errmsg("KVWorker shutting down")));
 }
@@ -471,9 +471,9 @@ WorkerSharedMem *OpenRequest(Oid relationId,
                              HTAB **workerShmHashPtr, ...) {
 //    printf("\n============%s============\n", __func__);
 
-    WorkerProcOid workerOid;
-    workerOid.databaseId = MyDatabaseId;
-    workerOid.relationId = relationId;
+    WorkerProcKey workerKey;
+    workerKey.databaseId = MyDatabaseId;
+    workerKey.relationId = relationId;
 
     ManagerSharedMem *manager = *managerPtr;
     if (!manager) {
@@ -497,33 +497,46 @@ WorkerSharedMem *OpenRequest(Oid relationId,
          */
         HASHCTL hash_ctl;
         memset(&hash_ctl, 0, sizeof(hash_ctl));
-        hash_ctl.keysize = sizeof(WorkerProcOid);
-        hash_ctl.entrysize = sizeof(WorkerSharedMem *);
-        hash_ctl.match = CompareWorkerProcOid;
+        hash_ctl.keysize = sizeof(WorkerProcKey);
+        hash_ctl.entrysize = sizeof(WorkerProcShmEntry);
+        hash_ctl.match = CompareWorkerProcKey;
         *workerShmHashPtr = hash_create("workerShmHash",
                                         HASHSIZE,
                                         &hash_ctl,
-                                        HASH_ELEM | HASH_COMPARE);
+                                        HASH_ELEM | HASH_BLOBS | HASH_COMPARE);
     }
 
     bool found = false;
-    WorkerSharedMem **worker = hash_search((*workerShmHashPtr),
-                                           &workerOid,
-                                           HASH_ENTER,
-                                           &found);
+    WorkerSharedMem *worker = NULL;
+    WorkerProcShmEntry *entry = hash_search((*workerShmHashPtr),
+                                             &workerKey,
+                                             HASH_ENTER,
+                                             &found);
     if (!found) {
         /*
          * Lock among child processes.
          * Manager only serves one backend process.
          */
         SemWait(&manager->mutex, __func__);
-        manager->databaseId = workerOid.databaseId;
-        manager->relationId = workerOid.relationId;
+        manager->databaseId = workerKey.databaseId;
+        manager->relationId = workerKey.relationId;
+        manager->success = false;  /* overwrite */
         manager->func = OPEN;  /* create */
         SemPost(&manager->manager, __func__);
         SemWait(&manager->backend, __func__);
-        /* unlock */
+        bool success = manager->success;
         SemPost(&manager->mutex, __func__);
+
+        if (!success) {  /* launch worker fail */
+            hash_search((*workerShmHashPtr), &workerKey, HASH_REMOVE, NULL);
+            ereport(ERROR, (errcode(ERRCODE_CONFIGURATION_LIMIT_EXCEEDED),
+                    errmsg("too many background workers"),
+                    errdetail_plural("Up to %d background workers can be registered with the current settings.",
+                                     "Up to %d background workers can be registered with the current settings.",
+                                      max_worker_processes,
+                                      max_worker_processes),
+                    errhint("Consider increasing the configuration parameter \"max_worker_processes\".")));
+        }
 
         /*
          * backend process talks to worker and do the real work.
@@ -534,32 +547,37 @@ WorkerSharedMem *OpenRequest(Oid relationId,
                  FILENAMELENGTH,
                  "%s%u%u",
                  BACKFILE,
-                 workerOid.databaseId,
-                 workerOid.relationId);
+                 workerKey.databaseId,
+                 workerKey.relationId);
         int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
-        *worker = Mmap(NULL,
-                       sizeof(**worker),
-                       PROT_READ | PROT_WRITE,
-                       MAP_SHARED,
-                       fd,
-                       0,
-                       __func__);
+        worker = Mmap(NULL,
+                      sizeof(*worker),
+                      PROT_READ | PROT_WRITE,
+                      MAP_SHARED,
+                      fd,
+                      0,
+                      __func__);
         Fclose(fd, __func__);
 
-        OpenResponseArea(&workerOid);
+        OpenResponseArea(&workerKey);
+
+        entry->key = workerKey;
+        entry->shm = worker;
+    } else {
+        worker = entry->shm;
     }
 
-    SemWait(&(*worker)->mutex, __func__);
+    SemWait(&worker->mutex, __func__);
 
     /* wait for the worker to copy out the previous request */
-    SemWait(&(*worker)->full, __func__);
+    SemWait(&worker->full, __func__);
 
-    char *current = (*worker)->area;
+    char *current = worker->area;
     FuncName func = OPEN;
     memcpy(current, &func, sizeof(func));
     current += sizeof(func);
 
-    uint32 responseId = GetResponseQueueIndex(*worker);
+    uint32 responseId = GetResponseQueueIndex(worker);
     memcpy(current, &responseId, sizeof(responseId));
     current += sizeof(responseId);
 
@@ -586,13 +604,13 @@ WorkerSharedMem *OpenRequest(Oid relationId,
     char *path = fdwOptions->filename;
     strcpy(current, path);
 
-    SemPost(&(*worker)->worker, __func__);
+    SemPost(&worker->worker, __func__);
     /* unlock */
-    SemPost(&(*worker)->mutex, __func__);
+    SemPost(&worker->mutex, __func__);
 
-    SemWait(&(*worker)->responseSync[responseId], __func__);
-    SemPost(&(*worker)->responseMutex[responseId], __func__);
-    return *worker;
+    SemWait(&worker->responseSync[responseId], __func__);
+    SemPost(&worker->responseMutex[responseId], __func__);
+    return worker;
 }
 
 static void OpenResponse(char *area) {
@@ -792,9 +810,10 @@ void DelIterRequest(Oid relationId,
     pid_t pid = getpid();
     snprintf(filename,
              FILENAMELENGTH,
-             "%s%d%lu",
+             "%s%d%d%lu",
              READBATCHFILE,
              pid,
+             relationId,
              readState->operationId);
     ShmUnlink(filename, __func__);
 
@@ -900,9 +919,10 @@ bool ReadBatchRequest(Oid relationId,
         char filename[FILENAMELENGTH];
         snprintf(filename,
                  FILENAMELENGTH,
-                 "%s%d%lu",
+                 "%s%d%d%lu",
                  READBATCHFILE,
                  pid,
+                 relationId,
                  operationId);
         int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
         *buf = Mmap(NULL,
@@ -955,9 +975,10 @@ void ReadBatchResponse(char *area) {
     char filename[FILENAMELENGTH];
     snprintf(filename,
              FILENAMELENGTH,
-             "%s%d%lu",
+             "%s%d%d%lu",
              READBATCHFILE,
              iterKey.pid,
+             iterKey.relationId,
              iterKey.operationId);
 
     ShmUnlink(filename, __func__);
@@ -1289,9 +1310,10 @@ bool RangeQueryRequest(Oid relationId,
         char filename[FILENAMELENGTH];
         snprintf(filename,
                  FILENAMELENGTH,
-                 "%s%d%lu",
+                 "%s%d%d%lu",
                  RANGEQUERYFILE,
                  pid,
+                 relationId,
                  operationId);
         int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
         *buf = Mmap(NULL,
@@ -1399,9 +1421,10 @@ static void RangeQueryResponse(char *area) {
     char filename[FILENAMELENGTH];
     snprintf(filename,
              FILENAMELENGTH,
-             "%s%d%lu",
+             "%s%d%d%lu",
              RANGEQUERYFILE,
              optionKey.pid,
+             optionKey.relationId,
              optionKey.operationId);
     /*
      * clear last call's shared data structure,
@@ -1505,9 +1528,10 @@ static void ClearRangeQueryMetaResponse(char *area) {
     char filename[FILENAMELENGTH];
     snprintf(filename,
              FILENAMELENGTH,
-             "%s%d%lu",
+             "%s%d%d%lu",
              RANGEQUERYFILE,
              optionKey.pid,
+             optionKey.relationId,
              optionKey.operationId);
     ShmUnlink(filename, __func__);
 }
@@ -1522,9 +1546,10 @@ RingBufSharedMem* BeginLoadRequest(Oid relationId, WorkerSharedMem *worker) {
     char filename[FILENAMELENGTH];
     snprintf(filename,
              FILENAMELENGTH,
-             "%s%d%d",
+             "%s%d%d%d",
              LOADFILE,
              pid,
+             MyDatabaseId,
              relationId);
 
     ShmUnlink(filename, __func__);
@@ -1562,6 +1587,9 @@ RingBufSharedMem* BeginLoadRequest(Oid relationId, WorkerSharedMem *worker) {
     uint32 responseId = GetResponseQueueIndex(worker);
     memcpy(current, &responseId, sizeof(responseId));
     current += sizeof(responseId);
+
+    memcpy(current, &MyDatabaseId, sizeof(MyDatabaseId));
+    current += sizeof(MyDatabaseId);
 
     memcpy(current, &relationId, sizeof(relationId));
     current += sizeof(relationId);
@@ -1606,6 +1634,9 @@ static void ReadRingBuf(RingBufSharedMem *buf,
 static void LoadResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
+    Oid *databaseId = (Oid *)area;
+    area += sizeof(*databaseId);
+
     Oid *relationId = (Oid *)area;
     area += sizeof(*relationId);
 
@@ -1622,9 +1653,10 @@ static void LoadResponse(char *area) {
     char filename[FILENAMELENGTH];
     snprintf(filename,
              FILENAMELENGTH,
-             "%s%d%d",
+             "%s%d%d%d",
              LOADFILE,
              *pid,
+             *databaseId,
              *relationId);
     int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
     RingBufSharedMem *buf = Mmap(NULL,
@@ -1799,9 +1831,10 @@ uint64 EndLoadRequest(Oid relationId,
     char filename[FILENAMELENGTH];
     snprintf(filename,
              FILENAMELENGTH,
-             "%s%d%d",
+             "%s%d%d%d",
              LOADFILE,
              pid,
+             MyDatabaseId,
              relationId);
     Munmap(buf, sizeof(*buf), __func__);
     ShmUnlink(filename, __func__);
@@ -1809,7 +1842,7 @@ uint64 EndLoadRequest(Oid relationId,
     return count;
 }
 
-void TerminateRequest(WorkerProcOid *workerOid, ManagerSharedMem **managerPtr) {
+void TerminateRequest(WorkerProcKey *workerKey, ManagerSharedMem **managerPtr) {
     ManagerSharedMem *manager = *managerPtr;
     if (!manager) {
         /*
@@ -1832,8 +1865,8 @@ void TerminateRequest(WorkerProcOid *workerOid, ManagerSharedMem **managerPtr) {
      */
     SemWait(&manager->mutex, __func__);
 
-    manager->databaseId = workerOid->databaseId;
-    manager->relationId = workerOid->relationId;
+    manager->databaseId = workerKey->databaseId;
+    manager->relationId = workerKey->relationId;
     manager->func = CLOSE;  /* terminate */
     SemPost(&manager->manager, __func__);
     SemWait(&manager->backend, __func__);

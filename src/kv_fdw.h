@@ -89,6 +89,7 @@ typedef enum FuncName {
  * databaseId: backend tells manager the database it wants;
  * relationId: backend tells manager the relation it wants;
  * func: backend tells manager the action it wants;
+ * success: manager tells backend the action result;
  */
 typedef struct ManagerSharedMem {
     sem_t mutex;
@@ -98,6 +99,7 @@ typedef struct ManagerSharedMem {
     Oid databaseId;
     Oid relationId;
     FuncName func;
+    volatile bool success;
 } ManagerSharedMem;
 
 /* Shared memory for function requests with worker:
@@ -118,14 +120,20 @@ typedef struct WorkerSharedMem {
     char area[BUFSIZE];  /* assume ~64K for a tuple is enough */
 } WorkerSharedMem;
 
-/* Composite Oid for worker process:
+/* Composite key for worker process:
  * databaseId: the database related by worker;
  * relationId: the relation related by worker;
  */
-typedef struct WorkerProcOid {
+typedef struct WorkerProcKey {
     Oid databaseId;
     Oid relationId;
-} WorkerProcOid;
+} WorkerProcKey;
+
+/* Key must be the first attribute */
+typedef struct WorkerProcShmEntry {
+    WorkerProcKey key;
+    WorkerSharedMem *shm;
+} WorkerProcShmEntry;
 
 /* Ring buffer shared memory for load operation:
  * mutex: mutual exclusion for offset;
@@ -311,13 +319,13 @@ extern void ClearRangeQueryMetaRequest(Oid relationId,
                                        TableReadState *readState);
 #endif
 
-extern void TerminateRequest(WorkerProcOid *workerOid,
+extern void TerminateRequest(WorkerProcKey *workerKey,
                              ManagerSharedMem **managerPtr);
 
 /*
  * Utility for worker hash table
  */
-extern int CompareWorkerProcOid(const void *key1,
+extern int CompareWorkerProcKey(const void *key1,
                                 const void *key2,
                                 Size keysize);
 

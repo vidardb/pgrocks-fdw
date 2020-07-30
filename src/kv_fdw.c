@@ -41,18 +41,18 @@ static uint64 operationId = 0;  /* a SQL might cause multiple scans */
 
 static inline WorkerSharedMem* GetRelationWorker(Oid relationId) {
     bool found = false;
-    WorkerProcOid workerOid;
-    workerOid.databaseId = MyDatabaseId;
-    workerOid.relationId = relationId;
-    WorkerSharedMem **worker = hash_search(workerShmHash,
-                                           &workerOid,
-                                           HASH_FIND,
-                                           &found);
+    WorkerProcKey workerKey;
+    workerKey.databaseId = MyDatabaseId;
+    workerKey.relationId = relationId;
+    WorkerProcShmEntry *entry = hash_search(workerShmHash,
+                                            &workerKey,
+                                            HASH_FIND,
+                                            &found);
     if (found) {
-        return *worker;
+        return entry->shm;
     }
 
-    ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
+    ereport(ERROR, (errmsg("not found the relation background worker")));
 }
 
 static void GetForeignRelSize(PlannerInfo *root,

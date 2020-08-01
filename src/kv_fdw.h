@@ -13,6 +13,7 @@
 #include "nodes/nodes.h"
 #include "access/attnum.h"
 #include "utils/relcache.h"
+#include "utils/hsearch.h"
 
 
 /* Defines */
@@ -60,12 +61,35 @@
 
 #define LOADBUFSIZE 65536
 
+/*
+ * Common functions for communication with worker process.
+ */
+typedef enum FuncName {
+    OPEN = 0,
+    CLOSE,
+    COUNT,
+    GETITER,
+    DELITER,
+    READBATCH,
+    GET,
+    PUT,
+    DELETE,
+    #ifdef VIDARDB
+    RANGEQUERY,
+    CLEARRQMETA,
+    #endif
+    LOAD,
+    TERMINATE
+} FuncName;
 
 /* Shared memory for communication with manager:
  * mutex: manager serves only one backend at a time;
  * manager, backend: coordinate between the two roles;
  * ready: to avoid race between worker and backend at worker init;
  * databaseId: backend tells manager the database it wants;
+ * relationId: backend tells manager the relation it wants;
+ * func: backend tells manager the action it wants;
+ * success: manager tells backend the action result;
  */
 typedef struct ManagerSharedMem {
     sem_t mutex;
@@ -73,6 +97,9 @@ typedef struct ManagerSharedMem {
     sem_t backend;
     sem_t ready;
     Oid databaseId;
+    Oid relationId;
+    FuncName func;
+    volatile bool success;
 } ManagerSharedMem;
 
 /* Shared memory for function requests with worker:
@@ -92,6 +119,21 @@ typedef struct WorkerSharedMem {
     sem_t responseSync[RESPONSEQUEUELENGTH];
     char area[BUFSIZE];  /* assume ~64K for a tuple is enough */
 } WorkerSharedMem;
+
+/* Composite key for worker process:
+ * databaseId: the database related by worker;
+ * relationId: the relation related by worker;
+ */
+typedef struct WorkerProcKey {
+    Oid databaseId;
+    Oid relationId;
+} WorkerProcKey;
+
+/* Key must be the first attribute */
+typedef struct WorkerProcShmEntry {
+    WorkerProcKey key;
+    WorkerSharedMem *shm;
+} WorkerProcShmEntry;
 
 /* Ring buffer shared memory for load operation:
  * mutex: mutual exclusion for offset;
@@ -172,24 +214,6 @@ typedef struct TableWriteState {
     CmdType operation;
 } TableWriteState;
 
-typedef enum FuncName {
-    OPEN = 0,
-    CLOSE,
-    COUNT,
-    GETITER,
-    DELITER,
-    READBATCH,
-    GET,
-    PUT,
-    DELETE,
-    #ifdef VIDARDB
-    RANGEQUERY,
-    CLEARRQMETA,
-    #endif
-    LOAD,
-    TERMINATE
-} FuncName;
-
 
 /* Function declarations for extension loading and unloading */
 extern void _PG_init(void);
@@ -220,7 +244,7 @@ extern Datum ShortVarlena(Datum datum, int typeLength, char storage);
 
 extern WorkerSharedMem *OpenRequest(Oid relationId,
                                     ManagerSharedMem **managerPtr,
-                                    WorkerSharedMem *worker, ...);
+                                    HTAB **workerShmHashPtr, ...);
 
 extern void CloseRequest(Oid relationId, WorkerSharedMem *worker);
 
@@ -295,5 +319,14 @@ extern void ClearRangeQueryMetaRequest(Oid relationId,
                                        TableReadState *readState);
 #endif
 
+extern void TerminateRequest(WorkerProcKey *workerKey,
+                             ManagerSharedMem **managerPtr);
+
+/*
+ * Utility for worker hash table
+ */
+extern int CompareWorkerProcKey(const void *key1,
+                                const void *key2,
+                                Size keysize);
 
 #endif

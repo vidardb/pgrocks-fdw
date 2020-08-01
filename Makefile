@@ -16,6 +16,12 @@ PG_CPPFLAGS += -Wno-declaration-after-statement
 SHLIB_LINK   = -lrocksdb
 endif
 
+ifeq ($(shell uname -s),Darwin)
+COMPILE.cc   = $(CXX) $(CXXFLAGS) -std=c++11 $(CPPFLAGS) -c
+PG_CPPFLAGS += -Wno-deprecated-declarations
+SHLIB_LINK  += -lstdc++
+endif
+
 OBJS         = src/kv_fdw.o src/kv_utility.o src/kv_shm.o src/kv_storage.o src/kv_posix.o src/kv_process.o
 
 EXTENSION    = kv_fdw

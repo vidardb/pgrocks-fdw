@@ -1,7 +1,6 @@
 --
---Create the extension and server for tests
+-- Create the extension and server for tests
 --
-
 
 CREATE DATABASE kvtest;  
 \c kvtest  

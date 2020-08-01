@@ -150,7 +150,7 @@ bool Delete(void* db, char* key, size_t keyLen) {
 }
 
 /* copied from the storage engine */
-inline char* EncodeVarint64(char* dst, uint64_t v) {
+inline char* EncodeVarint64(char* dst, uint64 v) {
     static const unsigned int B = 128;
     unsigned char* ptr = reinterpret_cast<unsigned char*>(dst);
     while (v >= B) {
@@ -169,9 +169,9 @@ uint8 EncodeVarintLength(uint64 len, char* buf) {
 /* copied from the storage engine */
 inline const char* GetVarint64Ptr(const char* p, const char* limit,
                                   uint64* value) {
-    uint64_t result = 0;
-    for (uint32_t shift = 0; shift <= 63 && p < limit; shift += 7) {
-        uint64_t byte = *(reinterpret_cast<const unsigned char*>(p));
+    uint64 result = 0;
+    for (uint32 shift = 0; shift <= 63 && p < limit; shift += 7) {
+        uint64 byte = *(reinterpret_cast<const unsigned char*>(p));
         p++;
         if (byte & 128) {
             // More bytes are present

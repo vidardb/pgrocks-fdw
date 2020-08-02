@@ -25,6 +25,13 @@
 #include "commands/dbcommands.h"
 
 
+/* saved dropped object info */
+typedef struct DroppedObject {
+    Oid  objectId;
+    char *path;
+} DroppedObject;
+
+
 #define PREVIOUS_UTILITY (PreviousProcessUtilityHook != NULL ? \
                           PreviousProcessUtilityHook : standard_ProcessUtility)
 
@@ -42,12 +49,11 @@ PG_FUNCTION_INFO_V1(kv_ddl_event_end_trigger);
 /*
  * in backend process
  */
-static ManagerSharedMem *manager = NULL;
+static ManagerShm *manager = NULL;
 static HTAB *workerShmHash = NULL;
 
 /* saved hook value in case of unload */
 static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
-static shmem_startup_hook_type PreviousShmemStartupHook = NULL;
 
 
 /* local functions forward declarations */
@@ -59,16 +65,8 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
                              DestReceiver *destReceiver,
                              char *completionTag);
 
-static void KVShmemStartup(void);
-
 /* function in kv_process.c*/
 void LaunchBackgroundManager(void);
-
-/* saved dropped object info */
-typedef struct DroppedObject {
-    Oid  objectId;
-    char *path;
-} DroppedObject;
 
 
 /*
@@ -80,9 +78,6 @@ void _PG_init(void) {
     PreviousProcessUtilityHook = ProcessUtility_hook;
     ProcessUtility_hook = KVProcessUtility;
 
-    PreviousShmemStartupHook = shmem_startup_hook;
-    shmem_startup_hook = KVShmemStartup;
-
     LaunchBackgroundManager();
 }
 
@@ -92,8 +87,6 @@ void _PG_init(void) {
  */
 void _PG_fini(void) {
     ProcessUtility_hook = PreviousProcessUtilityHook;
-
-    shmem_startup_hook = PreviousShmemStartupHook;
 }
 
 /* Checks if a directory exists for the given directory name. */
@@ -537,10 +530,14 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
         (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
     ComparatorOptions opts;
     FillRelationComparatorOptions(relation, &opts);
-    WorkerSharedMem *worker = OpenRequest(relationId, &manager, &workerShmHash,
-                                          useColumn, attrCount, &opts);
+    WorkerShm *worker = OpenRequest(relationId,
+                                    &manager,
+                                    &workerShmHash,
+                                    useColumn,
+                                    attrCount,
+                                    &opts);
     #else
-    WorkerSharedMem *worker = OpenRequest(relationId, &manager, &workerShmHash);
+    WorkerShm *worker = OpenRequest(relationId, &manager, &workerShmHash);
     #endif
 
     Datum *values = palloc0(attrCount * sizeof(Datum));
@@ -548,7 +545,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
 
     EState *estate = CreateExecutorState();
     ExprContext *econtext = GetPerTupleExprContext(estate);
-    RingBufSharedMem *buf = BeginLoadRequest(relationId, worker);
+    RingBufShm *buf = BeginLoadRequest(relationId, worker);
 
     bool found = true;
     while (found) {
@@ -846,15 +843,5 @@ static void KVProcessUtility(PlannedStmt *plannedStmt,
                               paramListInfo,
                               destReceiver,
                               completionTag);
-    }
-}
-
-/*
- * Allocate or attach to shared memory while the module is enabled.
- */
-static void KVShmemStartup(void) {
-    printf("\n============%s=============\n", __func__);
-    if (PreviousShmemStartupHook) {
-        PreviousShmemStartupHook();
     }
 }

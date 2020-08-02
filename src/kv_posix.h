@@ -45,11 +45,7 @@ extern void *Mmap(void *__addr,
                   int __prot,
                   int __flags,
                   int __fd,
-#ifdef __APPLE__
                   off_t __offset,
-#else
-                  __off_t __offset,
-#endif
                   const char *fun);
 
 extern void Munmap(void *__addr, size_t __len, const char *fun);
@@ -58,13 +54,7 @@ extern void Munmap(void *__addr, size_t __len, const char *fun);
 /*
  * File OPs
  */
-extern void Ftruncate(int __fd,
-#ifdef __APPLE__
-                      off_t __length,
-#else
-                      __off_t __length,
-#endif
-                      const char *fun);
+extern void Ftruncate(int __fd, off_t __length, const char *fun);
 
 extern void Fclose(int __fd, const char *fun);
 

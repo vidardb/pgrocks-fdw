@@ -91,7 +91,7 @@ static void LoadResponse(char *area);
  * manner. If all the response slots are used by other processes, the caller
  * process will loop here. Called by manager process and backend process.
  */
-static inline uint32 GetResponseQueueIndex(WorkerSharedMem *worker) {
+static inline uint32 GetResponseQueueIndex(WorkerShm *worker) {
     while (true) {
         for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
             int ret = SemTryWait(&worker->responseMutex[i], __func__);
@@ -186,8 +186,8 @@ static inline int CompareKVTableProcOpHashKey(const void *key1,
 /*
  * Initialize manager shared memory
  */
-ManagerSharedMem *InitManagerSharedMem() {
-    ManagerSharedMem *manager = NULL;
+ManagerShm *InitManagerShm() {
+    ManagerShm *manager = NULL;
 
     ShmUnlink(BACKFILE, __func__);
     int fd = ShmOpen(BACKFILE, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
@@ -212,7 +212,7 @@ ManagerSharedMem *InitManagerSharedMem() {
     return manager;
 }
 
-void CloseManagerSharedMem(ManagerSharedMem *manager) {
+void CloseManagerShm(ManagerShm *manager) {
     SemDestroy(&manager->mutex, __func__);
     SemDestroy(&manager->manager, __func__);
     SemDestroy(&manager->backend, __func__);
@@ -232,13 +232,13 @@ void TerminateWorker(WorkerProcKey *workerKey) {
              workerKey->databaseId,
              workerKey->relationId);
     int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
-    WorkerSharedMem *worker = Mmap(NULL,
-                                   sizeof(*worker),
-                                   PROT_READ | PROT_WRITE,
-                                   MAP_SHARED,
-                                   fd,
-                                   0,
-                                   __func__);
+    WorkerShm *worker = Mmap(NULL,
+                             sizeof(*worker),
+                             PROT_READ | PROT_WRITE,
+                             MAP_SHARED,
+                             fd,
+                             0,
+                             __func__);
     Fclose(fd, __func__);
 
     FuncName func = TERMINATE;
@@ -257,7 +257,7 @@ void TerminateWorker(WorkerProcKey *workerKey) {
 /*
  * Initialize worker shared memory
  */
-static WorkerSharedMem *InitWorkerSharedMem(WorkerProcKey *workerKey) {
+static WorkerShm *InitWorkerShm(WorkerProcKey *workerKey) {
     char filename[FILENAMELENGTH];
     snprintf(filename,
              FILENAMELENGTH,
@@ -266,7 +266,7 @@ static WorkerSharedMem *InitWorkerSharedMem(WorkerProcKey *workerKey) {
              workerKey->databaseId,
              workerKey->relationId);
 
-    WorkerSharedMem *worker = NULL;
+    WorkerShm *worker = NULL;
     ShmUnlink(filename, __func__);
     int fd = ShmOpen(filename, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
     Ftruncate(fd, sizeof(*worker), __func__);
@@ -294,8 +294,7 @@ static WorkerSharedMem *InitWorkerSharedMem(WorkerProcKey *workerKey) {
     return worker;
 }
 
-static void CloseWorkerSharedMem(WorkerSharedMem *worker,
-                                 WorkerProcKey *workerKey) {
+static void CloseWorkerShm(WorkerShm *worker, WorkerProcKey *workerKey) {
     // release the response area first
     for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
         Munmap(ResponseQueue[i], BUFSIZE, __func__);
@@ -337,17 +336,17 @@ void KVWorkerMain(WorkerProcKey *workerKey) {
     ereport(DEBUG1, (errmsg("KVWorker started")));
 
     /* first init the worker specific shared mem */
-    WorkerSharedMem *worker = InitWorkerSharedMem(workerKey);
+    WorkerShm *worker = InitWorkerShm(workerKey);
 
     /* build channel with manager to notify init is done */
     int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
-    ManagerSharedMem *manager = Mmap(NULL,
-                                     sizeof(*manager),
-                                     PROT_READ | PROT_WRITE,
-                                     MAP_SHARED,
-                                     fd,
-                                     0,
-                                     __func__);
+    ManagerShm *manager = Mmap(NULL,
+                               sizeof(*manager),
+                               PROT_READ | PROT_WRITE,
+                               MAP_SHARED,
+                               fd,
+                               0,
+                               __func__);
     Fclose(fd, __func__);
     SemPost(&manager->ready, __func__);
 
@@ -461,21 +460,21 @@ void KVWorkerMain(WorkerProcKey *workerKey) {
         Close(entry->db);
     }
 
-    CloseWorkerSharedMem(worker, workerKey);
+    CloseWorkerShm(worker, workerKey);
 
     ereport(DEBUG1, (errmsg("KVWorker shutting down")));
 }
 
-WorkerSharedMem *OpenRequest(Oid relationId,
-                             ManagerSharedMem **managerPtr,
-                             HTAB **workerShmHashPtr, ...) {
+WorkerShm *OpenRequest(Oid relationId,
+                       ManagerShm **managerPtr,
+                       HTAB **workerShmHashPtr, ...) {
 //    printf("\n============%s============\n", __func__);
 
     WorkerProcKey workerKey;
     workerKey.databaseId = MyDatabaseId;
     workerKey.relationId = relationId;
 
-    ManagerSharedMem *manager = *managerPtr;
+    ManagerShm *manager = *managerPtr;
     if (!manager) {
         /*
          * backend process talks to manager about worker info
@@ -507,7 +506,7 @@ WorkerSharedMem *OpenRequest(Oid relationId,
     }
 
     bool found = false;
-    WorkerSharedMem *worker = NULL;
+    WorkerShm *worker = NULL;
     WorkerProcShmEntry *entry = hash_search((*workerShmHashPtr),
                                              &workerKey,
                                              HASH_ENTER,
@@ -531,11 +530,10 @@ WorkerSharedMem *OpenRequest(Oid relationId,
             hash_search((*workerShmHashPtr), &workerKey, HASH_REMOVE, NULL);
             ereport(ERROR, (errcode(ERRCODE_CONFIGURATION_LIMIT_EXCEEDED),
                     errmsg("too many background workers"),
-                    errdetail_plural("Up to %d background workers can be registered with the current settings.",
-                                     "Up to %d background workers can be registered with the current settings.",
-                                      max_worker_processes,
-                                      max_worker_processes),
-                    errhint("Consider increasing the configuration parameter \"max_worker_processes\".")));
+                    errhint("Up to %d background workers can be registered with"
+                            " the current settings.", max_worker_processes),
+                    errhint("Consider increasing the configuration parameter "
+                            "\"max_worker_processes\".")));
         }
 
         /*
@@ -648,7 +646,7 @@ static void OpenResponse(char *area) {
     }
 }
 
-void CloseRequest(Oid relationId, WorkerSharedMem *worker) {
+void CloseRequest(Oid relationId, WorkerShm *worker) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&worker->mutex, __func__);
@@ -687,7 +685,7 @@ static void CloseResponse(char *area) {
 //    printf("\n%s ref %d\n", __func__, entry->ref);
 }
 
-uint64 CountRequest(Oid relationId, WorkerSharedMem *worker) {
+uint64 CountRequest(Oid relationId, WorkerShm *worker) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&worker->mutex, __func__);
@@ -732,7 +730,7 @@ static void CountResponse(char *area) {
     memcpy(ResponseQueue[*responseId], &count, sizeof(count));
 }
 
-void GetIterRequest(Oid relationId, uint64 operationId, WorkerSharedMem *worker) {
+void GetIterRequest(Oid relationId, uint64 operationId, WorkerShm *worker) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&worker->mutex, __func__);
@@ -798,7 +796,7 @@ static void GetIterResponse(char *area) {
 
 void DelIterRequest(Oid relationId,
                     uint64 operationId,
-                    WorkerSharedMem *worker,
+                    WorkerShm *worker,
                     TableReadState *readState) {
 //    printf("\n============%s============\n", __func__);
 
@@ -869,7 +867,7 @@ static void DelIterResponse(char *area) {
 
 bool ReadBatchRequest(Oid relationId,
                       uint64 operationId,
-                      WorkerSharedMem *worker,
+                      WorkerShm *worker,
                       char **buf,
                       size_t *bufLen) {
 //    printf("\n============%s============\n", __func__);
@@ -1005,7 +1003,7 @@ void ReadBatchResponse(char *area) {
 }
 
 bool GetRequest(Oid relationId,
-                WorkerSharedMem *worker,
+                WorkerShm *worker,
                 char *key,
                 size_t keyLen,
                 char **val,
@@ -1092,7 +1090,7 @@ static void GetResponse(char *area) {
 }
 
 void PutRequest(Oid relationId,
-                WorkerSharedMem *worker,
+                WorkerShm *worker,
                 char *key,
                 size_t keyLen,
                 char *val,
@@ -1168,7 +1166,7 @@ static void PutResponse(char *area) {
 }
 
 void DeleteRequest(Oid relationId,
-                   WorkerSharedMem *worker,
+                   WorkerShm *worker,
                    char *key,
                    size_t keyLen) {
 //    printf("\n============%s============\n", __func__);
@@ -1232,7 +1230,7 @@ static void DeleteResponse(char *area) {
  */
 bool RangeQueryRequest(Oid relationId,
                        uint64 operationId,
-                       WorkerSharedMem *worker,
+                       WorkerShm *worker,
                        RangeQueryOptions *options,
                        char **buf,
                        size_t *bufLen) {
@@ -1463,7 +1461,7 @@ static void RangeQueryResponse(char *area) {
 
 void ClearRangeQueryMetaRequest(Oid relationId,
                                 uint64 operationId,
-                                WorkerSharedMem *worker,
+                                WorkerShm *worker,
                                 TableReadState *readState) {
 //    printf("\n============%s============\n", __func__);
 
@@ -1537,7 +1535,7 @@ static void ClearRangeQueryMetaResponse(char *area) {
 }
 #endif
 
-RingBufSharedMem* BeginLoadRequest(Oid relationId, WorkerSharedMem *worker) {
+RingBufShm* BeginLoadRequest(Oid relationId, WorkerShm *worker) {
 //    printf("\n============%s============\n", __func__);
 
     pid_t pid = getpid();
@@ -1557,14 +1555,14 @@ RingBufSharedMem* BeginLoadRequest(Oid relationId, WorkerSharedMem *worker) {
                      O_CREAT | O_RDWR | O_EXCL,
                      PERMISSION,
                      __func__);
-    Ftruncate(fd, sizeof(RingBufSharedMem), __func__);
-    RingBufSharedMem* buf = Mmap(NULL,
-                                 sizeof(RingBufSharedMem),
-                                 PROT_READ | PROT_WRITE,
-                                 MAP_SHARED,
-                                 fd,
-                                 0,
-                                 __func__);
+    Ftruncate(fd, sizeof(RingBufShm), __func__);
+    RingBufShm* buf = Mmap(NULL,
+                           sizeof(RingBufShm),
+                           PROT_READ | PROT_WRITE,
+                           MAP_SHARED,
+                           fd,
+                           0,
+                           __func__);
     Fclose(fd, __func__);
 
     /* init ring buffer shared memory */
@@ -1605,7 +1603,7 @@ RingBufSharedMem* BeginLoadRequest(Oid relationId, WorkerSharedMem *worker) {
     return buf;
 }
 
-static void ReadRingBuf(RingBufSharedMem *buf,
+static void ReadRingBuf(RingBufShm *buf,
                         uint64 *offset,
                         char **data,
                         size_t size) {
@@ -1659,13 +1657,13 @@ static void LoadResponse(char *area) {
              *databaseId,
              *relationId);
     int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
-    RingBufSharedMem *buf = Mmap(NULL,
-                                 sizeof(RingBufSharedMem),
-                                 PROT_READ | PROT_WRITE,
-                                 MAP_SHARED,
-                                 fd,
-                                 0,
-                                 __func__);
+    RingBufShm *buf = Mmap(NULL,
+                           sizeof(RingBufShm),
+                           PROT_READ | PROT_WRITE,
+                           MAP_SHARED,
+                           fd,
+                           0,
+                           __func__);
     Fclose(fd, __func__);
 
     char tuple[BUFSIZE];
@@ -1733,7 +1731,7 @@ static void LoadResponse(char *area) {
     Munmap(buf, sizeof(*buf), __func__);
 }
 
-static void WriteRingBuf(RingBufSharedMem *buf,
+static void WriteRingBuf(RingBufShm *buf,
                          uint64 *offset,
                          char *data,
                          size_t size) {
@@ -1757,7 +1755,7 @@ static void WriteRingBuf(RingBufSharedMem *buf,
     }
 }
 
-void LoadTuple(RingBufSharedMem *buf,
+void LoadTuple(RingBufShm *buf,
                char *key,
                size_t keyLen,
                char *val,
@@ -1809,9 +1807,7 @@ void LoadTuple(RingBufSharedMem *buf,
     SemPost(&buf->empty, __func__);
 }
 
-uint64 EndLoadRequest(Oid relationId,
-                      WorkerSharedMem *worker,
-                      RingBufSharedMem *buf) {
+uint64 EndLoadRequest(Oid relationId, WorkerShm *worker, RingBufShm *buf) {
 //    printf("\n============%s============\n", __func__);
 
     /* mark the finish flag */
@@ -1842,8 +1838,8 @@ uint64 EndLoadRequest(Oid relationId,
     return count;
 }
 
-void TerminateRequest(WorkerProcKey *workerKey, ManagerSharedMem **managerPtr) {
-    ManagerSharedMem *manager = *managerPtr;
+void TerminateRequest(WorkerProcKey *workerKey, ManagerShm **managerPtr) {
+    ManagerShm *manager = *managerPtr;
     if (!manager) {
         /*
          * backend process talks to manager about worker info

@@ -91,7 +91,7 @@ typedef enum FuncName {
  * func: backend tells manager the action it wants;
  * success: manager tells backend the action result;
  */
-typedef struct ManagerSharedMem {
+typedef struct ManagerShm {
     sem_t mutex;
     sem_t manager;
     sem_t backend;
@@ -100,7 +100,7 @@ typedef struct ManagerSharedMem {
     Oid relationId;
     FuncName func;
     volatile bool success;
-} ManagerSharedMem;
+} ManagerShm;
 
 /* Shared memory for function requests with worker:
  * mutex: mutual exclusion of the request buffer;
@@ -111,14 +111,14 @@ typedef struct ManagerSharedMem {
  * responseSync[RESPONSEQUEUELENGTH]:
  *     notify child processes after the response is ready.
  */
-typedef struct WorkerSharedMem {
+typedef struct WorkerShm {
     sem_t mutex;
     sem_t full;
     sem_t worker;
     sem_t responseMutex[RESPONSEQUEUELENGTH];
     sem_t responseSync[RESPONSEQUEUELENGTH];
     char area[BUFSIZE];  /* assume ~64K for a tuple is enough */
-} WorkerSharedMem;
+} WorkerShm;
 
 /* Composite key for worker process:
  * databaseId: the database related by worker;
@@ -132,7 +132,7 @@ typedef struct WorkerProcKey {
 /* Key must be the first attribute */
 typedef struct WorkerProcShmEntry {
     WorkerProcKey key;
-    WorkerSharedMem *shm;
+    WorkerShm *shm;
 } WorkerProcShmEntry;
 
 /* Ring buffer shared memory for load operation:
@@ -146,7 +146,7 @@ typedef struct WorkerProcShmEntry {
  * finish: tell whether has read all data;
  * area: the temporary data storage area;
  */
-typedef struct RingBufSharedMem {
+typedef struct RingBufShm {
     sem_t mutex;
     sem_t empty;
     sem_t full;
@@ -156,7 +156,7 @@ typedef struct RingBufSharedMem {
     volatile uint64 count;
     volatile bool finish;
     char area[LOADBUFSIZE];  /* assume ~64K for a tuple is enough */
-} RingBufSharedMem;
+} RingBufShm;
 
 /* Holds the option values to be used when reading or writing files.
  * To resolve these values, we first check foreign table's options,
@@ -242,26 +242,26 @@ extern char *KVGetOptionValue(Oid foreignTableId, const char *optionName);
 
 extern Datum ShortVarlena(Datum datum, int typeLength, char storage);
 
-extern WorkerSharedMem *OpenRequest(Oid relationId,
-                                    ManagerSharedMem **managerPtr,
-                                    HTAB **workerShmHashPtr, ...);
+extern WorkerShm *OpenRequest(Oid relationId,
+                              ManagerShm **managerPtr,
+                              HTAB **workerShmHashPtr, ...);
 
-extern void CloseRequest(Oid relationId, WorkerSharedMem *worker);
+extern void CloseRequest(Oid relationId, WorkerShm *worker);
 
-extern uint64 CountRequest(Oid relationId, WorkerSharedMem *worker);
+extern uint64 CountRequest(Oid relationId, WorkerShm *worker);
 
 extern void GetIterRequest(Oid relationId,
                            uint64 operationId,
-                           WorkerSharedMem *worker);
+                           WorkerShm *worker);
 
 extern void DelIterRequest(Oid relationId,
                            uint64 operationId,
-                           WorkerSharedMem *worker,
+                           WorkerShm *worker,
                            TableReadState *readState);
 
 extern bool NextRequest(Oid relationId,
                         uint64 operationId,
-                        WorkerSharedMem *worker,
+                        WorkerShm *worker,
                         char **key,
                         size_t *keyLen,
                         char **val,
@@ -269,58 +269,56 @@ extern bool NextRequest(Oid relationId,
 
 extern bool ReadBatchRequest(Oid relationId,
                              uint64 operationId,
-                             WorkerSharedMem *worker,
+                             WorkerShm *worker,
                              char **buf,
                              size_t *bufLen);
 
 extern bool GetRequest(Oid relationId,
-                       WorkerSharedMem *worker,
+                       WorkerShm *worker,
                        char *key,
                        size_t keyLen,
                        char **val,
                        size_t *valLen);
 
 extern void PutRequest(Oid relationId,
-                       WorkerSharedMem *worker,
+                       WorkerShm *worker,
                        char *key,
                        size_t keyLen,
                        char *val,
                        size_t valLen);
 
 extern void DeleteRequest(Oid relationId,
-                          WorkerSharedMem *worker,
+                          WorkerShm *worker,
                           char *key,
                           size_t keyLen);
 
-extern RingBufSharedMem* BeginLoadRequest(Oid relationId,
-                                          WorkerSharedMem *worker);
+extern RingBufShm* BeginLoadRequest(Oid relationId, WorkerShm *worker);
 
-extern void LoadTuple(RingBufSharedMem *buf,
+extern void LoadTuple(RingBufShm *buf,
                       char *key,
                       size_t keyLen,
                       char *val,
                       size_t valLen);
 
 extern uint64 EndLoadRequest(Oid relationId,
-                             WorkerSharedMem *worker,
-                             RingBufSharedMem* buf);
+                             WorkerShm *worker,
+                             RingBufShm* buf);
 
 #ifdef VIDARDB
 extern bool RangeQueryRequest(Oid relationId,
                               uint64 operationId,
-                              WorkerSharedMem *worker,
+                              WorkerShm *worker,
                               RangeQueryOptions *options,
                               char **buf,
                               size_t *bufLen);
 
 extern void ClearRangeQueryMetaRequest(Oid relationId,
                                        uint64 operationId,
-                                       WorkerSharedMem *worker,
+                                       WorkerShm *worker,
                                        TableReadState *readState);
 #endif
 
-extern void TerminateRequest(WorkerProcKey *workerKey,
-                             ManagerSharedMem **managerPtr);
+extern void TerminateRequest(WorkerProcKey *workerKey, ManagerShm **managerPtr);
 
 /*
  * Utility for worker hash table

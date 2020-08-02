@@ -63,11 +63,7 @@ void *Mmap(void *__addr,
            int __prot,
            int __flags,
            int __fd,
-#ifdef __APPLE__
            off_t  __offset,
-#else
-           __off_t  __offset,
-#endif
            const char *fun) {
     caddr_t memptr = mmap(__addr, __len, __prot, __flags, __fd, __offset);
     if (memptr == MAP_FAILED) {
@@ -82,13 +78,7 @@ void Munmap(void *__addr, size_t __len, const char *fun) {
     }
 }
 
-void Ftruncate(int __fd,
-#ifdef __APPLE__
-               off_t __length,
-#else
-               __off_t __length,
-#endif
-               const char *fun) {
+void Ftruncate(int __fd, off_t __length, const char *fun) {
     if (ftruncate(__fd, __length) == -1) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }

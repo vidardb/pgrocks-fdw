@@ -5,9 +5,9 @@
 #include "kv_fdw.h"
 
 
-ManagerSharedMem *InitManagerSharedMem(void);
+ManagerShm *InitManagerShm(void);
 
-void CloseManagerSharedMem(ManagerSharedMem *manager);
+void CloseManagerShm(ManagerShm *manager);
 
 void KVWorkerMain(WorkerProcKey *workerKey);
 

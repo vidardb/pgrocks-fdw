@@ -34,12 +34,12 @@ PG_FUNCTION_INFO_V1(kv_fdw_validator);
 /*
  * in backend process
  */
-static ManagerSharedMem *manager = NULL;
+static ManagerShm *manager = NULL;
 static HTAB *workerShmHash = NULL;
 static uint64 operationId = 0;  /* a SQL might cause multiple scans */
 
 
-static inline WorkerSharedMem* GetRelationWorker(Oid relationId) {
+static inline WorkerShm *GetRelationWorker(Oid relationId) {
     bool found = false;
     WorkerProcKey workerKey;
     workerKey.databaseId = MyDatabaseId;
@@ -131,16 +131,15 @@ static void GetForeignRelSize(PlannerInfo *root,
     Relation relation = heap_open(foreignTableId, AccessShareLock);
     ComparatorOptions opts;
     FillRelationComparatorOptions(relation, &opts);
-    WorkerSharedMem *worker = OpenRequest(foreignTableId,
-                                          &manager,
-                                          &workerShmHash,
-                                          planState->fdwOptions->useColumn,
-                                          planState->attrCount,
-                                          &opts);
+    WorkerShm *worker = OpenRequest(foreignTableId,
+                                    &manager,
+                                    &workerShmHash,
+                                    planState->fdwOptions->useColumn,
+                                    planState->attrCount,
+                                    &opts);
     heap_close(relation, AccessShareLock);
     #else
-    WorkerSharedMem *worker = OpenRequest(foreignTableId, &manager,
-                                          &workerShmHash);
+    WorkerShm *worker = OpenRequest(foreignTableId, &manager, &workerShmHash);
     #endif
 
     /* TODO: better estimation */
@@ -571,7 +570,7 @@ static void DeserializeTuple(StringInfo key,
 
 static bool GetNextFromBatch(Oid relationId,
                              TableReadState *readState,
-                             WorkerSharedMem *worker,
+                             WorkerShm *worker,
                              char **key,
                              size_t *keyLen,
                              char **val,

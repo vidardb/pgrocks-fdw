@@ -2,7 +2,7 @@
 
 # PostgresForeignDataWrapper
 
-[![Build Status](https://travis-ci.com/vidardb/PostgresForeignDataWrapper.svg?branch=master)](https://travis-ci.com/github/vidardb/PostgresForeignDataWrapper)
+[![Build Status](https://travis-ci.com/vidardb/pgrocks.svg?branch=master)](https://travis-ci.com/github/vidardb/pgrocks)
 
 This PostgreSQL extension implements a Foreign Data Wrapper (FDW) for [RocksDB](https://rocksdb.org/). This repo has been listed in PostgreSQL [wiki](https://wiki.postgresql.org/wiki/Foreign_data_wrappers). 
 

@@ -259,14 +259,6 @@ extern void DelIterRequest(Oid relationId,
                            WorkerShm *worker,
                            TableReadState *readState);
 
-extern bool NextRequest(Oid relationId,
-                        uint64 operationId,
-                        WorkerShm *worker,
-                        char **key,
-                        size_t *keyLen,
-                        char **val,
-                        size_t *valLen);
-
 extern bool ReadBatchRequest(Oid relationId,
                              uint64 operationId,
                              WorkerShm *worker,

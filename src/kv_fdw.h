@@ -201,6 +201,8 @@ typedef struct TableReadState {
     bool useColumn;
     List *targetAttrs;    /* attributes in select, where, group */
     #endif
+
+    WorkerShm *worker;
 } TableReadState;
 
 /*
@@ -212,6 +214,7 @@ typedef struct TableReadState {
  */
 typedef struct TableWriteState {
     CmdType operation;
+    WorkerShm *worker;
 } TableWriteState;
 
 

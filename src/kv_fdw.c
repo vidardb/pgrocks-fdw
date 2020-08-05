@@ -435,8 +435,10 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
  * where we need to match the tuple when do deserialization.
  * Update and Delete also provide full tuple.
  */
-static void DeserializeColumnTuple(StringInfo key,
-                                   StringInfo val,
+static void DeserializeColumnTuple(char *key,
+                                   size_t kLen,
+                                   char *val,
+                                   size_t vLen,
                                    TupleTableSlot *tupleSlot,
                                    List *targetList,
                                    bool fullTuple) {
@@ -482,12 +484,12 @@ static void DeserializeColumnTuple(StringInfo key,
         Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 0);
         bool byValue = attributeForm->attbyval;
         int typeLength = attributeForm->attlen;
-        values[0] = fetch_att(key->data, byValue, typeLength);
+        values[0] = fetch_att(key, byValue, typeLength);
         nulls[0] = false;
     }
 
     int offset = 0;
-    char *current = val->data;
+    char *current = val;
 
     /* deserialize the remaining attributes */
     for (int index = 0; index < targetAttrsLen; index++) {
@@ -499,11 +501,9 @@ static void DeserializeColumnTuple(StringInfo key,
         }
 
         uint64 dataLen = 0;
-        uint8 headerLen = DecodeVarintLength(current,
-                                             val->data + val->len,
-                                             &dataLen);
+        uint8 headerLen = DecodeVarintLength(current, val + vLen, &dataLen);
         offset += headerLen;
-        current = val->data + offset;
+        current = val + offset;
         if (dataLen == 0) {
             continue;
         }
@@ -515,15 +515,17 @@ static void DeserializeColumnTuple(StringInfo key,
         values[attr] = fetch_att(current, byValue, typeLength);
         offset = att_addlength_datum(offset, typeLength, current);
         nulls[attr] = false;
-        current = val->data + offset;
+        current = val + offset;
     }
 
     pfree(attrs);
 }
 #endif
 
-static void DeserializeTuple(StringInfo key,
-                             StringInfo val,
+static void DeserializeTuple(char *key,
+                             size_t kLen,
+                             char *val,
+                             size_t vLen,
                              TupleTableSlot *tupleSlot) {
 
     Datum *values = tupleSlot->tts_values;
@@ -537,16 +539,14 @@ static void DeserializeTuple(StringInfo key,
     memset(nulls, false, count * sizeof(bool));
 
     int offset = 0;
-    char *current = key->data;
+    char *current = key;
     for (int index = 0; index < count; index++) {
 
         if (index > 0) {
             uint64 dataLen = 0;
-            uint8 headerLen = DecodeVarintLength(current,
-                                                 val->data + val->len,
-                                                 &dataLen);
+            uint8 headerLen = DecodeVarintLength(current, val + vLen, &dataLen);
             offset += headerLen;
-            current = val->data + offset;
+            current = val + offset;
             if (dataLen == 0) {
                 nulls[index] = true;
                 continue;
@@ -564,7 +564,7 @@ static void DeserializeTuple(StringInfo key,
             offset = 0;
         }
 
-        current = val->data + offset;
+        current = val + offset;
     }
 }
 
@@ -681,23 +681,20 @@ static TupleTableSlot *IterateForeignScan(ForeignScanState *scanState) {
     }
 
     if (found) {
-        StringInfo key = makeStringInfo();
-        appendBinaryStringInfo(key, k, kLen);
-        StringInfo val = makeStringInfo();
-        appendBinaryStringInfo(val, v, vLen);
-
         #ifdef VIDARDB
         if (readState->useColumn) {
-            DeserializeColumnTuple(key,
-                                   val,
+            DeserializeColumnTuple(k,
+                                   kLen,
+                                   v,
+                                   vLen,
                                    tupleSlot,
                                    readState->targetAttrs,
                                    readState->isKeyBased);
         } else {
-            DeserializeTuple(key, val, tupleSlot);
+            DeserializeTuple(k, kLen, v, vLen, tupleSlot);
         }
         #else
-        DeserializeTuple(key, val, tupleSlot);
+        DeserializeTuple(k, kLen, v, vLen, tupleSlot);
         #endif
 
         ExecStoreVirtualTuple(tupleSlot);

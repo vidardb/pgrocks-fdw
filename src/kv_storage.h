@@ -18,7 +18,6 @@ extern "C" {
  * C wrapper
  */
 
-#ifdef VIDARDB
 typedef struct ComparatorOptions {
     Oid   cmpFuncOid;   /* datatype comparison func id */
     Oid   attrCollOid;  /* attribute datatype coll id */
@@ -26,9 +25,10 @@ typedef struct ComparatorOptions {
     int16 attrLength;   /* attribute datatype length */
 } ComparatorOptions;
 
+#ifdef VIDARDB
 void* Open(char* path, bool useColumn, int attrCount, ComparatorOptions* opts);
 #else
-void* Open(char* path);
+void* Open(char* path, ComparatorOptions* opts);
 #endif
 void Close(void* db);
 
@@ -74,10 +74,10 @@ void ParseRangeQueryResult(void* result, char* buf);
 
 void ClearRangeQueryMeta(void* range, void* readOptions);
 
-/* Create a datatype comparator wrapper for storage engine */
-void* NewDataTypeComparator(ComparatorOptions* options);
 #endif
 
+/* Create a datatype comparator wrapper for storage engine */
+void* NewDataTypeComparator(ComparatorOptions* options);
 
 #if defined(__cplusplus)
 }

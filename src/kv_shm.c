@@ -467,7 +467,8 @@ void KVWorkerMain(WorkerProcKey *workerKey) {
 
 WorkerShm *OpenRequest(Oid relationId,
                        ManagerShm **managerPtr,
-                       HTAB **workerShmHashPtr, ...) {
+                       HTAB **workerShmHashPtr,
+                       ComparatorOptions *opts, ...) {
 //    printf("\n============%s============\n", __func__);
 
     WorkerProcKey workerKey;
@@ -579,9 +580,12 @@ WorkerShm *OpenRequest(Oid relationId,
     memcpy(current, &responseId, sizeof(responseId));
     current += sizeof(responseId);
 
+    memcpy(current, opts, sizeof(*opts));
+    current += sizeof(*opts);
+
     #ifdef VIDARDB
     va_list vl;
-    va_start(vl, workerShmHashPtr);
+    va_start(vl, opts);
 
     bool useColumn = (bool) va_arg(vl, int);
     memcpy(current, &useColumn, sizeof(useColumn));
@@ -590,10 +594,6 @@ WorkerShm *OpenRequest(Oid relationId,
     int attrCount = va_arg(vl, int);
     memcpy(current, &attrCount, sizeof(attrCount));
     current += sizeof(attrCount);
-
-    ComparatorOptions* opts = va_arg(vl, ComparatorOptions*);
-    memcpy(current, opts, sizeof(*opts));
-    current += sizeof(*opts);
 
     va_end(vl);
     #endif
@@ -614,15 +614,15 @@ WorkerShm *OpenRequest(Oid relationId,
 static void OpenResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
+    ComparatorOptions *opts = (ComparatorOptions *)area;
+    area += sizeof(*opts);
+
     #ifdef VIDARDB
     bool *useColumn = (bool *)area;
     area += sizeof(*useColumn);
 
     int *attrCount = (int *)area;
     area += sizeof(*attrCount);
-
-    ComparatorOptions *opts = (ComparatorOptions *)area;
-    area += sizeof(*opts);
     #endif
 
     char path[PATHMAXLENGTH];
@@ -638,7 +638,7 @@ static void OpenResponse(char *area) {
         #ifdef VIDARDB
         entry->db = Open(path, *useColumn, *attrCount, opts);
         #else
-        entry->db = Open(path);
+        entry->db = Open(path, opts);
         #endif
     } else {
         entry->ref++;

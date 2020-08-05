@@ -82,6 +82,11 @@ static void GetForeignRelSize(PlannerInfo *root,
      * min & max will call GetForeignRelSize & GetForeignPaths multiple times,
      * we should open & close db multiple times.
      */
+    Relation relation = heap_open(foreignTableId, AccessShareLock);
+    ComparatorOptions opts;
+    FillRelationComparatorOptions(relation, &opts);
+    heap_close(relation, AccessShareLock);
+
     #ifdef VIDARDB
     TablePlanState *planState = palloc0(sizeof(TablePlanState));
     planState->fdwOptions = KVGetOptions(foreignTableId);
@@ -128,18 +133,17 @@ static void GetForeignRelSize(PlannerInfo *root,
     }
 
     baserel->fdw_private = planState;
-    Relation relation = heap_open(foreignTableId, AccessShareLock);
-    ComparatorOptions opts;
-    FillRelationComparatorOptions(relation, &opts);
     WorkerShm *worker = OpenRequest(foreignTableId,
                                     &manager,
                                     &workerShmHash,
+                                    &opts,
                                     planState->fdwOptions->useColumn,
-                                    planState->attrCount,
-                                    &opts);
-    heap_close(relation, AccessShareLock);
+                                    planState->attrCount);
     #else
-    WorkerShm *worker = OpenRequest(foreignTableId, &manager, &workerShmHash);
+    WorkerShm *worker = OpenRequest(foreignTableId,
+                                    &manager,
+                                    &workerShmHash,
+                                    &opts);
     #endif
 
     /* TODO: better estimation */
@@ -218,21 +222,22 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
 
     scanClauses = extract_actual_clauses(scanClauses, false);
 
-    /* To accommodate min & max, we open file here */
-    #ifdef VIDARDB
-    TablePlanState *planState = baserel->fdw_private;
     Relation relation = heap_open(foreignTableId, AccessShareLock);
     ComparatorOptions opts;
     FillRelationComparatorOptions(relation, &opts);
+    heap_close(relation, AccessShareLock);
+
+    /* To accommodate min & max, we open file here */
+    #ifdef VIDARDB
+    TablePlanState *planState = baserel->fdw_private;
     OpenRequest(foreignTableId,
                 &manager,
                 &workerShmHash,
+                &opts,
                 planState->fdwOptions->useColumn,
-                planState->attrCount,
-                &opts);
-    heap_close(relation, AccessShareLock);
+                planState->attrCount);
     #else
-    OpenRequest(foreignTableId, &manager, &workerShmHash);
+    OpenRequest(foreignTableId, &manager, &workerShmHash, &opts);
     #endif
 
     /* Create the ForeignScan node */
@@ -949,19 +954,20 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     #endif
 
     if (operation == CMD_INSERT) {
-        #ifdef VIDARDB
         ComparatorOptions opts;
         FillRelationComparatorOptions(relation, &opts);
+        #ifdef VIDARDB
         WorkerShm *worker = OpenRequest(foreignTableId,
                                         &manager,
                                         &workerShmHash,
+                                        &opts,
                                         planState->fdwOptions->useColumn,
-                                        planState->attrCount,
-                                        &opts);
+                                        planState->attrCount);
         #else
         WorkerShm *worker = OpenRequest(foreignTableId,
                                         &manager,
-                                        &workerShmHash);
+                                        &workerShmHash,
+                                        &opts);
         #endif
         writeState->worker = worker;
     }

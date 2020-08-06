@@ -8,14 +8,15 @@
 using namespace vidardb;
 #include <list>
 #include <algorithm>
-#include <mutex>
 #else
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/comparator.h"
 using namespace rocksdb;
 #endif
 using namespace std;
 
+#include <mutex>
 #include "kv_storage.h"
 
 
@@ -53,10 +54,11 @@ void* Open(char* path, bool useColumn, int attrCount, ComparatorOptions* opts) {
     return db;
 }
 #else
-void* Open(char* path) {
+void* Open(char* path, ComparatorOptions* opts) {
     DB* db = nullptr;
     Options options;
     options.create_if_missing = true;
+    options.comparator = static_cast<Comparator*>(NewDataTypeComparator(opts));
 
     Status s = DB::Open(options, string(path), &db);
     assert(s.ok());
@@ -295,6 +297,7 @@ void ClearRangeQueryMeta(void* range, void* readOptions) {
     ReadOptions* options = static_cast<ReadOptions*>(readOptions);
     delete options;
 }
+#endif
 
 /* Comparator wrapper for PG datatype's comparison function */
 class PGDataTypeComparator : public Comparator {
@@ -441,7 +444,5 @@ class PGDataTypeComparator : public Comparator {
 void* NewDataTypeComparator(ComparatorOptions* options) {
     return new PGDataTypeComparator(options);
 }
-
-#endif
 
 }

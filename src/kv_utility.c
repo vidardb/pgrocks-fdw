@@ -223,18 +223,19 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
                              MyDatabaseId,
                              relationId);
 
+            ComparatorOptions opts;
+            FillRelationComparatorOptions(relation, &opts);
+
             /* Initialize the database */
             #ifdef VIDARDB
             char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
             bool useColumn = (option != NULL) ?
                 (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
             TupleDesc tupleDescriptor = RelationGetDescr(relation);
-            ComparatorOptions opts;
-            FillRelationComparatorOptions(relation, &opts);
             void *kvDB = Open(kvPath->data, useColumn, tupleDescriptor->natts,
                               &opts);
             #else
-            void *kvDB = Open(kvPath->data);
+            void *kvDB = Open(kvPath->data, &opts);
             #endif
             Close(kvDB);
 
@@ -473,7 +474,6 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
     buffer->len = datumLength + headerLen;
 }
 
-#ifdef VIDARDB
 void FillRelationComparatorOptions(Relation relation, ComparatorOptions* opts) {
     TupleDesc tupleDescriptor = RelationGetDescr(relation);
 
@@ -487,7 +487,6 @@ void FillRelationComparatorOptions(Relation relation, ComparatorOptions* opts) {
                                                   TYPECACHE_CMP_PROC_FINFO);
     opts->cmpFuncOid = typeEntry->cmp_proc; /* maybe not exist */
 }
-#endif
 
 /*
  * Handles a "COPY kv_table FROM" statement. This function uses the COPY
@@ -524,20 +523,24 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     TupleDesc tupleDescriptor = RelationGetDescr(relation);
     int attrCount = tupleDescriptor->natts;
 
+    ComparatorOptions opts;
+    FillRelationComparatorOptions(relation, &opts);
+
     #ifdef VIDARDB
     char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
     bool useColumn = (option != NULL) ?
         (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
-    ComparatorOptions opts;
-    FillRelationComparatorOptions(relation, &opts);
     WorkerShm *worker = OpenRequest(relationId,
                                     &manager,
                                     &workerShmHash,
+                                    &opts,
                                     useColumn,
-                                    attrCount,
-                                    &opts);
+                                    attrCount);
     #else
-    WorkerShm *worker = OpenRequest(relationId, &manager, &workerShmHash);
+    WorkerShm *worker = OpenRequest(relationId,
+                                    &manager,
+                                    &workerShmHash,
+                                    &opts);
     #endif
 
     Datum *values = palloc0(attrCount * sizeof(Datum));

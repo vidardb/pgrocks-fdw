@@ -201,6 +201,8 @@ typedef struct TableReadState {
     bool useColumn;
     List *targetAttrs;    /* attributes in select, where, group */
     #endif
+
+    WorkerShm *worker;
 } TableReadState;
 
 /*
@@ -212,6 +214,7 @@ typedef struct TableReadState {
  */
 typedef struct TableWriteState {
     CmdType operation;
+    WorkerShm *worker;
 } TableWriteState;
 
 
@@ -220,11 +223,9 @@ extern void _PG_init(void);
 
 extern void _PG_fini(void);
 
-#ifdef VIDARDB
 /* Fill the specified relation's comparator options */
 extern void FillRelationComparatorOptions(Relation relation,
                                           ComparatorOptions *opts);
-#endif
 
 /* Functions used across files in kv_fdw */
 extern KVFdwOptions *KVGetOptions(Oid foreignTableId);
@@ -244,7 +245,8 @@ extern Datum ShortVarlena(Datum datum, int typeLength, char storage);
 
 extern WorkerShm *OpenRequest(Oid relationId,
                               ManagerShm **managerPtr,
-                              HTAB **workerShmHashPtr, ...);
+                              HTAB **workerShmHashPtr,
+                              ComparatorOptions *opts, ...);
 
 extern void CloseRequest(Oid relationId, WorkerShm *worker);
 

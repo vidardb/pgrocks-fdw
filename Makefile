@@ -1,16 +1,15 @@
 
 MODULE_big   = kv_fdw
 
-ifdef VIDARDB
-PG_CPPFLAGS += -Wno-declaration-after-statement -DVIDARDB
-SHLIB_LINK   = -lvidardb
-
 COMPILE.cxx.bc = $(CLANG) -xc++ -Wno-ignored-attributes $(BITCODE_CXXFLAGS) $(CPPFLAGS) -emit-llvm -c
 
 %.bc : %.cpp
 	$(COMPILE.cxx.bc) -o $@ $<
 	$(LLVM_BINPATH)/opt -module-summary -f $@ -o $@
 
+ifdef VIDARDB
+PG_CPPFLAGS += -Wno-declaration-after-statement -DVIDARDB
+SHLIB_LINK   = -lvidardb
 else
 PG_CPPFLAGS += -Wno-declaration-after-statement
 SHLIB_LINK   = -lrocksdb

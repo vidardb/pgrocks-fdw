@@ -383,10 +383,10 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         }
     }
 
-    if (!readState->isKeyBased) {
-        Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
-        readState->worker = GetRelationWorker(relationId);
+    Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
+    readState->worker = GetRelationWorker(relationId);
 
+    if (!readState->isKeyBased) {
         #ifdef VIDARDB
         if (readState->useColumn) {
 

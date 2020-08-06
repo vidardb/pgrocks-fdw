@@ -84,7 +84,7 @@ static void GetForeignRelSize(PlannerInfo *root,
      */
     Relation relation = heap_open(foreignTableId, AccessShareLock);
     ComparatorOptions opts;
-    FillRelationComparatorOptions(relation, &opts);
+    SetRelationComparatorOptions(relation, &opts);
     heap_close(relation, AccessShareLock);
 
     #ifdef VIDARDB
@@ -150,6 +150,7 @@ static void GetForeignRelSize(PlannerInfo *root,
     baserel->rows = CountRequest(foreignTableId, worker);
 
     CloseRequest(foreignTableId, worker);
+    clock_t end = clock();
 }
 
 static void GetForeignPaths(PlannerInfo *root,
@@ -224,7 +225,7 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
 
     Relation relation = heap_open(foreignTableId, AccessShareLock);
     ComparatorOptions opts;
-    FillRelationComparatorOptions(relation, &opts);
+    SetRelationComparatorOptions(relation, &opts);
     heap_close(relation, AccessShareLock);
 
     /* To accommodate min & max, we open file here */
@@ -955,7 +956,7 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
 
     if (operation == CMD_INSERT) {
         ComparatorOptions opts;
-        FillRelationComparatorOptions(relation, &opts);
+        SetRelationComparatorOptions(relation, &opts);
         #ifdef VIDARDB
         WorkerShm *worker = OpenRequest(foreignTableId,
                                         &manager,

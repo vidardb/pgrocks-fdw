@@ -14,9 +14,9 @@ using namespace vidardb;
 #include "rocksdb/comparator.h"
 using namespace rocksdb;
 #endif
+#include <mutex>
 using namespace std;
 
-#include <mutex>
 #include "kv_storage.h"
 
 

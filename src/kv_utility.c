@@ -224,7 +224,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
                              relationId);
 
             ComparatorOptions opts;
-            FillRelationComparatorOptions(relation, &opts);
+            SetRelationComparatorOptions(relation, &opts);
 
             /* Initialize the database */
             #ifdef VIDARDB
@@ -474,7 +474,7 @@ void SerializeAttribute(TupleDesc tupleDescriptor,
     buffer->len = datumLength + headerLen;
 }
 
-void FillRelationComparatorOptions(Relation relation, ComparatorOptions* opts) {
+void SetRelationComparatorOptions(Relation relation, ComparatorOptions* opts) {
     TupleDesc tupleDescriptor = RelationGetDescr(relation);
 
     /* TODO: we assume the 1st column is primary key */
@@ -524,7 +524,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     int attrCount = tupleDescriptor->natts;
 
     ComparatorOptions opts;
-    FillRelationComparatorOptions(relation, &opts);
+    SetRelationComparatorOptions(relation, &opts);
 
     #ifdef VIDARDB
     char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);

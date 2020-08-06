@@ -224,8 +224,8 @@ extern void _PG_init(void);
 extern void _PG_fini(void);
 
 /* Fill the specified relation's comparator options */
-extern void FillRelationComparatorOptions(Relation relation,
-                                          ComparatorOptions *opts);
+extern void SetRelationComparatorOptions(Relation relation,
+                                         ComparatorOptions *opts);
 
 /* Functions used across files in kv_fdw */
 extern KVFdwOptions *KVGetOptions(Oid foreignTableId);

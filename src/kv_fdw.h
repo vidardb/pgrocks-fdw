@@ -203,6 +203,7 @@ typedef struct TableReadState {
     #endif
 
     WorkerShm *worker;
+    bool execExplainOnly;
 } TableReadState;
 
 /*

@@ -17,6 +17,7 @@
 #include "foreign/foreign.h"
 #include "utils/builtins.h"
 #include "miscadmin.h"
+#include "nodes/nodes.h"
 
 #ifdef VIDARDB
 #include "parser/parsetree.h"
@@ -150,7 +151,6 @@ static void GetForeignRelSize(PlannerInfo *root,
     baserel->rows = CountRequest(foreignTableId, worker);
 
     CloseRequest(foreignTableId, worker);
-    clock_t end = clock();
 }
 
 static void GetForeignPaths(PlannerInfo *root,
@@ -344,6 +344,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     TableReadState *readState = palloc0(sizeof(TableReadState));
+    readState->execExplainOnly = false;
     readState->isKeyBased = false;
     readState->operationId = 0;
     readState->done = false;
@@ -369,6 +370,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
     /* must after readState is recorded, otherwise explain won't close db */
     if (executorFlags & EXEC_FLAG_EXPLAIN_ONLY) {
+        readState->execExplainOnly = true;
         return;
     }
 
@@ -733,6 +735,11 @@ static void EndForeignScan(ForeignScanState *scanState) {
 
     TableReadState *readState = (TableReadState *) scanState->fdw_state;
     Assert(readState);
+
+    if (readState->execExplainOnly) {
+        pfree(readState);
+        return;
+    }
 
     Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
     if (!readState->isKeyBased) {

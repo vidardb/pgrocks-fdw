@@ -65,3 +65,45 @@ SELECT MAX(value) FROM test;
 -----------------BeginForeignScan----------------------
 -----------------IterateForeignScan----------------------
 -----------------EndForeignScan----------------------
+
+EXPLAIN INSERT INTO test VALUES('California', 'Waterloo');
+-----------------kv_fdw_handler----------------------
+-----------------PlanForeignModify----------------------
+-----------------kv_fdw_handler----------------------
+-----------------BeginForeignModify----------------------
+-----------------ExplainForeignModify----------------------
+-----------------EndForeignModify----------------------
+
+EXPLAIN SELECT * FROM test;
+-----------------GetForeignRelSize----------------------
+-----------------GetForeignPaths----------------------
+-----------------GetForeignPlan----------------------
+-----------------BeginForeignScan----------------------
+-----------------ExplainForeignScan----------------------
+-----------------EndForeignScan----------------------
+
+EXPLAIN UPDATE test SET value='VidarSQL';  
+-----------------AddForeignUpdateTargets----------------------
+-----------------GetForeignRelSize----------------------
+-----------------GetForeignPaths----------------------
+-----------------GetForeignPlan----------------------
+-----------------PlanForeignModify----------------------
+-----------------BeginForeignScan----------------------
+-----------------BeginForeignModify----------------------
+-----------------ExplainForeignModify----------------------
+-----------------ExplainForeignScan----------------------
+-----------------EndForeignModify----------------------
+-----------------EndForeignScan----------------------
+
+EXPLAIN DELETE FROM test WHERE key='California';
+-----------------AddForeignUpdateTargets----------------------
+-----------------GetForeignRelSize----------------------
+-----------------GetForeignPaths----------------------
+-----------------GetForeignPlan----------------------
+-----------------PlanForeignModify----------------------
+-----------------BeginForeignScan----------------------
+-----------------BeginForeignModify----------------------
+-----------------ExplainForeignModify----------------------
+-----------------ExplainForeignScan----------------------
+-----------------EndForeignModify----------------------
+-----------------EndForeignScan----------------------

@@ -23,7 +23,7 @@ ENV POSTGRES_VERSION=11
 ENV FDW_VERSION=master
 RUN set -xe && export $env_exts && apt-get $apt_opts update && \
     apt-get $apt_opts install -y --no-install-recommends make wget ca-certificates postgresql-server-dev-${POSTGRES_VERSION} && \
-    wget --no-check-certificate -O pgrocks.tar.gz https://github.com/vidardb/pgrocks/archive/${FDW_VERSION}.tar.gz && \
-    tar zxvf pgrocks.tar.gz && cd pgrocks-${FDW_VERSION} && make && make install && cd .. && \
+    wget --no-check-certificate -O pgrocks-fdw.tar.gz https://github.com/vidardb/pgrocks-fdw/archive/${FDW_VERSION}.tar.gz && \
+    tar zxvf pgrocks-fdw.tar.gz && cd pgrocks-fdw-${FDW_VERSION} && make && make install && cd .. && \
     apt-get purge -y --auto-remove make wget ca-certificates postgresql-server-dev-${POSTGRES_VERSION} && \
-    rm -rf /var/lib/apt/lists/* /tmp/* pgrocks.tar.gz pgrocks-${FDW_VERSION}
+    rm -rf /var/lib/apt/lists/* /tmp/* pgrocks-fdw.tar.gz pgrocks-fdw-${FDW_VERSION}

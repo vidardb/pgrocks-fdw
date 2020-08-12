@@ -91,7 +91,8 @@ static void LoadResponse(char *area);
  * manner. If all the response slots are used by other processes, the caller
  * process will loop here. Called by manager process and backend process.
  */
-static inline uint32 GetResponseQueueIndex(WorkerShm *worker) {
+static inline uint32
+GetResponseQueueIndex(WorkerShm *worker) {
     while (true) {
         for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
             int ret = SemTryWait(&worker->responseMutex[i], __func__);
@@ -106,29 +107,18 @@ static inline uint32 GetResponseQueueIndex(WorkerShm *worker) {
  * Initialize shared memory for responses
  * called by worker process
  */
-static void InitResponseArea(WorkerProcKey *workerKey) {
+static void
+InitResponseArea(WorkerProcKey *workerKey) {
     for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
         char filename[FILENAMELENGTH];
-        snprintf(filename,
-                 FILENAMELENGTH,
-                 "%s%d%u%u",
-                 RESPONSEFILE,
-                 i,
-                 workerKey->databaseId,
-                 workerKey->relationId);
+        snprintf(filename, FILENAMELENGTH, "%s%d%u%u", RESPONSEFILE, i,
+                 workerKey->databaseId, workerKey->relationId);
         ShmUnlink(filename, __func__);
-        int fd = ShmOpen(filename,
-                         O_CREAT | O_RDWR | O_EXCL,
-                         PERMISSION,
+        int fd = ShmOpen(filename, O_CREAT | O_RDWR | O_EXCL, PERMISSION,
                          __func__);
         Ftruncate(fd, BUFSIZE, __func__);
-        ResponseQueue[i] = Mmap(NULL, 
-                                BUFSIZE,
-                                PROT_READ | PROT_WRITE,
-                                MAP_SHARED,
-                                fd,
-                                0,
-                                __func__);
+        ResponseQueue[i] = Mmap(NULL, BUFSIZE, PROT_READ | PROT_WRITE,
+                                MAP_SHARED, fd, 0, __func__);
         Fclose(fd, __func__);
     }
 }
@@ -137,25 +127,16 @@ static void InitResponseArea(WorkerProcKey *workerKey) {
  * Open shared memory for responses
  * called by backend process
  */
-static void OpenResponseArea(WorkerProcKey *workerKey) {
+static void
+OpenResponseArea(WorkerProcKey *workerKey) {
     for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
         if (ResponseQueue[i] == NULL) {
             char filename[FILENAMELENGTH];
-            snprintf(filename,
-                     FILENAMELENGTH,
-                     "%s%d%u%u",
-                     RESPONSEFILE,
-                     i,
-                     workerKey->databaseId,
-                     workerKey->relationId);
+            snprintf(filename, FILENAMELENGTH, "%s%d%u%u", RESPONSEFILE, i,
+                     workerKey->databaseId, workerKey->relationId);
             int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
-            ResponseQueue[i] = Mmap(NULL,
-                                    BUFSIZE,
-                                    PROT_READ | PROT_WRITE,
-                                    MAP_SHARED,
-                                    fd,
-                                    0,
-                                    __func__);
+            ResponseQueue[i] = Mmap(NULL, BUFSIZE, PROT_READ | PROT_WRITE,
+                                    MAP_SHARED, fd, 0, __func__);
             Fclose(fd, __func__);
         }
     }
@@ -164,9 +145,8 @@ static void OpenResponseArea(WorkerProcKey *workerKey) {
 /*
  * Compare function for KVIterHash
  */
-static inline int CompareKVTableProcOpHashKey(const void *key1,
-                                              const void *key2,
-                                              Size keysize) {
+static inline int
+CompareKVTableProcOpHashKey(const void *key1, const void *key2, Size keysize) {
     const KVTableProcOpHashKey *k1 = (const KVTableProcOpHashKey *)key1;
     const KVTableProcOpHashKey *k2 = (const KVTableProcOpHashKey *)key2;
 
@@ -186,19 +166,15 @@ static inline int CompareKVTableProcOpHashKey(const void *key1,
 /*
  * Initialize manager shared memory
  */
-ManagerShm *InitManagerShm() {
+ManagerShm *
+InitManagerShm() {
     ManagerShm *manager = NULL;
 
     ShmUnlink(BACKFILE, __func__);
     int fd = ShmOpen(BACKFILE, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
     Ftruncate(fd, sizeof(*manager), __func__);
-    manager = Mmap(NULL,
-                   sizeof(*manager),
-                   PROT_READ | PROT_WRITE,
-                   MAP_SHARED,
-                   fd,
-                   0,
-                   __func__);
+    manager = Mmap(NULL, sizeof(*manager), PROT_READ | PROT_WRITE, MAP_SHARED,
+                   fd, 0, __func__);
     Fclose(fd, __func__);
 
     SemInit(&manager->mutex, 1, 1, __func__);
@@ -212,7 +188,8 @@ ManagerShm *InitManagerShm() {
     return manager;
 }
 
-void CloseManagerShm(ManagerShm *manager) {
+void
+CloseManagerShm(ManagerShm *manager) {
     SemDestroy(&manager->mutex, __func__);
     SemDestroy(&manager->manager, __func__);
     SemDestroy(&manager->backend, __func__);
@@ -223,22 +200,14 @@ void CloseManagerShm(ManagerShm *manager) {
 }
 
 /* called by manager process to terminate worker process */
-void TerminateWorker(WorkerProcKey *workerKey) {
+void
+TerminateWorker(WorkerProcKey *workerKey) {
     char filename[FILENAMELENGTH];
-    snprintf(filename,
-             FILENAMELENGTH,
-             "%s%u%u",
-             BACKFILE,
-             workerKey->databaseId,
-             workerKey->relationId);
+    snprintf(filename, FILENAMELENGTH, "%s%u%u", BACKFILE,
+             workerKey->databaseId, workerKey->relationId);
     int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
-    WorkerShm *worker = Mmap(NULL,
-                             sizeof(*worker),
-                             PROT_READ | PROT_WRITE,
-                             MAP_SHARED,
-                             fd,
-                             0,
-                             __func__);
+    WorkerShm *worker = Mmap(NULL, sizeof(*worker), PROT_READ | PROT_WRITE,
+                             MAP_SHARED, fd, 0, __func__);
     Fclose(fd, __func__);
 
     FuncName func = TERMINATE;
@@ -257,26 +226,18 @@ void TerminateWorker(WorkerProcKey *workerKey) {
 /*
  * Initialize worker shared memory
  */
-static WorkerShm *InitWorkerShm(WorkerProcKey *workerKey) {
+static WorkerShm *
+InitWorkerShm(WorkerProcKey *workerKey) {
     char filename[FILENAMELENGTH];
-    snprintf(filename,
-             FILENAMELENGTH,
-             "%s%u%u",
-             BACKFILE,
-             workerKey->databaseId,
-             workerKey->relationId);
+    snprintf(filename, FILENAMELENGTH, "%s%u%u", BACKFILE,
+             workerKey->databaseId, workerKey->relationId);
 
     WorkerShm *worker = NULL;
     ShmUnlink(filename, __func__);
     int fd = ShmOpen(filename, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
     Ftruncate(fd, sizeof(*worker), __func__);
-    worker = Mmap(NULL,
-                  sizeof(*worker),
-                  PROT_READ | PROT_WRITE,
-                  MAP_SHARED,
-                  fd,
-                  0,
-                  __func__);
+    worker = Mmap(NULL, sizeof(*worker), PROT_READ | PROT_WRITE, MAP_SHARED, fd,
+                  0,  __func__);
     Fclose(fd, __func__);
 
     /* Initialize the response area */
@@ -294,18 +255,14 @@ static WorkerShm *InitWorkerShm(WorkerProcKey *workerKey) {
     return worker;
 }
 
-static void CloseWorkerShm(WorkerShm *worker, WorkerProcKey *workerKey) {
+static void
+CloseWorkerShm(WorkerShm *worker, WorkerProcKey *workerKey) {
     // release the response area first
     for (uint32 i = 0; i < RESPONSEQUEUELENGTH; i++) {
         Munmap(ResponseQueue[i], BUFSIZE, __func__);
         char filename[FILENAMELENGTH];
-        snprintf(filename,
-                 FILENAMELENGTH,
-                 "%s%d%u%u",
-                 RESPONSEFILE,
-                 i,
-                 workerKey->databaseId,
-                 workerKey->relationId);
+        snprintf(filename, FILENAMELENGTH, "%s%d%u%u", RESPONSEFILE, i,
+                 workerKey->databaseId, workerKey->relationId);
         ShmUnlink(filename, __func__);
     }
 
@@ -320,19 +277,16 @@ static void CloseWorkerShm(WorkerShm *worker, WorkerProcKey *workerKey) {
 
     Munmap(worker, sizeof(*worker), __func__);
     char filename[FILENAMELENGTH];
-    snprintf(filename,
-             FILENAMELENGTH,
-             "%s%u%u",
-             BACKFILE,
-             workerKey->databaseId,
-             workerKey->relationId);
+    snprintf(filename, FILENAMELENGTH, "%s%u%u", BACKFILE,
+             workerKey->databaseId, workerKey->relationId);
     ShmUnlink(filename, __func__);
 }
 
 /*
  * Main loop for the worker process.
  */
-void KVWorkerMain(WorkerProcKey *workerKey) {
+void
+KVWorkerMain(WorkerProcKey *workerKey) {
     ereport(DEBUG1, (errmsg("KVWorker started")));
 
     /* first init the worker specific shared mem */
@@ -340,27 +294,19 @@ void KVWorkerMain(WorkerProcKey *workerKey) {
 
     /* build channel with manager to notify init is done */
     int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
-    ManagerShm *manager = Mmap(NULL,
-                               sizeof(*manager),
-                               PROT_READ | PROT_WRITE,
-                               MAP_SHARED,
-                               fd,
-                               0,
-                               __func__);
+    ManagerShm *manager = Mmap(NULL, sizeof(*manager), PROT_READ | PROT_WRITE,
+                               MAP_SHARED, fd, 0, __func__);
     Fclose(fd, __func__);
     SemPost(&manager->ready, __func__);
 
     /* Connect to our database */
-    BackgroundWorkerInitializeConnectionByOid(workerKey->databaseId,
-                                              InvalidOid, 0);
+    BackgroundWorkerInitializeConnectionByOid(workerKey->databaseId, InvalidOid, 0);
 
     HASHCTL hash_ctl;
     memset(&hash_ctl, 0, sizeof(hash_ctl));
     hash_ctl.keysize = sizeof(Oid);
     hash_ctl.entrysize = sizeof(KVHashEntry);
-    kvTableHash = hash_create("kvTableHash",
-                              HASHSIZE,
-                              &hash_ctl,
+    kvTableHash = hash_create("kvTableHash", HASHSIZE, &hash_ctl,
                               HASH_ELEM | HASH_BLOBS);
 
     HASHCTL iter_hash_ctl;
@@ -368,9 +314,7 @@ void KVWorkerMain(WorkerProcKey *workerKey) {
     iter_hash_ctl.keysize = sizeof(KVTableProcOpHashKey);
     iter_hash_ctl.entrysize = sizeof(KVIterHashEntry);
     iter_hash_ctl.match = CompareKVTableProcOpHashKey;
-    kvIterHash = hash_create("kvIterHash",
-                             HASHSIZE,
-                             &iter_hash_ctl,
+    kvIterHash = hash_create("kvIterHash", HASHSIZE, &iter_hash_ctl,
                              HASH_ELEM | HASH_COMPARE);
 
     #ifdef VIDARDB
@@ -379,10 +323,8 @@ void KVWorkerMain(WorkerProcKey *workerKey) {
     option_hash_ctl.keysize = sizeof(KVTableProcOpHashKey);
     option_hash_ctl.entrysize = sizeof(KVReadOptionsEntry);
     option_hash_ctl.match = CompareKVTableProcOpHashKey;
-    kvReadOptionsHash = hash_create("kvReadOptionsHash",
-                                    HASHSIZE,
-                                    &option_hash_ctl,
-                                    HASH_ELEM | HASH_COMPARE);
+    kvReadOptionsHash = hash_create("kvReadOptionsHash", HASHSIZE,
+                                    &option_hash_ctl, HASH_ELEM | HASH_COMPARE);
     #endif
 
     char buf[BUFSIZE];
@@ -465,10 +407,9 @@ void KVWorkerMain(WorkerProcKey *workerKey) {
     ereport(DEBUG1, (errmsg("KVWorker shutting down")));
 }
 
-WorkerShm *OpenRequest(Oid relationId,
-                       ManagerShm **managerPtr,
-                       HTAB **workerShmHashPtr,
-                       ComparatorOptions *opts, ...) {
+WorkerShm *
+OpenRequest(Oid relationId, ManagerShm **managerPtr, HTAB **workerShmHashPtr,
+            ComparatorOptions *opts, ...) {
 //    printf("\n============%s============\n", __func__);
 
     WorkerProcKey workerKey;
@@ -481,12 +422,8 @@ WorkerShm *OpenRequest(Oid relationId,
          * backend process talks to manager about worker info
          */
         int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
-        manager = *managerPtr = Mmap(NULL,
-                                     sizeof(*manager),
-                                     PROT_READ | PROT_WRITE,
-                                     MAP_SHARED,
-                                     fd,
-                                     0,
+        manager = *managerPtr = Mmap(NULL, sizeof(*manager),
+                                     PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0,
                                      __func__);
         Fclose(fd, __func__);
     }
@@ -500,18 +437,14 @@ WorkerShm *OpenRequest(Oid relationId,
         hash_ctl.keysize = sizeof(WorkerProcKey);
         hash_ctl.entrysize = sizeof(WorkerProcShmEntry);
         hash_ctl.match = CompareWorkerProcKey;
-        *workerShmHashPtr = hash_create("workerShmHash",
-                                        HASHSIZE,
-                                        &hash_ctl,
+        *workerShmHashPtr = hash_create("workerShmHash", HASHSIZE, &hash_ctl,
                                         HASH_ELEM | HASH_BLOBS | HASH_COMPARE);
     }
 
     bool found = false;
     WorkerShm *worker = NULL;
-    WorkerProcShmEntry *entry = hash_search((*workerShmHashPtr),
-                                             &workerKey,
-                                             HASH_ENTER,
-                                             &found);
+    WorkerProcShmEntry *entry = hash_search((*workerShmHashPtr), &workerKey,
+                                             HASH_ENTER, &found);
     if (!found) {
         /*
          * Lock among child processes.
@@ -542,20 +475,11 @@ WorkerShm *OpenRequest(Oid relationId,
          * Each worker has its own set of shared memory.
          */
         char filename[FILENAMELENGTH];
-        snprintf(filename,
-                 FILENAMELENGTH,
-                 "%s%u%u",
-                 BACKFILE,
-                 workerKey.databaseId,
-                 workerKey.relationId);
+        snprintf(filename, FILENAMELENGTH, "%s%u%u", BACKFILE,
+                 workerKey.databaseId, workerKey.relationId);
         int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
-        worker = Mmap(NULL,
-                      sizeof(*worker),
-                      PROT_READ | PROT_WRITE,
-                      MAP_SHARED,
-                      fd,
-                      0,
-                      __func__);
+        worker = Mmap(NULL, sizeof(*worker), PROT_READ | PROT_WRITE, MAP_SHARED,
+                      fd, 0, __func__);
         Fclose(fd, __func__);
 
         OpenResponseArea(&workerKey);
@@ -611,7 +535,8 @@ WorkerShm *OpenRequest(Oid relationId,
     return worker;
 }
 
-static void OpenResponse(char *area) {
+static void
+OpenResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     ComparatorOptions *opts = (ComparatorOptions *)area;
@@ -646,7 +571,8 @@ static void OpenResponse(char *area) {
     }
 }
 
-void CloseRequest(Oid relationId, WorkerShm *worker) {
+void
+CloseRequest(Oid relationId, WorkerShm *worker) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&worker->mutex, __func__);
@@ -670,7 +596,8 @@ void CloseRequest(Oid relationId, WorkerShm *worker) {
     SemPost(&worker->responseMutex[responseId], __func__);
 }
 
-static void CloseResponse(char *area) {
+static void
+CloseResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     Oid *relationId = (Oid *)area;
@@ -685,7 +612,8 @@ static void CloseResponse(char *area) {
 //    printf("\n%s ref %d\n", __func__, entry->ref);
 }
 
-uint64 CountRequest(Oid relationId, WorkerShm *worker) {
+uint64
+CountRequest(Oid relationId, WorkerShm *worker) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&worker->mutex, __func__);
@@ -712,7 +640,8 @@ uint64 CountRequest(Oid relationId, WorkerShm *worker) {
     return count;
 }
 
-static void CountResponse(char *area) {
+static void
+CountResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     uint32 *responseId = (uint32 *)area;
@@ -730,7 +659,8 @@ static void CountResponse(char *area) {
     memcpy(ResponseQueue[*responseId], &count, sizeof(count));
 }
 
-void GetIterRequest(Oid relationId, uint64 operationId, WorkerShm *worker) {
+void
+GetIterRequest(Oid relationId, uint64 operationId, WorkerShm *worker) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&worker->mutex, __func__);
@@ -761,7 +691,8 @@ void GetIterRequest(Oid relationId, uint64 operationId, WorkerShm *worker) {
     SemPost(&worker->responseMutex[responseId], __func__);
 }
 
-static void GetIterResponse(char *area) {
+static void
+GetIterResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     KVTableProcOpHashKey iterKey;
@@ -774,19 +705,15 @@ static void GetIterResponse(char *area) {
     iterKey.operationId = *((uint64 *)area);
 
     bool found;
-    KVHashEntry *entry = hash_search(kvTableHash,
-                                     &iterKey.relationId,
-                                     HASH_FIND,
-                                     &found);
+    KVHashEntry *entry = hash_search(kvTableHash, &iterKey.relationId,
+                                     HASH_FIND, &found);
 
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     }
 
     bool iterFound;
-    KVIterHashEntry *iterEntry = hash_search(kvIterHash,
-                                             &iterKey,
-                                             HASH_ENTER,
+    KVIterHashEntry *iterEntry = hash_search(kvIterHash, &iterKey, HASH_ENTER,
                                              &iterFound);
     if (!iterFound) {
         iterEntry->key = iterKey;
@@ -794,10 +721,9 @@ static void GetIterResponse(char *area) {
     iterEntry->iter = GetIter(entry->db);
 }
 
-void DelIterRequest(Oid relationId,
-                    uint64 operationId,
-                    WorkerShm *worker,
-                    TableReadState *readState) {
+void
+DelIterRequest(Oid relationId, uint64 operationId, WorkerShm *worker,
+               TableReadState *readState) {
 //    printf("\n============%s============\n", __func__);
 
     if (readState->buf != NULL) {
@@ -806,13 +732,8 @@ void DelIterRequest(Oid relationId,
     /* shared memory will be open in ReadBatchResponse anyway */
     char filename[FILENAMELENGTH];
     pid_t pid = getpid();
-    snprintf(filename,
-             FILENAMELENGTH,
-             "%s%d%d%lu",
-             READBATCHFILE,
-             pid,
-             relationId,
-             readState->operationId);
+    snprintf(filename, FILENAMELENGTH, "%s%d%d%lu", READBATCHFILE, pid,
+             relationId, readState->operationId);
     ShmUnlink(filename, __func__);
 
     SemWait(&worker->mutex, __func__);
@@ -842,7 +763,8 @@ void DelIterRequest(Oid relationId,
     SemPost(&worker->responseMutex[responseId], __func__);
 }
 
-static void DelIterResponse(char *area) {
+static void
+DelIterResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     KVTableProcOpHashKey iterKey;
@@ -865,11 +787,9 @@ static void DelIterResponse(char *area) {
     entry->iter = NULL;
 }
 
-bool ReadBatchRequest(Oid relationId,
-                      uint64 operationId,
-                      WorkerShm *worker,
-                      char **buf,
-                      size_t *bufLen) {
+bool
+ReadBatchRequest(Oid relationId, uint64 operationId, WorkerShm *worker,
+                 char **buf, size_t *bufLen) {
 //    printf("\n============%s============\n", __func__);
 
     /* munmap the shared memory so that Response can unlink it */
@@ -915,28 +835,19 @@ bool ReadBatchRequest(Oid relationId,
         *buf = NULL;
     } else {
         char filename[FILENAMELENGTH];
-        snprintf(filename,
-                 FILENAMELENGTH,
-                 "%s%d%d%lu",
-                 READBATCHFILE,
-                 pid,
-                 relationId,
-                 operationId);
+        snprintf(filename, FILENAMELENGTH, "%s%d%d%lu", READBATCHFILE, pid,
+                 relationId, operationId);
         int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
-        *buf = Mmap(NULL,
-                    READBATCHSIZE,
-                    PROT_READ | PROT_WRITE,
-                    MAP_SHARED,
-                    fd,
-                    0,
-                    __func__);
+        *buf = Mmap(NULL, READBATCHSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd,
+                    0, __func__);
         Fclose(fd, __func__);
     }
 
     return hasNext;
 }
 
-void ReadBatchResponse(char *area) {
+void
+ReadBatchResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     uint32 *responseId = (uint32 *)area;
@@ -952,18 +863,14 @@ void ReadBatchResponse(char *area) {
     iterKey.operationId = *((uint64 *)area);
 
     bool found;
-    KVHashEntry *entry = hash_search(kvTableHash,
-                                     &iterKey.relationId,
-                                     HASH_FIND,
-                                     &found);
+    KVHashEntry *entry = hash_search(kvTableHash, &iterKey.relationId,
+                                     HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     }
 
     bool iterFound;
-    KVIterHashEntry *iterEntry = hash_search(kvIterHash,
-                                             &iterKey,
-                                             HASH_ENTER,
+    KVIterHashEntry *iterEntry = hash_search(kvIterHash, &iterKey, HASH_ENTER,
                                              &iterFound);
     if (!iterFound) {
         iterEntry->key = iterKey;
@@ -971,27 +878,14 @@ void ReadBatchResponse(char *area) {
     }
 
     char filename[FILENAMELENGTH];
-    snprintf(filename,
-             FILENAMELENGTH,
-             "%s%d%d%lu",
-             READBATCHFILE,
-             iterKey.pid,
-             iterKey.relationId,
-             iterKey.operationId);
+    snprintf(filename, FILENAMELENGTH, "%s%d%d%lu", READBATCHFILE, iterKey.pid,
+             iterKey.relationId, iterKey.operationId);
 
     ShmUnlink(filename, __func__);
-    int fd = ShmOpen(filename,
-                     O_CREAT | O_RDWR | O_EXCL,
-                     PERMISSION,
-                     __func__);
+    int fd = ShmOpen(filename, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
     Ftruncate(fd, READBATCHSIZE, __func__);
-    char* buf = Mmap(NULL,
-                     READBATCHSIZE,
-                     PROT_READ | PROT_WRITE,
-                     MAP_SHARED,
-                     fd,
-                     0,
-                     __func__);
+    char* buf = Mmap(NULL, READBATCHSIZE, PROT_READ | PROT_WRITE, MAP_SHARED,
+                     fd, 0, __func__);
     Fclose(fd, __func__);
 
     size_t bufLen = 0;
@@ -1002,12 +896,9 @@ void ReadBatchResponse(char *area) {
     Munmap(buf, READBATCHSIZE, __func__);
 }
 
-bool GetRequest(Oid relationId,
-                WorkerShm *worker,
-                char *key,
-                size_t keyLen,
-                char **val,
-                size_t *valLen) {
+bool
+GetRequest(Oid relationId, WorkerShm *worker, char *key, size_t keyLen,
+           char **val, size_t *valLen) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&worker->mutex, __func__);
@@ -1054,7 +945,8 @@ bool GetRequest(Oid relationId,
     return true;
 }
 
-static void GetResponse(char *area) {
+static void
+GetResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     int *responseId = (int *)area;
@@ -1089,12 +981,9 @@ static void GetResponse(char *area) {
     pfree(val);
 }
 
-void PutRequest(Oid relationId,
-                WorkerShm *worker,
-                char *key,
-                size_t keyLen,
-                char *val,
-                size_t valLen) {
+void
+PutRequest(Oid relationId, WorkerShm *worker, char *key, size_t keyLen,
+           char *val, size_t valLen) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&worker->mutex, __func__);
@@ -1138,7 +1027,8 @@ void PutRequest(Oid relationId,
     SemPost(&worker->responseMutex[responseId], __func__);
 }
 
-static void PutResponse(char *area) {
+static void
+PutResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     Oid *relationId = (Oid *)area;
@@ -1165,10 +1055,8 @@ static void PutResponse(char *area) {
     }
 }
 
-void DeleteRequest(Oid relationId,
-                   WorkerShm *worker,
-                   char *key,
-                   size_t keyLen) {
+void
+DeleteRequest(Oid relationId, WorkerShm *worker, char *key, size_t keyLen) {
 //    printf("\n============%s============\n", __func__);
 
     SemWait(&worker->mutex, __func__);
@@ -1198,7 +1086,8 @@ void DeleteRequest(Oid relationId,
     SemPost(&worker->responseMutex[responseId], __func__);
 }
 
-static void DeleteResponse(char *area) {
+static void
+DeleteResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     Oid *relationId = (Oid *)area;
@@ -1228,12 +1117,9 @@ static void DeleteResponse(char *area) {
  * options != NULL means first time trigger this function.
  * Return whether there is a remaining batch.
  */
-bool RangeQueryRequest(Oid relationId,
-                       uint64 operationId,
-                       WorkerShm *worker,
-                       RangeQueryOptions *options,
-                       char **buf,
-                       size_t *bufLen) {
+bool
+RangeQueryRequest(Oid relationId, uint64 operationId, WorkerShm *worker,
+                  RangeQueryOptions *options, char **buf, size_t *bufLen) {
 //    printf("\n============%s============\n", __func__);
 
     /* munmap the shared memory so that Response can unlink it */
@@ -1285,8 +1171,7 @@ bool RangeQueryRequest(Oid relationId,
         memcpy(current, &(options->attrCount), sizeof(options->attrCount));
         current += sizeof(options->attrCount);
         if (options->attrCount > 0) {
-            memcpy(current,
-                   options->attrs,
+            memcpy(current, options->attrs,
                    options->attrCount * sizeof(*(options->attrs)));
         }
     }
@@ -1306,21 +1191,11 @@ bool RangeQueryRequest(Oid relationId,
         *buf = NULL;
     } else {
         char filename[FILENAMELENGTH];
-        snprintf(filename,
-                 FILENAMELENGTH,
-                 "%s%d%d%lu",
-                 RANGEQUERYFILE,
-                 pid,
-                 relationId,
-                 operationId);
+        snprintf(filename, FILENAMELENGTH, "%s%d%d%lu", RANGEQUERYFILE, pid,
+                 relationId, operationId);
         int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
-        *buf = Mmap(NULL,
-                    *bufLen,  /* must larger than 0 */
-                    PROT_READ | PROT_WRITE,
-                    MAP_SHARED,
-                    fd,
-                    0,
-                    __func__);
+        *buf = Mmap(NULL, *bufLen,  /* must larger than 0 */
+                    PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0, __func__);
         Fclose(fd, __func__);
     }
 
@@ -1328,7 +1203,8 @@ bool RangeQueryRequest(Oid relationId,
     return hasNext;
 }
 
-static void RangeQueryResponse(char *area) {
+static void
+RangeQueryResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     uint32 *responseId = (uint32 *)area;
@@ -1345,19 +1221,15 @@ static void RangeQueryResponse(char *area) {
     area += sizeof(optionKey.operationId);
 
     bool found = false;
-    KVHashEntry *entry = hash_search(kvTableHash,
-                                     &optionKey.relationId,
-                                     HASH_FIND,
-                                     &found);
+    KVHashEntry *entry = hash_search(kvTableHash, &optionKey.relationId,
+                                     HASH_FIND, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     }
 
     bool optionFound = false;
-    KVReadOptionsEntry *optionEntry = hash_search(kvReadOptionsHash,
-                                                  &optionKey,
-                                                  HASH_ENTER,
-                                                  &optionFound);
+    KVReadOptionsEntry *optionEntry = hash_search(kvReadOptionsHash, &optionKey,
+                                                  HASH_ENTER, &optionFound);
     if (!optionFound) {
         /*
          * first time to trigger this func for the range query
@@ -1394,8 +1266,7 @@ static void RangeQueryResponse(char *area) {
             options.attrs = (AttrNumber *)area;
         }
 
-        ParseRangeQueryOptions(&options,
-                               &(optionEntry->range),
+        ParseRangeQueryOptions(&options, &(optionEntry->range),
                                &(optionEntry->readOptions));
 
     }
@@ -1404,11 +1275,8 @@ static void RangeQueryResponse(char *area) {
     size_t bufLen = 0;
     bool ret = false;
     do {
-        ret = RangeQuery(entry->db,
-                         optionEntry->range,
-                         &(optionEntry->readOptions),
-                         &bufLen,
-                         &result);
+        ret = RangeQuery(entry->db, optionEntry->range,
+                         &(optionEntry->readOptions), &bufLen, &result);
     } while (ret && bufLen == 0);
 
     char *current = ResponseQueue[*responseId];
@@ -1417,13 +1285,8 @@ static void RangeQueryResponse(char *area) {
     memcpy(current, &ret, sizeof(ret));
 
     char filename[FILENAMELENGTH];
-    snprintf(filename,
-             FILENAMELENGTH,
-             "%s%d%d%lu",
-             RANGEQUERYFILE,
-             optionKey.pid,
-             optionKey.relationId,
-             optionKey.operationId);
+    snprintf(filename, FILENAMELENGTH, "%s%d%d%lu", RANGEQUERYFILE,
+             optionKey.pid, optionKey.relationId, optionKey.operationId);
     /*
      * clear last call's shared data structure,
      * might throw out warning if no object to unlink, but it is fine.
@@ -1432,18 +1295,11 @@ static void RangeQueryResponse(char *area) {
 
     char *buf = NULL;
     if (bufLen > 0) {
-        int fd = ShmOpen(filename,
-                         O_CREAT | O_RDWR | O_EXCL,
-                         PERMISSION,
+        int fd = ShmOpen(filename, O_CREAT | O_RDWR | O_EXCL, PERMISSION,
                          __func__);
         Ftruncate(fd, bufLen, __func__);
-        buf = Mmap(NULL,
-                   bufLen,  /* must larger than 0 */
-                   PROT_READ | PROT_WRITE,
-                   MAP_SHARED,
-                   fd,
-                   0,
-                   __func__);
+        buf = Mmap(NULL, bufLen,  /* must larger than 0 */
+                   PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0, __func__);
         Fclose(fd, __func__);
     }
 
@@ -1459,10 +1315,9 @@ static void RangeQueryResponse(char *area) {
     }
 }
 
-void ClearRangeQueryMetaRequest(Oid relationId,
-                                uint64 operationId,
-                                WorkerShm *worker,
-                                TableReadState *readState) {
+void
+ClearRangeQueryMetaRequest(Oid relationId, uint64 operationId,
+                           WorkerShm *worker, TableReadState *readState) {
 //    printf("\n============%s============\n", __func__);
 
     if (readState->buf && readState->bufLen > 0) {
@@ -1497,7 +1352,8 @@ void ClearRangeQueryMetaRequest(Oid relationId,
     SemPost(&worker->responseMutex[responseId], __func__);
 }
 
-static void ClearRangeQueryMetaResponse(char *area) {
+static void
+ClearRangeQueryMetaResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     KVTableProcOpHashKey optionKey;
@@ -1510,10 +1366,8 @@ static void ClearRangeQueryMetaResponse(char *area) {
     optionKey.operationId = *((uint64 *)area);
 
     bool found;
-    KVReadOptionsEntry *entry = hash_search(kvReadOptionsHash,
-                                            &optionKey,
-                                            HASH_REMOVE,
-                                            &found);
+    KVReadOptionsEntry *entry = hash_search(kvReadOptionsHash, &optionKey,
+                                            HASH_REMOVE, &found);
     if (!found) {
         ereport(ERROR, (errmsg("%s failed in hash search", __func__)));
     }
@@ -1524,45 +1378,28 @@ static void ClearRangeQueryMetaResponse(char *area) {
     entry->range = NULL;
 
     char filename[FILENAMELENGTH];
-    snprintf(filename,
-             FILENAMELENGTH,
-             "%s%d%d%lu",
-             RANGEQUERYFILE,
-             optionKey.pid,
-             optionKey.relationId,
-             optionKey.operationId);
+    snprintf(filename, FILENAMELENGTH, "%s%d%d%lu", RANGEQUERYFILE,
+             optionKey.pid, optionKey.relationId, optionKey.operationId);
     ShmUnlink(filename, __func__);
 }
 #endif
 
-RingBufShm* BeginLoadRequest(Oid relationId, WorkerShm *worker) {
+RingBufShm*
+BeginLoadRequest(Oid relationId, WorkerShm *worker) {
 //    printf("\n============%s============\n", __func__);
 
     pid_t pid = getpid();
 
     /* mmap ring buffer shared memory */
     char filename[FILENAMELENGTH];
-    snprintf(filename,
-             FILENAMELENGTH,
-             "%s%d%d%d",
-             LOADFILE,
-             pid,
-             MyDatabaseId,
+    snprintf(filename, FILENAMELENGTH, "%s%d%d%d", LOADFILE, pid, MyDatabaseId,
              relationId);
 
     ShmUnlink(filename, __func__);
-    int fd = ShmOpen(filename,
-                     O_CREAT | O_RDWR | O_EXCL,
-                     PERMISSION,
-                     __func__);
+    int fd = ShmOpen(filename, O_CREAT | O_RDWR | O_EXCL, PERMISSION, __func__);
     Ftruncate(fd, sizeof(RingBufShm), __func__);
-    RingBufShm* buf = Mmap(NULL,
-                           sizeof(RingBufShm),
-                           PROT_READ | PROT_WRITE,
-                           MAP_SHARED,
-                           fd,
-                           0,
-                           __func__);
+    RingBufShm* buf = Mmap(NULL, sizeof(RingBufShm), PROT_READ | PROT_WRITE,
+                           MAP_SHARED, fd, 0, __func__);
     Fclose(fd, __func__);
 
     /* init ring buffer shared memory */
@@ -1603,10 +1440,8 @@ RingBufShm* BeginLoadRequest(Oid relationId, WorkerShm *worker) {
     return buf;
 }
 
-static void ReadRingBuf(RingBufShm *buf,
-                        uint64 *offset,
-                        char **data,
-                        size_t size) {
+static void
+ReadRingBuf(RingBufShm *buf, uint64 *offset, char **data, size_t size) {
     char *output = buf->area + (*offset);
     size_t n = LOADBUFSIZE - (*offset);
 
@@ -1629,7 +1464,8 @@ static void ReadRingBuf(RingBufShm *buf,
     }
 }
 
-static void LoadResponse(char *area) {
+static void
+LoadResponse(char *area) {
 //    printf("\n============%s============\n", __func__);
 
     Oid *databaseId = (Oid *)area;
@@ -1649,21 +1485,11 @@ static void LoadResponse(char *area) {
 
     /* mmap ring buffer shared memory */
     char filename[FILENAMELENGTH];
-    snprintf(filename,
-             FILENAMELENGTH,
-             "%s%d%d%d",
-             LOADFILE,
-             *pid,
-             *databaseId,
+    snprintf(filename, FILENAMELENGTH, "%s%d%d%d", LOADFILE, *pid, *databaseId,
              *relationId);
     int fd = ShmOpen(filename, O_RDWR, PERMISSION, __func__);
-    RingBufShm *buf = Mmap(NULL,
-                           sizeof(RingBufShm),
-                           PROT_READ | PROT_WRITE,
-                           MAP_SHARED,
-                           fd,
-                           0,
-                           __func__);
+    RingBufShm *buf = Mmap(NULL, sizeof(RingBufShm), PROT_READ | PROT_WRITE,
+                           MAP_SHARED, fd, 0, __func__);
     Fclose(fd, __func__);
 
     char tuple[BUFSIZE];
@@ -1731,10 +1557,8 @@ static void LoadResponse(char *area) {
     Munmap(buf, sizeof(*buf), __func__);
 }
 
-static void WriteRingBuf(RingBufShm *buf,
-                         uint64 *offset,
-                         char *data,
-                         size_t size) {
+static void
+WriteRingBuf(RingBufShm *buf, uint64 *offset, char *data, size_t size) {
     char *input = buf->area + (*offset);
     size_t n = LOADBUFSIZE - (*offset);
 
@@ -1755,11 +1579,8 @@ static void WriteRingBuf(RingBufShm *buf,
     }
 }
 
-void LoadTuple(RingBufShm *buf,
-               char *key,
-               size_t keyLen,
-               char *val,
-               size_t valLen) {
+void
+LoadTuple(RingBufShm *buf, char *key, size_t keyLen, char *val, size_t valLen) {
 //    printf("\n============%s============\n", __func__);
 
     /* total_size + key_size + key + value */
@@ -1807,7 +1628,8 @@ void LoadTuple(RingBufShm *buf,
     SemPost(&buf->empty, __func__);
 }
 
-uint64 EndLoadRequest(Oid relationId, WorkerShm *worker, RingBufShm *buf) {
+uint64
+EndLoadRequest(Oid relationId, WorkerShm *worker, RingBufShm *buf) {
 //    printf("\n============%s============\n", __func__);
 
     /* mark the finish flag */
@@ -1825,12 +1647,7 @@ uint64 EndLoadRequest(Oid relationId, WorkerShm *worker, RingBufShm *buf) {
 
     pid_t pid = getpid();
     char filename[FILENAMELENGTH];
-    snprintf(filename,
-             FILENAMELENGTH,
-             "%s%d%d%d",
-             LOADFILE,
-             pid,
-             MyDatabaseId,
+    snprintf(filename, FILENAMELENGTH, "%s%d%d%d", LOADFILE, pid,  MyDatabaseId,
              relationId);
     Munmap(buf, sizeof(*buf), __func__);
     ShmUnlink(filename, __func__);
@@ -1838,19 +1655,16 @@ uint64 EndLoadRequest(Oid relationId, WorkerShm *worker, RingBufShm *buf) {
     return count;
 }
 
-void TerminateRequest(WorkerProcKey *workerKey, ManagerShm **managerPtr) {
+void
+TerminateRequest(WorkerProcKey *workerKey, ManagerShm **managerPtr) {
     ManagerShm *manager = *managerPtr;
     if (!manager) {
         /*
          * backend process talks to manager about worker info
          */
         int fd = ShmOpen(BACKFILE, O_RDWR, PERMISSION, __func__);
-        manager = *managerPtr = Mmap(NULL,
-                                     sizeof(*manager),
-                                     PROT_READ | PROT_WRITE,
-                                     MAP_SHARED,
-                                     fd,
-                                     0,
+        manager = *managerPtr = Mmap(NULL, sizeof(*manager),
+                                     PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0,
                                      __func__);
         Fclose(fd, __func__);
     }

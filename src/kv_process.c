@@ -42,7 +42,8 @@ void ShutOffBackgroundWorker(WorkerProcKey *workerKey, ManagerShm *manager);
 /*
  * Compare function for WorkerProcKey
  */
-int CompareWorkerProcKey(const void *key1, const void *key2, Size keysize) {
+int
+CompareWorkerProcKey(const void *key1, const void *key2, Size keysize) {
     const WorkerProcKey *k1 = (const WorkerProcKey *) key1;
     const WorkerProcKey *k2 = (const WorkerProcKey *) key2;
 
@@ -61,7 +62,8 @@ int CompareWorkerProcKey(const void *key1, const void *key2, Size keysize) {
  * Signal handler for SIGTERM
  * Set a flag to let the main loop to terminate, and set our latch to wake it up.
  */
-static void KVSIGTERM(SIGNAL_ARGS) {
+static void
+KVSIGTERM(SIGNAL_ARGS) {
     int save_errno = errno;
 
     gotSIGTERM = true;
@@ -73,7 +75,8 @@ static void KVSIGTERM(SIGNAL_ARGS) {
 /*
  * Initialize shared memory and release it when exits
  */
-void KVManageWork(Datum arg) {
+void
+KVManageWork(Datum arg) {
     /* Establish signal handlers before unblocking signals. */
     /* pqsignal(SIGTERM, KVSIGTERM); */
     /*
@@ -95,9 +98,7 @@ void KVManageWork(Datum arg) {
     hash_ctl.keysize = sizeof(WorkerProcKey);
     hash_ctl.entrysize = sizeof(WorkerProcHandleEntry);
     hash_ctl.match = CompareWorkerProcKey;
-    workerHash = hash_create("workerHash",
-                             HASHSIZE,
-                             &hash_ctl,
+    workerHash = hash_create("workerHash", HASHSIZE, &hash_ctl,
                              HASH_ELEM | HASH_COMPARE);
 
     while (!gotSIGTERM) {
@@ -142,7 +143,8 @@ void KVManageWork(Datum arg) {
 /*
  * Entrypoint, register manager process here, called in _PG_init
  */
-void LaunchBackgroundManager(void) {
+void
+LaunchBackgroundManager(void) {
     printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
 
     if (!process_shared_preload_libraries_in_progress) {
@@ -163,7 +165,8 @@ void LaunchBackgroundManager(void) {
     RegisterBackgroundWorker(&worker);
 }
 
-void KVDoWork(Datum arg) {
+void
+KVDoWork(Datum arg) {
     WorkerProcKey workerKey;
     workerKey.databaseId = DatumGetObjectId(arg);
     workerKey.relationId = *((Oid *) (MyBgworkerEntry->bgw_extra));
@@ -175,15 +178,14 @@ void KVDoWork(Datum arg) {
  * Entrypoint, dynamically register worker process here, at most one process
  * for each foreign table created by kv engine.
  */
-pid_t LaunchBackgroundWorker(WorkerProcKey *workerKey, ManagerShm *manager) {
+pid_t
+LaunchBackgroundWorker(WorkerProcKey *workerKey, ManagerShm *manager) {
     printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
 
     /* check whether the requested relation has the process */
     bool found = false;
-    WorkerProcHandleEntry *entry = hash_search(workerHash,
-                                               workerKey,
-                                               HASH_ENTER,
-                                               &found);
+    WorkerProcHandleEntry *entry = hash_search(workerHash, workerKey,
+                                               HASH_ENTER, &found);
     if (found) {  /* worker has already been created */
         manager->success = true;
         return entry->pid;
@@ -242,7 +244,8 @@ pid_t LaunchBackgroundWorker(WorkerProcKey *workerKey, ManagerShm *manager) {
 /*
  * Terminate the specified dynamically registered worker process.
  */
-void ShutOffBackgroundWorker(WorkerProcKey *workerKey, ManagerShm *manager) {
+void
+ShutOffBackgroundWorker(WorkerProcKey *workerKey, ManagerShm *manager) {
     printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
 
     if (!OidIsValid(workerKey->relationId)) {
@@ -272,10 +275,8 @@ void ShutOffBackgroundWorker(WorkerProcKey *workerKey, ManagerShm *manager) {
     } else {
         /* check whether the requested relation has the process */
         bool found = false;
-        WorkerProcHandleEntry *entry = hash_search(workerHash,
-                                                   workerKey,
-                                                   HASH_REMOVE,
-                                                   &found);
+        WorkerProcHandleEntry *entry = hash_search(workerHash, workerKey,
+                                                   HASH_REMOVE, &found);
         if (!found) {
             return;
         }

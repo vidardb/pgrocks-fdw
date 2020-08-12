@@ -231,21 +231,17 @@ extern void SetRelationComparatorOptions(Relation relation,
 /* Functions used across files in kv_fdw */
 extern KVFdwOptions *KVGetOptions(Oid foreignTableId);
 
-extern void SerializeNullAttribute(TupleDesc tupleDescriptor,
-                                   Index index,
+extern void SerializeNullAttribute(TupleDesc tupleDescriptor, Index index,
                                    StringInfo buffer);
 
-extern void SerializeAttribute(TupleDesc tupleDescriptor,
-                               Index index,
-                               Datum datum,
-                               StringInfo buffer);
+extern void SerializeAttribute(TupleDesc tupleDescriptor, Index index,
+                               Datum datum, StringInfo buffer);
 
 extern char *KVGetOptionValue(Oid foreignTableId, const char *optionName);
 
 extern Datum ShortVarlena(Datum datum, int typeLength, char storage);
 
-extern WorkerShm *OpenRequest(Oid relationId,
-                              ManagerShm **managerPtr,
+extern WorkerShm *OpenRequest(Oid relationId, ManagerShm **managerPtr,
                               HTAB **workerShmHashPtr,
                               ComparatorOptions *opts, ...);
 
@@ -253,62 +249,37 @@ extern void CloseRequest(Oid relationId, WorkerShm *worker);
 
 extern uint64 CountRequest(Oid relationId, WorkerShm *worker);
 
-extern void GetIterRequest(Oid relationId,
-                           uint64 operationId,
+extern void GetIterRequest(Oid relationId, uint64 operationId,
                            WorkerShm *worker);
 
-extern void DelIterRequest(Oid relationId,
-                           uint64 operationId,
-                           WorkerShm *worker,
-                           TableReadState *readState);
+extern void DelIterRequest(Oid relationId, uint64 operationId,
+                           WorkerShm *worker, TableReadState *readState);
 
-extern bool ReadBatchRequest(Oid relationId,
-                             uint64 operationId,
-                             WorkerShm *worker,
-                             char **buf,
-                             size_t *bufLen);
+extern bool ReadBatchRequest(Oid relationId, uint64 operationId,
+                             WorkerShm *worker, char **buf, size_t *bufLen);
 
-extern bool GetRequest(Oid relationId,
-                       WorkerShm *worker,
-                       char *key,
-                       size_t keyLen,
-                       char **val,
-                       size_t *valLen);
+extern bool GetRequest(Oid relationId, WorkerShm *worker, char *key,
+                       size_t keyLen, char **val, size_t *valLen);
 
-extern void PutRequest(Oid relationId,
-                       WorkerShm *worker,
-                       char *key,
-                       size_t keyLen,
-                       char *val,
-                       size_t valLen);
+extern void PutRequest(Oid relationId, WorkerShm *worker, char *key,
+                       size_t keyLen, char *val, size_t valLen);
 
-extern void DeleteRequest(Oid relationId,
-                          WorkerShm *worker,
-                          char *key,
+extern void DeleteRequest(Oid relationId, WorkerShm *worker, char *key,
                           size_t keyLen);
 
 extern RingBufShm* BeginLoadRequest(Oid relationId, WorkerShm *worker);
 
-extern void LoadTuple(RingBufShm *buf,
-                      char *key,
-                      size_t keyLen,
-                      char *val,
+extern void LoadTuple(RingBufShm *buf, char *key, size_t keyLen, char *val,
                       size_t valLen);
 
-extern uint64 EndLoadRequest(Oid relationId,
-                             WorkerShm *worker,
-                             RingBufShm* buf);
+extern uint64 EndLoadRequest(Oid relationId, WorkerShm *worker, RingBufShm* buf);
 
 #ifdef VIDARDB
-extern bool RangeQueryRequest(Oid relationId,
-                              uint64 operationId,
-                              WorkerShm *worker,
-                              RangeQueryOptions *options,
-                              char **buf,
-                              size_t *bufLen);
+extern bool RangeQueryRequest(Oid relationId, uint64 operationId,
+                              WorkerShm *worker, RangeQueryOptions *options,
+                              char **buf, size_t *bufLen);
 
-extern void ClearRangeQueryMetaRequest(Oid relationId,
-                                       uint64 operationId,
+extern void ClearRangeQueryMetaRequest(Oid relationId, uint64 operationId,
                                        WorkerShm *worker,
                                        TableReadState *readState);
 #endif
@@ -318,8 +289,7 @@ extern void TerminateRequest(WorkerProcKey *workerKey, ManagerShm **managerPtr);
 /*
  * Utility for worker hash table
  */
-extern int CompareWorkerProcKey(const void *key1,
-                                const void *key2,
+extern int CompareWorkerProcKey(const void *key1, const void *key2,
                                 Size keysize);
 
 #endif

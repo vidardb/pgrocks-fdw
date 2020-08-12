@@ -23,6 +23,7 @@
 #include "executor/executor.h"
 #include "utils/typcache.h"
 #include "commands/dbcommands.h"
+#include "access/table.h"
 
 
 /* saved dropped object info */
@@ -205,7 +206,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
                                               AccessShareLock,
                                               false);
 
-            Relation relation = heap_open(relationId, AccessExclusiveLock);
+            Relation relation = table_open(relationId, AccessExclusiveLock);
             /*
              * Make sure database directory exists before creating a table.
              * This is necessary when a foreign server is created inside
@@ -239,7 +240,7 @@ Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
             #endif
             Close(kvDB);
 
-            heap_close(relation, AccessExclusiveLock);
+            table_close(relation, AccessExclusiveLock);
         }
     }
 
@@ -266,21 +267,16 @@ static void KVRemoveDatabaseDirectory(Oid databaseOid) {
 
 /*
  * Constructs the default file path to use for a kv_fdw table.
- * The path is of the form $PGDATA/cstore_fdw/{databaseOid}/{relfilenode}.
+ * The path is of the form $PGDATA/kv_fdw/{databaseOid}/{relfilenode}.
  */
 static char *KVDefaultFilePath(Oid foreignTableId) {
-    Relation relation = relation_open(foreignTableId, AccessShareLock);
-    RelFileNode relationFileNode = relation->rd_node;
-
     StringInfo filePath = makeStringInfo();
     appendStringInfo(filePath,
                      "%s/%s/%u/%u",
                      DataDir,
                      KVFDWNAME,
-                     relationFileNode.dbNode,
-                     relationFileNode.relNode);
-
-    relation_close(relation, AccessShareLock);
+                     MyDatabaseId,
+                     foreignTableId);
 
     return filePath->data;
 }
@@ -504,7 +500,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
      * Open and lock the relation. We acquire ShareUpdateExclusiveLock to allow
      * concurrent reads, but block concurrent writes.
      */
-    Relation relation = heap_openrv(copyStmt->relation,
+    Relation relation = table_openrv(copyStmt->relation,
                                     ShareUpdateExclusiveLock);
 
     /* init state to read from COPY data source */
@@ -561,7 +557,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
          * not read from the file. It can be NULL when no default values are
          * used, i.e. when all columns are read from the file.
          */
-        found = NextCopyFrom(copyState, econtext, values, nulls, NULL);
+        found = NextCopyFrom(copyState, econtext, values, nulls);
 
         /* write the row to the kv file */
         if (found) {
@@ -599,7 +595,7 @@ static uint64 KVCopyIntoTable(const CopyStmt *copyStmt,
     uint64 rowCount = EndLoadRequest(relationId, worker, buf);
     EndCopyFrom(copyState);
     CloseRequest(relationId, worker);
-    heap_close(relation, ShareUpdateExclusiveLock);
+    table_close(relation, ShareUpdateExclusiveLock);
 
     return rowCount;
 }

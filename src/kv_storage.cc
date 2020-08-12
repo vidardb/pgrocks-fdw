@@ -50,7 +50,9 @@ void* Open(char* path, bool useColumn, int attrCount, ComparatorOptions* opts) {
         block_based_table, column_table, useColumn? 0: -1));
 
     Status s = DB::Open(options, string(path), &db);
-    assert(s.ok());
+    if (!s.ok()) {
+        ereport(ERROR, (errmsg("DB open status: %s", s.ToString().c_str())));
+    }
     return db;
 }
 #else
@@ -61,7 +63,9 @@ void* Open(char* path, ComparatorOptions* opts) {
     options.comparator = static_cast<Comparator*>(NewDataTypeComparator(opts));
 
     Status s = DB::Open(options, string(path), &db);
-    assert(s.ok());
+    if (!s.ok()) {
+        ereport(ERROR, (errmsg("DB open status: %s", s.ToString().c_str())));
+    }
     return db;
 }
 #endif
@@ -311,15 +315,15 @@ class PGDataTypeComparator : public Comparator {
         firstCall_ = new bool;
         *firstCall_ = true;
         resourceOwner_ = ResourceOwnerCreate(NULL, "ComparatorResourceOwner");
-        funcCallInfo_ = (FunctionCallInfoData*) palloc0(sizeof(*funcCallInfo_));
+        funcCallInfo_ = (FunctionCallInfoBaseData*) palloc0(sizeof(*funcCallInfo_));
         InitFunctionCallInfoData(*funcCallInfo_,
                                  &funcManager_,
                                  2,
                                  options_.attrCollOid,
                                  NULL,
                                  NULL);
-        funcCallInfo_->argnull[0] = false;
-        funcCallInfo_->argnull[1] = false;
+        funcCallInfo_->args[0].isnull = false;
+        funcCallInfo_->args[1].isnull = false;
     }
 
     virtual ~PGDataTypeComparator() {
@@ -365,8 +369,8 @@ class PGDataTypeComparator : public Comparator {
         /* contention area */
         mutex_->lock();
 
-        funcCallInfo_->arg[0] = arg1;
-        funcCallInfo_->arg[1] = arg2;
+        funcCallInfo_->args[0].value = arg1;
+        funcCallInfo_->args[1].value = arg2;
 
         if (*firstCall_ == true) {
             /*
@@ -438,7 +442,7 @@ class PGDataTypeComparator : public Comparator {
     std::mutex *mutex_;
     bool *firstCall_;
     ResourceOwner resourceOwner_;
-    FunctionCallInfoData *funcCallInfo_;
+    FunctionCallInfoBaseData *funcCallInfo_;
 };
 
 void* NewDataTypeComparator(ComparatorOptions* options) {

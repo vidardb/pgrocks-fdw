@@ -18,10 +18,11 @@
 #include "utils/builtins.h"
 #include "miscadmin.h"
 #include "nodes/nodes.h"
+#include "access/table.h"
 
 #ifdef VIDARDB
 #include "parser/parsetree.h"
-#include "optimizer/var.h"
+#include "optimizer/optimizer.h"
 #include "access/sysattr.h"
 #endif
 
@@ -83,10 +84,10 @@ static void GetForeignRelSize(PlannerInfo *root,
      * min & max will call GetForeignRelSize & GetForeignPaths multiple times,
      * we should open & close db multiple times.
      */
-    Relation relation = heap_open(foreignTableId, AccessShareLock);
+    Relation relation = table_open(foreignTableId, AccessShareLock);
     ComparatorOptions opts;
     SetRelationComparatorOptions(relation, &opts);
-    heap_close(relation, AccessShareLock);
+    table_close(relation, AccessShareLock);
 
     #ifdef VIDARDB
     TablePlanState *planState = palloc0(sizeof(TablePlanState));
@@ -223,10 +224,10 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
 
     scanClauses = extract_actual_clauses(scanClauses, false);
 
-    Relation relation = heap_open(foreignTableId, AccessShareLock);
+    Relation relation = table_open(foreignTableId, AccessShareLock);
     ComparatorOptions opts;
     SetRelationComparatorOptions(relation, &opts);
-    heap_close(relation, AccessShareLock);
+    table_close(relation, AccessShareLock);
 
     /* To accommodate min & max, we open file here */
     #ifdef VIDARDB
@@ -257,7 +258,7 @@ static ForeignScan *GetForeignPlan(PlannerInfo *root,
 }
 
 static void GetKeyBasedQual(Node *node,
-                            Relation relation,
+                            ForeignScanState *scanState,
                             TableReadState *readState) {
     if (!node || !IsA(node, OpExpr)) {
         return;
@@ -274,7 +275,7 @@ static void GetKeyBasedQual(Node *node,
     }
 
     Node *right = list_nth(op->args, 1);
-    if (!IsA(right, Const)) {
+    if (!IsA(right, Const) && !IsA(right, Param)) {
         return;
     }
 
@@ -298,10 +299,21 @@ static void GetKeyBasedQual(Node *node,
     }
     ReleaseSysCache(opertup);
 
-    Const *constNode = ((Const *) right);
-    Datum datum = constNode->constvalue;
+    Datum datum;
+    Oid type;
 
-    TypeCacheEntry *typeEntry = lookup_type_cache(constNode->consttype, 0);
+    if (IsA(right, Const)) {
+        Const *constNode = (Const *) right;
+        type = constNode->consttype;
+        datum = constNode->constvalue;
+    } else {
+        Param *paramNode = (Param *) right;
+        type = paramNode->paramtype;
+        ParamListInfo paramListInfo = scanState->ss.ps.state->es_param_list_info;
+        datum = paramListInfo->params[paramNode->paramid-1].value;
+    }
+
+    TypeCacheEntry *typeEntry = lookup_type_cache(type, 0);
 
     /* constant gets varlena with 4B header, same with copy uility */
     datum = ShortVarlena(datum, typeEntry->typlen, typeEntry->typstorage);
@@ -313,6 +325,7 @@ static void GetKeyBasedQual(Node *node,
      */
     readState->isKeyBased = true;
     readState->key = makeStringInfo();
+    Relation relation = scanState->ss.ss_currentRelation;
     TupleDesc tupleDescriptor = relation->rd_att;
 
     SerializeAttribute(tupleDescriptor, varattno-1, datum, readState->key);
@@ -377,9 +390,7 @@ static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     ListCell *lc;
     foreach (lc, scanState->ss.ps.plan->qual) {
         Expr *state = lfirst(lc);
-        GetKeyBasedQual((Node *) state,
-                        scanState->ss.ss_currentRelation,
-                        readState);
+        GetKeyBasedQual((Node *) state, scanState, readState);
         if (readState->isKeyBased) {
             printf("\nkey_based_qual\n");
             break;
@@ -868,10 +879,10 @@ static List *PlanForeignModify(PlannerInfo *root,
          * Core code already has some lock on each rel being planned, so we can
          * use NoLock here.
          */
-        Relation relation = heap_open(foreignTableId, NoLock);
+        Relation relation = table_open(foreignTableId, NoLock);
         TupleDesc tupleDescriptor = RelationGetDescr(relation);
         planState->attrCount = tupleDescriptor->natts;
-        heap_close(relation, NoLock);
+        table_close(relation, NoLock);
 
         planState->toUpdateDelete = false;
         planState->targetAttrs = NIL;
@@ -955,7 +966,7 @@ static void BeginForeignModify(ModifyTableState *modifyTableState,
     Relation relation = resultRelInfo->ri_RelationDesc;
 
     Oid foreignTableId = RelationGetRelid(relation);
-    heap_open(foreignTableId, ShareUpdateExclusiveLock);
+    table_open(foreignTableId, ShareUpdateExclusiveLock);
 
     #ifdef VIDARDB
     TablePlanState *planState = (TablePlanState *) linitial(fdwPrivate);
@@ -1047,9 +1058,14 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     TupleDesc tupleDescriptor = slot->tts_tupleDescriptor;
-    if (HeapTupleHasExternal(slot->tts_tuple)) {
+
+    bool shouldFree;
+    HeapTuple heapTuple = ExecFetchSlotHeapTuple(slot, false, &shouldFree);
+    if (HeapTupleHasExternal(heapTuple)) {
         /* detoast any toasted attributes */
-        slot->tts_tuple = toast_flatten_tuple(slot->tts_tuple, tupleDescriptor);
+        HeapTuple newTuple = toast_flatten_tuple(heapTuple, tupleDescriptor);
+        ExecForceStoreHeapTuple(newTuple, slot, shouldFree);
+        shouldFree = false;
     }
 
     slot_getallattrs(slot);
@@ -1073,6 +1089,10 @@ static TupleTableSlot *ExecForeignInsert(EState *executorState,
                key->len,
                val->data,
                val->len);
+
+    if (shouldFree) {
+        pfree(heapTuple);
+    }
 
     return slot;
 }
@@ -1112,10 +1132,15 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
     TupleDesc tupleDescriptor = slot->tts_tupleDescriptor;
-    if (HeapTupleHasExternal(slot->tts_tuple)) {
+    bool shouldFree;
+    HeapTuple heapTuple = ExecFetchSlotHeapTuple(slot, false, &shouldFree);
+    if (HeapTupleHasExternal(heapTuple)) {
         /* detoast any toasted attributes */
-        slot->tts_tuple = toast_flatten_tuple(slot->tts_tuple, tupleDescriptor);
+        HeapTuple newTuple = toast_flatten_tuple(heapTuple, tupleDescriptor);
+        ExecForceStoreHeapTuple(newTuple, slot, shouldFree);
+        shouldFree = false;
     }
+
     slot_getallattrs(slot);
 
     StringInfo key = makeStringInfo();
@@ -1137,6 +1162,10 @@ static TupleTableSlot *ExecForeignUpdate(EState *executorState,
                key->len,
                val->data,
                val->len);
+
+    if (shouldFree) {
+        pfree(heapTuple);
+    }
 
     return slot;
 }
@@ -1221,7 +1250,7 @@ static void EndForeignModify(EState *executorState,
         }
 
         /* CMD_UPDATE and CMD_DELETE close will be taken care of by endScan */
-        heap_close(relation, ShareUpdateExclusiveLock);
+        table_close(relation, ShareUpdateExclusiveLock);
 
         pfree(writeState);
     }

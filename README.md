@@ -1,6 +1,6 @@
 <img style="width:100%;" src="/github-banner.png">
 
-# PostgresForeignDataWrapper
+# pgrocks-fdw 
 
 [![Build Status](https://travis-ci.com/vidardb/pgrocks-fdw.svg?branch=master)](https://travis-ci.com/github/vidardb/pgrocks-fdw)
 
@@ -14,7 +14,7 @@ This extension is developed and maintained by the VidarDB team. Feel free to rep
 
 # Building
 
-We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 together with RocksDB-6.2.4 (built with GCC-7.4.0).
+We test this foreign data wrapper on Ubuntu Server 20.04 using PostgreSQL-12 together with RocksDB-6.11.4 (built with GCC-9.3.0).
 
 - Install PostgreSQL and the dev library which is required by extensions:
 
@@ -32,14 +32,14 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
   sudo apt-get update
 
   # install postgresql and the dev library
-  sudo apt-get install postgresql-11
-  sudo apt-get install postgresql-server-dev-11
+  sudo apt-get install postgresql-12
+  sudo apt-get install postgresql-server-dev-12
   ```
 
 - Install [RocksDB](https://github.com/facebook/rocksdb) from source code:
 
   ```sh
-  git clone -b v6.2.4 https://github.com/facebook/rocksdb.git
+  git clone -b v6.11.4 https://github.com/facebook/rocksdb.git
 
   cd rocksdb
 
@@ -53,9 +53,9 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
 - Build this foreign data wrapper:
 
   ```sh
-  git clone https://github.com/vidardb/PostgresForeignDataWrapper.git
+  git clone https://github.com/vidardb/pgrocks-fdw.git
 
-  cd PostgresForeignDataWrapper 
+  cd pgrocks-fdw 
 
   make
 
@@ -67,7 +67,7 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
 - Before using this foreign data wrapper, we need to add it to `shared_preload_libraries` in the `postgresql.conf`:
 
   ```sh
-  sudo bash -c 'echo "shared_preload_libraries = 'kv_fdw'" >> /etc/postgresql/11/main/postgresql.conf'
+  sudo bash -c 'echo "shared_preload_libraries = 'kv_fdw'" >> /etc/postgresql/12/main/postgresql.conf'
   ```
 
   and restart PostgreSQL:
@@ -79,7 +79,7 @@ We test this foreign data wrapper on Ubuntu Server 18.04 using PostgreSQL-11 tog
 - When uninstall this extension, first issue the following commands, and then delete the data by locating PostgreSQL data folder via `show data_directory;` in PostgreSQL terminal.
 
   ```sh
-  cd PostgresForeignDataWrapper
+  cd pgrocks-fdw 
   
   sudo make uninstall
   ```
@@ -141,7 +141,7 @@ We have tested certain typical SQL statements and will add more test cases later
 ```sh
     sudo service postgresql restart  
 
-    cd PostgresForeignDataWrapper
+    cd pgrocks-fdw 
 
     sudo -u postgres psql -U postgres -a -f test/sql/create.sql 
 
@@ -158,7 +158,7 @@ If you want to debug the source code, you may need to start PostgreSQL in the de
 ```sh
     sudo service postgresql stop  
 
-    sudo -u postgres /usr/lib/postgresql/11/bin/postgres -d 0 -D /var/lib/postgresql/11/main -c config_file=/etc/postgresql/11/main/postgresql.conf
+    sudo -u postgres /usr/lib/postgresql/12/bin/postgres -d 0 -D /var/lib/postgresql/12/main -c config_file=/etc/postgresql/12/main/postgresql.conf
 ```  
 
 # Docker

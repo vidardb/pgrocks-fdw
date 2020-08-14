@@ -7,6 +7,9 @@
 #include <unistd.h>
 #include <semaphore.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*
  * Pthread
@@ -74,5 +77,9 @@ extern void SemPost(sem_t *__sem, const char *fun);
 extern int SemWait(sem_t *__sem, const char *fun);
 
 extern int SemTryWait(sem_t *__sem, const char *fun);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

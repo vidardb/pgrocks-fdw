@@ -1,5 +1,6 @@
 
 #include "kv_fdw.h"
+#include "kv_api.h"
 
 #include "access/reloptions.h"
 #include "foreign/fdwapi.h"
@@ -137,14 +138,23 @@ GetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
                                     &opts, planState->fdwOptions->useColumn,
                                     planState->attrCount);
     #else
-    WorkerShm *worker = OpenRequest(foreignTableId, &manager, &workerShmHash,
-                                    &opts);
+    // WorkerShm *worker = OpenRequest(foreignTableId, &manager, &workerShmHash,
+    //                                 &opts);
+    KVFdwOptions *fdwOptions = KVGetOptions(foreignTableId);
+
+    OpenArgs args;
+    args.opt.cmpFuncOid = opts.cmpFuncOid;
+    args.opt.attrCollOid = opts.attrCollOid;
+    args.opt.attrByVal = opts.attrByVal;
+    args.opt.attrLength = opts.attrLength;
+    args.path = fdwOptions->filename;
+    KVOpenRequest(foreignTableId, &args);
     #endif
 
     /* TODO: better estimation */
-    baserel->rows = CountRequest(foreignTableId, worker);
+    // baserel->rows = CountRequest(foreignTableId, worker);
 
-    CloseRequest(foreignTableId, worker);
+    // CloseRequest(foreignTableId, worker);
 }
 
 static void

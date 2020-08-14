@@ -2,6 +2,7 @@
 #include "kv_fdw.h"
 #include "kv_storage.h"
 #include "kv_posix.h"
+#include "kv_api.h"
 
 #include <sys/stat.h>
 
@@ -24,6 +25,8 @@
 #include "utils/typcache.h"
 #include "commands/dbcommands.h"
 #include "access/table.h"
+#include "storage/latch.h"
+#include "postmaster/bgworker.h"
 
 
 /* saved dropped object info */
@@ -64,10 +67,6 @@ static void KVProcessUtility(PlannedStmt *plannedStmt, const char *queryString,
                              QueryEnvironment *queryEnvironment,
                              DestReceiver *destReceiver, char *completionTag);
 
-/* function in kv_process.c*/
-void LaunchBackgroundManager(void);
-
-
 /*
  * _PG_init is called when the module is loaded. In this function we save the
  * previous utility hook, and then install our hook to pre-intercept calls to
@@ -78,7 +77,7 @@ _PG_init(void) {
     PreviousProcessUtilityHook = ProcessUtility_hook;
     ProcessUtility_hook = KVProcessUtility;
 
-    LaunchBackgroundManager();
+    LaunchKVManager();
 }
 
 /*
@@ -797,4 +796,162 @@ KVProcessUtility(PlannedStmt *plannedStmt, const char *queryString,
         CALL_PREVIOUS_UTILITY(parseTree, queryString, context, paramListInfo,
                               destReceiver, completionTag);
     }
+}
+
+/*
+ * Signal handler for SIGTERM
+ * 
+ * Set a flag to let the main loop to terminate, and set our latch to 
+ * wake it up.
+ */
+static void
+KVManagerSigHandler(SIGNAL_ARGS)
+{
+    int save_errno = errno;
+
+    TerminateKVManager();
+    SetLatch(MyLatch);
+
+    errno = save_errno;
+}
+
+/*
+ * Entrypoint for kv manager
+ */
+void
+KVManagerMain(Datum arg)
+{
+    /* Establish signal handlers before unblocking signals. */
+    /* pqsignal(SIGTERM, KVManagerSigHandler); */
+
+    /*
+     * We on purpose do not use pqsignal due to its setting at flags = restart.
+     * With the setting, the process cannot exit on sem_wait.
+     */
+    struct sigaction act;
+    act.sa_handler = KVManagerSigHandler;
+    act.sa_flags = 0;
+    sigaction(SIGTERM, &act, NULL);
+
+    /* We're now ready to receive signals */
+    BackgroundWorkerUnblockSignals();
+
+    /* Start kv manager */
+    StartKVManager();
+}
+
+/*
+ * Launch kv manager process
+ */
+void
+LaunchKVManager(void)
+{
+    printf("\n~~~~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
+
+    if (!process_shared_preload_libraries_in_progress)
+    {
+        return;
+    }
+
+    BackgroundWorker worker;
+    memset(&worker, 0, sizeof(worker));
+    snprintf(worker.bgw_name, BGW_MAXLEN, "KV Manager");
+    snprintf(worker.bgw_type, BGW_MAXLEN, "KV Manager");
+    worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
+    worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
+    worker.bgw_restart_time = 1;
+    sprintf(worker.bgw_library_name, "kv_fdw");
+    sprintf(worker.bgw_function_name, "KVManagerMain");
+    worker.bgw_notify_pid = 0;
+
+    RegisterBackgroundWorker(&worker);
+}
+
+/*
+ * Entrypoint for kv worker
+ */
+void
+KVWorkerMain(Datum arg)
+{
+    KVDatabaseId dbId = (KVDatabaseId) DatumGetObjectId(arg);
+    KVWorkerId workerId = *((KVWorkerId*) (MyBgworkerEntry->bgw_extra));
+
+    /* Connect to our database */
+    BackgroundWorkerInitializeConnectionByOid(dbId, InvalidOid, 0);
+
+    /* Start kv worker */
+    StartKVWorker(workerId, dbId);
+}
+
+/*
+ * Launch kv worker process
+ */
+void*
+LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId)
+{
+    BackgroundWorker worker;
+    memset(&worker, 0, sizeof(worker));
+    worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
+    worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
+    worker.bgw_restart_time = BGW_NEVER_RESTART;
+    sprintf(worker.bgw_library_name, "kv_fdw");
+    sprintf(worker.bgw_function_name, "KVWorkerMain");
+    snprintf(worker.bgw_name, BGW_MAXLEN, "KV Worker");
+    snprintf(worker.bgw_type, BGW_MAXLEN, "KV Worker");
+    worker.bgw_main_arg = ObjectIdGetDatum(dbId);
+    memcpy(worker.bgw_extra, &workerId, sizeof(workerId));
+    /* set bgw_notify_pid so that we can use WaitForBackgroundWorkerStartup */
+    worker.bgw_notify_pid = MyProcPid;
+
+    BackgroundWorkerHandle* handle;
+    if (!RegisterDynamicBackgroundWorker(&worker, &handle))
+    {
+        return NULL;
+    }
+
+    pid_t pid;
+    BgwHandleStatus status = WaitForBackgroundWorkerStartup(handle, &pid);
+    if (status == BGWH_STOPPED)
+    {
+        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+                errmsg("could not start background process"),
+                errhint("More details may be available in the server log.")));
+    }
+    if (status == BGWH_POSTMASTER_DIED)
+    {
+        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+                errmsg("cannot start background processes without postmaster"),
+                errhint("Kill all remaining database processes and restart "
+                        "the database.")));
+    }
+    Assert(status == BGWH_STARTED);
+
+    return handle;
+}
+
+void 
+TerminateKVWorker(void* worker)
+{
+    BackgroundWorkerHandle* handle = (BackgroundWorkerHandle*) worker;
+    TerminateBackgroundWorker(handle);
+    WaitForBackgroundWorkerShutdown(handle);
+    pfree(handle);
+}
+
+int
+StringFormat(char *str, size_t count, const char *fmt, ...)
+{
+    int			len;
+    va_list		args;
+
+    va_start(args, fmt);
+    len = pg_vsnprintf(str, count, fmt, args);
+    va_end(args);
+    return len;
+}
+
+void
+ErrorReport(int level, int code, const char* msg)
+{
+    ereport(level, (errcode(code), errmsg("%s", msg)));
 }

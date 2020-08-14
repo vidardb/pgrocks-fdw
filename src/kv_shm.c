@@ -286,7 +286,7 @@ CloseWorkerShm(WorkerShm *worker, WorkerProcKey *workerKey) {
  * Main loop for the worker process.
  */
 void
-KVWorkerMain(WorkerProcKey *workerKey) {
+KVWorkerMainOld(WorkerProcKey *workerKey) {
     ereport(DEBUG1, (errmsg("KVWorker started")));
 
     /* first init the worker specific shared mem */

@@ -33,7 +33,6 @@ static volatile sig_atomic_t gotSIGTERM = false;
 
 
 void KVManageWork(Datum);
-void LaunchBackgroundManager(void);
 void KVDoWork(Datum);
 pid_t LaunchBackgroundWorker(WorkerProcKey *workerKey, ManagerShm *manager);
 void ShutOffBackgroundWorker(WorkerProcKey *workerKey, ManagerShm *manager);
@@ -140,37 +139,12 @@ KVManageWork(Datum arg) {
     proc_exit(0);
 }
 
-/*
- * Entrypoint, register manager process here, called in _PG_init
- */
-void
-LaunchBackgroundManager(void) {
-    printf("\n~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
-
-    if (!process_shared_preload_libraries_in_progress) {
-        return;
-    }
-
-    BackgroundWorker worker;
-    memset(&worker, 0, sizeof(worker));
-    snprintf(worker.bgw_name, BGW_MAXLEN, "KV manager");
-    snprintf(worker.bgw_type, BGW_MAXLEN, "KV manager");
-    worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
-    worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
-    worker.bgw_restart_time = 1;
-    sprintf(worker.bgw_library_name, "kv_fdw");
-    sprintf(worker.bgw_function_name, "KVManageWork");
-    worker.bgw_notify_pid = 0;
-
-    RegisterBackgroundWorker(&worker);
-}
-
 void
 KVDoWork(Datum arg) {
     WorkerProcKey workerKey;
     workerKey.databaseId = DatumGetObjectId(arg);
     workerKey.relationId = *((Oid *) (MyBgworkerEntry->bgw_extra));
-    KVWorkerMain(&workerKey);
+    KVWorkerMainOld(&workerKey);
     proc_exit(0);
 }
 

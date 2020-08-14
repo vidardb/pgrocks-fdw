@@ -9,7 +9,7 @@ ManagerShm *InitManagerShm(void);
 
 void CloseManagerShm(ManagerShm *manager);
 
-void KVWorkerMain(WorkerProcKey *workerKey);
+void KVWorkerMainOld(WorkerProcKey *workerKey);
 
 void TerminateWorker(WorkerProcKey *workerKey);
 

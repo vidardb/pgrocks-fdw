@@ -8,10 +8,10 @@ COMPILE.cxx.bc = $(CLANG) -xc++ -Wno-ignored-attributes $(BITCODE_CXXFLAGS) $(CP
 	$(LLVM_BINPATH)/opt -module-summary -f $@ -o $@
 
 ifdef VIDARDB
-PG_CPPFLAGS += -Wno-declaration-after-statement -DVIDARDB
+PG_CPPFLAGS += -Wno-declaration-after-statement -Wno-unused-function -DVIDARDB
 SHLIB_LINK   = -lvidardb
 else
-PG_CPPFLAGS += -Wno-declaration-after-statement
+PG_CPPFLAGS += -Wno-declaration-after-statement -Wno-unused-function
 SHLIB_LINK   = -lrocksdb
 endif
 
@@ -21,7 +21,8 @@ PG_CPPFLAGS += -Wno-deprecated-declarations
 SHLIB_LINK  += -lstdc++
 endif
 
-OBJS         = src/kv_fdw.o src/kv_utility.o src/kv_shm.o src/kv_storage.o src/kv_posix.o src/kv_process.o
+OBJS         = src/kv_fdw.o src/kv_utility.o src/kv_shm.o src/kv_storage.o src/kv_posix.o src/kv_process.o \
+			   src/kv_client.o src/kv_queue.o src/kv_worker.o src/kv_manager.o src/kv_conn.o
 
 EXTENSION    = kv_fdw
 DATA         = sql/kv_fdw--0.0.1.sql
@@ -45,6 +46,21 @@ ENV_EXTS ?=
 
 src/kv_storage.bc:
 	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_storage.cc
+
+src/kv_client.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_client.cc
+
+src/kv_queue.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_queue.cc
+
+src/kv_worker.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_worker.cc
+
+src/kv_manager.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_manager.cc
+
+src/kv_conn.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_conn.cc
 
 .PHONY: docker-image
 docker-image:

@@ -90,26 +90,27 @@ void Fclose(int __fd, const char *fun) {
     }
 }
 
-void SemInit(sem_t *__sem, int __pshared, unsigned int __value, const char *fun) {
-    if (sem_init(__sem, __pshared, __value) == -1) {
+void SemInit(volatile sem_t *__sem, int __pshared, unsigned int __value,
+    const char *fun) {
+    if (sem_init((sem_t*) __sem, __pshared, __value) == -1) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }
 }
 
-void SemDestroy(sem_t *__sem, const char *fun) {
-    if (sem_destroy(__sem) == -1) {
+void SemDestroy(volatile sem_t *__sem, const char *fun) {
+    if (sem_destroy((sem_t*) __sem) == -1) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }
 }
 
-void SemPost(sem_t *__sem, const char *fun) {
-    if (sem_post(__sem) == -1) {
+void SemPost(volatile sem_t *__sem, const char *fun) {
+    if (sem_post((sem_t*) __sem) == -1) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }
 }
 
-int SemWait(sem_t *__sem, const char *fun) {
-    if (sem_wait(__sem) == -1) {
+int SemWait(volatile sem_t *__sem, const char *fun) {
+    if (sem_wait((sem_t*) __sem) == -1) {
         if (errno == EINTR) {
             return -1;
         }
@@ -118,8 +119,8 @@ int SemWait(sem_t *__sem, const char *fun) {
     return 0;
 }
 
-int SemTryWait(sem_t *__sem, const char *fun) {
-    int ret = sem_trywait(__sem);
+int SemTryWait(volatile sem_t *__sem, const char *fun) {
+    int ret = sem_trywait((sem_t*) __sem);
     if (ret == -1 && errno != EAGAIN) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }

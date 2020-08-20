@@ -65,18 +65,18 @@ extern void Fclose(int __fd, const char *fun);
 /*
  * Semaphore
  */
-extern void SemInit(sem_t *__sem,
+extern void SemInit(volatile sem_t *__sem,
                     int __pshared,
                     unsigned int __value,
                     const char *fun);
 
-extern void SemDestroy(sem_t *__sem, const char *fun);
+extern void SemDestroy(volatile sem_t *__sem, const char *fun);
 
-extern void SemPost(sem_t *__sem, const char *fun);
+extern void SemPost(volatile sem_t *__sem, const char *fun);
 
-extern int SemWait(sem_t *__sem, const char *fun);
+extern int SemWait(volatile sem_t *__sem, const char *fun);
 
-extern int SemTryWait(sem_t *__sem, const char *fun);
+extern int SemTryWait(volatile sem_t *__sem, const char *fun);
 
 #ifdef __cplusplus
 }

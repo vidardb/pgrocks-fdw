@@ -23,39 +23,64 @@
 
 using namespace std;
 
-#define MSGBUFSIZE    65536
-#define MSGPATHPREFIX "/KV"
-#define MSGHEADER     01
-#define MSGBODY       02
-#define MAXPATHLENGTH 64
+#define MSGBUFSIZE        65536
+#define MSGPATHPREFIX     "/KV"
+#define MSGHEADER         01
+#define MSGENTITY         02
+#define MSGRESQUEUELENGTH 2
+#define MAXPATHLENGTH     64
 
 /*
- * Circular Queue exchanges messages between different brokers
+ * Circular Queue exchanges messages between different processes
  */
 
 struct CircularQueueData
 {
-    volatile uint64 putPos;
-    volatile uint64 getPos;
-    sem_t           mutex;
-    sem_t           empty;
-    sem_t           full;
-    sem_t           ready; /* notify kv worker be ready */
-    char            data[MSGBUFSIZE]; /* assume ~64K for a tuple is enough */
+    uint64 putPos;           /* the position producer can put data */
+    uint64 getPos;           /* the position consumer can get data */
+    sem_t  mutex;            /* mutual exclusion for position */
+    sem_t  empty;            /* tell wether the data buf is empty */
+    sem_t  full;             /* tell wether the data buf is full */
+    char   data[MSGBUFSIZE]; /* assume ~64K for a tuple is enough */
 };
 
 struct CircularQueueChannel
 {
-    char               name[MAXPATHLENGTH];
-    volatile bool      create;
-    CircularQueueData* channel;
+    char                        name[MAXPATHLENGTH];
+    volatile bool               create;
+    volatile CircularQueueData* channel;
 
     void read(uint64 *offset, char *str, uint64 size);
     void write(uint64 *offset, char *str, uint64 size);
 
-    CircularQueueChannel(KVRelationId rid, const char* role, const char* type,
-        bool create);
+    CircularQueueChannel(KVRelationId rid, const char* tag, bool create);
     ~CircularQueueChannel();
+};
+
+typedef enum
+{
+    WorkerReady = 0,
+} CtrlType;
+
+struct CtrlData
+{
+    sem_t workerReady;       /* tell wether kv worker is ready */
+    sem_t responseMutex[MSGRESQUEUELENGTH]; /* mutual exclusion for response */
+};
+
+struct CtrlChannel
+{
+    char               name[MAXPATHLENGTH];
+    volatile bool      create;
+    volatile CtrlData* channel;
+
+    void    wait(volatile sem_t* sem);
+    void    notify(volatile sem_t* sem);
+    uint32  leaseResponseQueue();
+    void    unleaseResponseQueue(uint32 index);
+
+    CtrlChannel(KVRelationId rid, const char* tag, bool create);
+    ~CtrlChannel();
 };
 
 /*
@@ -81,6 +106,7 @@ struct KVMessageHeader
     KVDatabaseId    dbId    = InvalidOid;
     KVRelationId    relId   = InvalidOid;
     KVMessageStatus status  = KVStatusDummy;
+    uint32          resChan = 0;
     uint64          bdySize = 0;
 };
 
@@ -89,29 +115,34 @@ struct KVMessage
     KVMessageHeader  hdr;
     void*            bdy       = NULL;
 
-    /* write & read callback */
+    /* write & read entity function */
     ReadMessageFunc  readFunc  = NULL;
     WriteMessageFunc writeFunc = NULL;
 };
 
 /*
- * KV Message Queue exchanges messages between different brokers
+ * KV Message Queue exchanges messages between different processes
  */
 
 struct KVMessageQueue
 {
+    CtrlChannel*          ctrl;
     CircularQueueChannel* request;
-    CircularQueueChannel* response;
+    CircularQueueChannel* response[MSGRESQUEUELENGTH];
+    volatile bool         isServer;
     volatile bool         running;
 
-    void write(KVMessage const& msg);
-    void read(KVMessage& msg);
-    void read(KVMessage& msg, int flag);
-    void interrupt();
-    void wait();
-    void ready();
+    void   send(KVMessage const& msg);
+    void   sendWithResponse(KVMessage& sendmsg, KVMessage& recvmsg);
+    void   recv(KVMessage& msg);
+    void   recv(KVMessage& msg, int flag);
+    void   wait(CtrlType type);
+    void   notify(CtrlType type);
+    void   terminate();
+    uint32 leaseResponseQueue();
+    void   unleaseResponseQueue(uint32 index);
 
-    KVMessageQueue(KVRelationId rid, const char* role, bool svrMode);
+    KVMessageQueue(KVRelationId rid, const char* name, bool isServer);
     ~KVMessageQueue();
 };
 
@@ -148,7 +179,7 @@ struct KVWorker
     void start();
     void run();
     void stop();
-    void open(KVWorkerId const& workerId, OpenArgs* args);
+    void open(KVWorkerId const& workerId, KVMessage& msg);
     void terminate(KVWorkerId const& workerId);
 
     KVWorker(KVWorkerId workerId, KVDatabaseId dbId);
@@ -190,9 +221,8 @@ struct KVManager
     void start();
     void run();
     void stop();
-    void wait(); /* wait kv worker be ready */
-    void launch(KVWorkerId const& workerId, KVDatabaseId const& dbId);
-    void terminate(KVWorkerId const& workerId);
+    void launch(KVWorkerId const& workerId, KVMessage const& msg);
+    void terminate(KVWorkerId const& workerId, KVMessage const& msg);
 
     KVManager();
     ~KVManager();
@@ -202,7 +232,6 @@ struct KVManagerClient
 {
     KVMessageQueue* channel;
 
-    void notify(); /* notify kv worker be ready */
     bool launch(KVWorkerId const& workerId);
     bool terminate(KVWorkerId const& workerId);
 
@@ -216,6 +245,8 @@ struct KVManagerClient
 
 extern KVMessage SimpleSuccessMessage();
 extern KVMessage SimpleFailureMessage();
+extern KVMessage SimpleSuccessMessageWithChannel(uint32 channel);
+extern KVMessage SimpleFailureMessageWithChannel(uint32 channel);
 extern KVMessage SimpleMessage(KVOperation op, KVRelationId rid,
     KVDatabaseId dbId);
 extern KVMessage SimpleMessageWithEntity(KVOperation op, KVRelationId rid,

@@ -68,22 +68,22 @@ void ReadOpenArgs(CircularQueueChannel* channel, uint64* offset, void* entity,
 bool
 KVWorkerClient::open(KVWorkerId const& workerId, OpenArgs* args)
 {
-    KVMessage msg;
-
     uint64 size = sizeof(args->opt) + strlen(args->path);
     #ifdef VIDARDB
     size += (sizeof(args->useColumn) + sizeof(args->attrCount))
     #endif
-    channel->write(SimpleMessageWithEntity(KVOpOpen, workerId, MyDatabaseId,
-        args, size, ReadOpenArgs, WriteOpenArgs));
-    channel->read(msg);
-    return msg.hdr.status == KVStatusSuccess;
+
+    KVMessage recvmsg;
+    KVMessage sendmsg = SimpleMessageWithEntity(KVOpOpen, workerId,
+        MyDatabaseId, args, size, ReadOpenArgs, WriteOpenArgs);
+    channel->sendWithResponse(sendmsg, recvmsg);
+    return recvmsg.hdr.status == KVStatusSuccess;
 }
 
 void
 KVWorkerClient::terminate(KVWorkerId const& workerId)
 {
-    channel->write(SimpleMessage(KVOpTerminate, workerId, MyDatabaseId));
+    channel->send(SimpleMessage(KVOpTerminate, workerId, MyDatabaseId));
 }
 
 KVWorker::KVWorker(KVWorkerId workerId, KVDatabaseId dbId) :
@@ -108,26 +108,17 @@ KVWorker::start()
 void
 KVWorker::run()
 {
-    char buf[MSGBUFSIZE];
-
     while (running)
     {
         KVMessage msg;
-        channel->read(msg, MSGHEADER);
+        channel->recv(msg, MSGHEADER);
 
         switch (msg.hdr.op)
         {
             case KVOpDummy:
                 break;
             case KVOpOpen:
-                OpenArgs args;
-                args.path = buf;
-
-                msg.readFunc = ReadOpenArgs;
-                msg.bdy = &args;
-                channel->read(msg, MSGBODY);
-
-                open(msg.hdr.relId, (OpenArgs*) msg.bdy);
+                open(msg.hdr.relId, msg);
                 break;
             case KVOpClose:
                 
@@ -146,26 +137,36 @@ void
 KVWorker::stop()
 {
     running = false;
-    channel->interrupt();
+    channel->terminate();
 }
 
 void
-KVWorker::open(KVWorkerId const& workerId, OpenArgs* args)
+KVWorker::open(KVWorkerId const& workerId, KVMessage& msg)
 {
+    OpenArgs args;
+    char buf[MSGBUFSIZE];
+
+    args.path = buf;
+    msg.readFunc = ReadOpenArgs;
+    msg.bdy = &args;
+
+    channel->recv(msg, MSGENTITY);
+
     #ifdef VIDARDB
-    connection->open(args->path, &args->opt, args->useColumn, args->attrCount);
+    connection->open(args.path, &args.opt, args.useColumn, args.attrCount);
     #else
-    connection->open(args->path, &args->opt);
+    connection->open(args.path, &args.opt);
     #endif
 
-    channel->write(SimpleSuccessMessage());
+    channel->send(SimpleSuccessMessageWithChannel(msg.hdr.resChan));
 }
 
 void
 KVWorker::terminate(KVWorkerId const& workerId)
 {
-    stop(); /* terminate loop */
-    delete channel; /* free shm */
+    stop();
+
+    delete channel;
 }
 
 void
@@ -176,7 +177,7 @@ StartKVWorker(KVWorkerId workerId, KVDatabaseId dbId)
 
     /* notify kv worker be ready */
     KVManagerClient* manager = new KVManagerClient();
-    manager->notify();
+    manager->channel->notify(WorkerReady);
     delete manager;
 
     worker->run();

@@ -35,28 +35,22 @@ KVManagerClient::~KVManagerClient()
     delete channel;
 }
 
-void
-KVManagerClient::notify()
-{
-    channel->ready();
-}
-
 bool
 KVManagerClient::launch(KVWorkerId const& workerId)
 {
-    KVMessage msg;
-    channel->write(SimpleMessage(KVOpLaunch, workerId, MyDatabaseId));
-    channel->read(msg);
-    return msg.hdr.status == KVStatusSuccess;
+    KVMessage recvmsg;
+    KVMessage sendmsg = SimpleMessage(KVOpLaunch, workerId, MyDatabaseId);
+    channel->sendWithResponse(sendmsg, recvmsg);
+    return recvmsg.hdr.status == KVStatusSuccess;
 }
 
 bool
 KVManagerClient::terminate(KVWorkerId const& workerId)
 {
-    KVMessage msg;
-    channel->write(SimpleMessage(KVOpTerminate, workerId, MyDatabaseId));
-    channel->read(msg);
-    return msg.hdr.status == KVStatusSuccess;
+    KVMessage recvmsg;
+    KVMessage sendmsg = SimpleMessage(KVOpTerminate, workerId, MyDatabaseId);
+    channel->sendWithResponse(sendmsg, recvmsg);
+    return recvmsg.hdr.status == KVStatusSuccess;
 }
 
 /*
@@ -90,17 +84,17 @@ KVManager::run()
     while (running)
     {
         KVMessage msg;
-        channel->read(msg);
+        channel->recv(msg);
 
         switch (msg.hdr.op)
         {
             case KVOpDummy:
                 break;
             case KVOpLaunch:
-                launch(msg.hdr.relId, msg.hdr.dbId);
+                launch(msg.hdr.relId, msg);
                 break;
             case KVOpTerminate:
-                terminate(msg.hdr.relId);
+                terminate(msg.hdr.relId, msg);
                 break;
             default:
                 ErrorReport(WARNING, ERRCODE_WARNING,
@@ -116,62 +110,57 @@ KVManager::stop()
     for (it = workers.begin(); it != workers.end(); it++)
     {
         it->second->client->terminate(it->first);
-        TerminateKVWorker(it->second->handle);
+        // TerminateKVWorker(it->second->handle);
         delete it->second;
     }
 
     running = false;
-    channel->interrupt(); 
+    channel->terminate(); 
 }
 
 void
-KVManager::wait()
-{
-    channel->wait();
-}
-
-void
-KVManager::launch(KVWorkerId const& workerId, KVDatabaseId const& dbId)
+KVManager::launch(KVWorkerId const& workerId, KVMessage const& msg)
 {
     if (workers.find(workerId) != workers.end())
     {
-        channel->write(SimpleSuccessMessage());
+        channel->send(SimpleSuccessMessageWithChannel(msg.hdr.resChan));
         return;
     }
 
-    void* handle = LaunchKVWorker(workerId, dbId);
+    void* handle = LaunchKVWorker(workerId, msg.hdr.dbId);
     if (!handle)
     {
-        channel->write(SimpleFailureMessage());
+        channel->send(SimpleFailureMessageWithChannel(msg.hdr.resChan));
         return;
     }
 
-    wait(); /* wait kv worker be ready */
+    /* wait kv worker be ready */
+    channel->wait(WorkerReady);
 
     KVWorkerClient* client = new KVWorkerClient(workerId);
     KVWorkerHandle* worker = new KVWorkerHandle(workerId, client, handle);
     workers.insert({workerId, worker});
-    channel->write(SimpleSuccessMessage());
+    channel->send(SimpleSuccessMessageWithChannel(msg.hdr.resChan));
 }
 
 void
-KVManager::terminate(KVWorkerId const& workerId)
+KVManager::terminate(KVWorkerId const& workerId, KVMessage const& msg)
 {
     map<KVWorkerId, KVWorkerHandle*>::iterator it = workers.find(workerId);
     if (it == workers.end())
     {
-        channel->write(SimpleSuccessMessage());
+        channel->send(SimpleSuccessMessageWithChannel(msg.hdr.resChan));
         return;
     }
 
     KVWorkerHandle* handle = it->second;
     handle->client->terminate(handle->workerId);
-    TerminateKVWorker(handle->handle);
+    // TerminateKVWorker(handle->handle);
 
     workers.erase(it);
     delete it->second;
 
-    channel->write(SimpleSuccessMessage());
+    channel->send(SimpleSuccessMessageWithChannel(msg.hdr.resChan));
 }
 
 /*

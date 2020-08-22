@@ -1,24 +1,39 @@
+/* Copyright 2019 VidarDB Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 #ifdef VIDARDB
+#include <list>
+#include <algorithm>
 #include "vidardb/db.h"
 #include "vidardb/options.h"
 #include "vidardb/table.h"
 #include "vidardb/splitter.h"
 #include "vidardb/comparator.h"
 using namespace vidardb;
-#include <list>
-#include <algorithm>
 #else
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/comparator.h"
 using namespace rocksdb;
 #endif
+
 #include <mutex>
-using namespace std;
-
 #include "kv_storage.h"
+#include "kv_db.h"
 
+using namespace std;
 
 extern "C" {
 
@@ -31,8 +46,8 @@ extern "C" {
 
 
 #ifdef VIDARDB
-void* Open(char* path, bool useColumn, int attrCount, ComparatorOptions* opts) {
-    DB* db = nullptr;
+void* OpenConn(char* path, bool useColumn, int attrCount, ComparatorOpts* opts) {
+    DB* conn = nullptr;
     Options options;
     options.OptimizeAdaptiveLevelStyleCompaction();
     options.create_if_missing = true;
@@ -49,29 +64,29 @@ void* Open(char* path, bool useColumn, int attrCount, ComparatorOptions* opts) {
     options.table_factory.reset(NewAdaptiveTableFactory(block_based_table,
         block_based_table, column_table, useColumn? 0: -1));
 
-    Status s = DB::Open(options, string(path), &db);
+    Status s = DB::Open(options, string(path), &conn);
     if (!s.ok()) {
         ereport(ERROR, (errmsg("DB open status: %s", s.ToString().c_str())));
     }
-    return db;
+    return conn;
 }
 #else
-void* Open(char* path, ComparatorOptions* opts) {
-    DB* db = nullptr;
+void* OpenConn(char* path, ComparatorOpts* opts) {
+    DB* conn = nullptr;
     Options options;
     options.create_if_missing = true;
     options.comparator = static_cast<Comparator*>(NewDataTypeComparator(opts));
 
-    Status s = DB::Open(options, string(path), &db);
+    Status s = DB::Open(options, string(path), &conn);
     if (!s.ok()) {
         ereport(ERROR, (errmsg("DB open status: %s", s.ToString().c_str())));
     }
-    return db;
+    return conn;
 }
 #endif
 
-void Close(void* db) {
-    DB* db_ptr = static_cast<DB*>(db);
+void CloseConn(void* conn) {
+    DB* db_ptr = static_cast<DB*>(conn);
     #ifdef VIDARDB
     const Comparator* wrap_cmp = db_ptr->GetOptions().comparator;
     const Comparator* root_cmp = wrap_cmp->GetRootComparator();
@@ -80,18 +95,18 @@ void Close(void* db) {
     delete db_ptr;
 }
 
-uint64 Count(void* db) {
+uint64 GetCount(void* conn) {
     string count;
     #ifdef VIDARDB
-    static_cast<DB*>(db)->GetProperty("vidardb.estimate-num-keys", &count);
+    static_cast<DB*>(conn)->GetProperty("vidardb.estimate-num-keys", &count);
     #else
-    static_cast<DB*>(db)->GetProperty("rocksdb.estimate-num-keys", &count);
+    static_cast<DB*>(conn)->GetProperty("rocksdb.estimate-num-keys", &count);
     #endif
     return stoull(count);
 }
 
-void* GetIter(void* db) {
-    Iterator* it = static_cast<DB*>(db)->NewIterator(ReadOptions());
+void* GetIter(void* conn) {
+    Iterator* it = static_cast<DB*>(conn)->NewIterator(ReadOptions());
     it->SeekToFirst();
     return it;
 }
@@ -100,7 +115,7 @@ void DelIter(void* it) {
     delete static_cast<Iterator*>(it);
 }
 
-bool ReadBatch(void* db, void* iter, char* buf, size_t* bufLen) {
+bool BatchRead(void* conn, void* iter, char* buf, size_t* bufLen) {
     *bufLen = 0;
 
     Iterator* it = static_cast<Iterator*>(iter);
@@ -133,10 +148,10 @@ bool ReadBatch(void* db, void* iter, char* buf, size_t* bufLen) {
     return true;
 }
 
-bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen) {
+bool GetRecord(void* conn, char* key, size_t keyLen, char** val, size_t* valLen) {
     string sval;
     ReadOptions ro;
-    Status s = static_cast<DB*>(db)->Get(ro, Slice(key, keyLen), &sval);
+    Status s = static_cast<DB*>(conn)->Get(ro, Slice(key, keyLen), &sval);
     if (!s.ok()) return false;
     *valLen = sval.length();
     *val = static_cast<char*>(palloc(*valLen));
@@ -144,14 +159,14 @@ bool Get(void* db, char* key, size_t keyLen, char** val, size_t* valLen) {
     return true;
 }
 
-bool Put(void* db, char* key, size_t keyLen, char* val, size_t valLen) {
-    Status s = static_cast<DB*>(db)->Put(WriteOptions(), Slice(key, keyLen),
-                                         Slice(val, valLen));
+bool PutRecord(void* conn, char* key, size_t keyLen, char* val, size_t valLen) {
+    Status s = static_cast<DB*>(conn)->Put(WriteOptions(), Slice(key, keyLen),
+                                           Slice(val, valLen));
     return s.ok();
 }
 
-bool Delete(void* db, char* key, size_t keyLen) {
-    Status s = static_cast<DB*>(db)->Delete(WriteOptions(), Slice(key, keyLen));
+bool DelRecord(void* conn, char* key, size_t keyLen) {
+    Status s = static_cast<DB*>(conn)->Delete(WriteOptions(), Slice(key, keyLen));
     return s.ok();
 }
 
@@ -197,7 +212,7 @@ uint8 DecodeVarintLength(char* start, char* limit, uint64* len) {
 }
 
 #ifdef VIDARDB
-void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
+void ParseRangeQueryOptions(RangeQueryOpts* queryOptions, void** range,
                             void** readOptions) {
     Assert(queryOptions != NULL);
 
@@ -233,8 +248,8 @@ void ParseRangeQueryOptions(RangeQueryOptions* queryOptions, void** range,
     *readOptions = options;
 }
 
-bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
-                void** result) {
+bool RangeQueryRead(void* conn, void* range, void** readOptions, size_t* bufLen,
+                    void** result) {
     ReadOptions* ro = static_cast<ReadOptions*>(*readOptions);
     Range* r = static_cast<Range*>(range);
     list<RangeQueryKeyVal>* res = static_cast<list<RangeQueryKeyVal>*>(*result);
@@ -242,7 +257,7 @@ bool RangeQuery(void* db, void* range, void** readOptions, size_t* bufLen,
         res = new list<RangeQueryKeyVal>;
     }
     Status s;
-    bool ret = static_cast<DB*>(db)->RangeQuery(*ro, *r, *res, &s);
+    bool ret = static_cast<DB*>(conn)->RangeQuery(*ro, *r, *res, &s);
 
     if (!s.ok()) {
         *result = res;
@@ -306,7 +321,7 @@ void ClearRangeQueryMeta(void* range, void* readOptions) {
 /* Comparator wrapper for PG datatype's comparison function */
 class PGDataTypeComparator : public Comparator {
   public:
-    PGDataTypeComparator(ComparatorOptions* options) : options_(*options) {
+    PGDataTypeComparator(ComparatorOpts* options) : options_(*options) {
         if (!OidIsValid(options_.cmpFuncOid)) {
             return;
         }
@@ -437,7 +452,7 @@ class PGDataTypeComparator : public Comparator {
     }
 
   private:
-    ComparatorOptions options_;
+    ComparatorOpts options_;
     FmgrInfo funcManager_;
     std::mutex *mutex_;
     bool *firstCall_;
@@ -445,7 +460,7 @@ class PGDataTypeComparator : public Comparator {
     FunctionCallInfoBaseData *funcCallInfo_;
 };
 
-void* NewDataTypeComparator(ComparatorOptions* options) {
+void* NewDataTypeComparator(ComparatorOpts* options) {
     return new PGDataTypeComparator(options);
 }
 

@@ -1,3 +1,17 @@
+/* Copyright 2019 VidarDB Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 #include "kv_fdw.h"
 #include "kv_api.h"
@@ -29,33 +43,14 @@
 
 
 PG_MODULE_MAGIC;
-
 PG_FUNCTION_INFO_V1(kv_fdw_handler);
 PG_FUNCTION_INFO_V1(kv_fdw_validator);
-
 
 /*
  * in backend process
  */
-static ManagerShm *manager = NULL;
-static HTAB *workerShmHash = NULL;
 static uint64 operationId = 0;  /* a SQL might cause multiple scans */
 
-
-static inline WorkerShm *
-GetRelationWorker(Oid relationId) {
-    bool found = false;
-    WorkerProcKey workerKey;
-    workerKey.databaseId = MyDatabaseId;
-    workerKey.relationId = relationId;
-    WorkerProcShmEntry *entry = hash_search(workerShmHash, &workerKey,
-                                            HASH_FIND, &found);
-    if (found) {
-        return entry->shm;
-    }
-
-    ereport(ERROR, (errmsg("not found the relation background worker")));
-}
 
 static void
 GetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
@@ -83,14 +78,18 @@ GetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
      * min & max will call GetForeignRelSize & GetForeignPaths multiple times,
      * we should open & close db multiple times.
      */
+    OpenArgs args;
+
     Relation relation = table_open(foreignTableId, AccessShareLock);
-    ComparatorOptions opts;
-    SetRelationComparatorOptions(relation, &opts);
+    SetRelationComparatorOpts(relation, &args.opts);
     table_close(relation, AccessShareLock);
+
+    KVFdwOptions *fdwOptions = KVGetOptions(foreignTableId);
+    args.path = fdwOptions->filename;
 
     #ifdef VIDARDB
     TablePlanState *planState = palloc0(sizeof(TablePlanState));
-    planState->fdwOptions = KVGetOptions(foreignTableId);
+    planState->fdwOptions = fdwOptions;
     planState->attrCount = baserel->max_attr;
     planState->toUpdateDelete = false;
 
@@ -134,27 +133,15 @@ GetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
     }
 
     baserel->fdw_private = planState;
-    WorkerShm *worker = OpenRequest(foreignTableId, &manager, &workerShmHash,
-                                    &opts, planState->fdwOptions->useColumn,
-                                    planState->attrCount);
-    #else
-    // WorkerShm *worker = OpenRequest(foreignTableId, &manager, &workerShmHash,
-    //                                 &opts);
-    KVFdwOptions *fdwOptions = KVGetOptions(foreignTableId);
 
-    OpenArgs args;
-    args.opt.cmpFuncOid = opts.cmpFuncOid;
-    args.opt.attrCollOid = opts.attrCollOid;
-    args.opt.attrByVal = opts.attrByVal;
-    args.opt.attrLength = opts.attrLength;
-    args.path = fdwOptions->filename;
-    KVOpenRequest(foreignTableId, &args);
+    args.useColumn = planState->fdwOptions->useColumn;
+    args.attrCount = planState->attrCount;
     #endif
 
+    KVOpenRequest(foreignTableId, &args);
     /* TODO: better estimation */
-    // baserel->rows = CountRequest(foreignTableId, worker);
-
-    // CloseRequest(foreignTableId, worker);
+    baserel->rows = KVCountRequest(foreignTableId);
+    KVCloseRequest(foreignTableId);
 }
 
 static void
@@ -221,19 +208,23 @@ GetForeignPlan(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId,
 
     scanClauses = extract_actual_clauses(scanClauses, false);
 
+    OpenArgs args;
+
     Relation relation = table_open(foreignTableId, AccessShareLock);
-    ComparatorOptions opts;
-    SetRelationComparatorOptions(relation, &opts);
+    SetRelationComparatorOpts(relation, &args.opts);
     table_close(relation, AccessShareLock);
+
+    KVFdwOptions *fdwOptions = KVGetOptions(foreignTableId);
+    args.path = fdwOptions->filename;
 
     /* To accommodate min & max, we open file here */
     #ifdef VIDARDB
     TablePlanState *planState = baserel->fdw_private;
-    OpenRequest(foreignTableId, &manager, &workerShmHash, &opts,
-                planState->fdwOptions->useColumn, planState->attrCount);
-    #else
-    OpenRequest(foreignTableId, &manager, &workerShmHash, &opts);
+    args.useColumn = planState->fdwOptions->useColumn;
+    args.attrCount = planState->attrCount;
     #endif
+
+    KVOpenRequest(foreignTableId, &args);
 
     /* Create the ForeignScan node */
     return make_foreignscan(targetList, scanClauses, baserel->relid,
@@ -380,13 +371,12 @@ BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     }
 
     Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
-    readState->worker = GetRelationWorker(relationId);
 
     if (!readState->isKeyBased) {
         #ifdef VIDARDB
         if (readState->useColumn) {
 
-            RangeQueryOptions options;
+            RangeQueryOpts options;
             options.batchCapacity = batchCapacity;
             options.startLen = 0;
             options.limitLen = 0;
@@ -404,21 +394,26 @@ BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
             }
             printf("\n");
 
-            readState->hasNext = RangeQueryRequest(relationId, ++operationId,
-                                                   readState->worker, &options,
-                                                   &readState->buf,
-                                                   &readState->bufLen);
+            RangeQueryArgs args;
+            args.cursor = ++operationId;
+            args.opts = &options;
+            args.buf = &readState->buf;
+            args.bufLen = &readState->bufLen;
+            readState->hasNext = KVRangeQueryRequest(relationId, &args);
             pfree(options.attrs);
         } else {
-            readState->hasNext = ReadBatchRequest(relationId, ++operationId,
-                                                  readState->worker,
-                                                  &readState->buf,
-                                                  &readState->bufLen);
+            ReadBatchArgs args;
+            args.buf = &readState->buf;
+            args.bufLen = &readState->bufLen;
+            args.cursor = ++operationId;
+            readState->hasNext = KVReadBatchRequest(relationId, &args);
         }
         #else
-        readState->hasNext = ReadBatchRequest(relationId, ++operationId,
-                                              readState->worker, &readState->buf,
-                                              &readState->bufLen);
+        ReadBatchArgs args;
+        args.buf = &readState->buf;
+        args.bufLen = &readState->bufLen;
+        args.cursor = ++operationId;
+        readState->hasNext = KVReadBatchRequest(relationId, &args);
         #endif
 
         readState->next = readState->buf;
@@ -559,28 +554,33 @@ DeserializeTuple(char *key, size_t kLen, char *val, size_t vLen,
 }
 
 static bool
-GetNextFromBatch(Oid relationId, TableReadState *readState, WorkerShm *worker,
-                 char **key, size_t *keyLen, char **val, size_t *valLen) {
+GetNextFromBatch(Oid relationId, TableReadState *readState, char **key,
+    size_t *keyLen, char **val, size_t *valLen) {
     bool found = false;
     if (readState->next < readState->buf + readState->bufLen) {
         found = true;
     } else if (readState->hasNext) {
         #ifdef VIDARDB
         if (readState->useColumn) {
-            readState->hasNext = RangeQueryRequest(relationId,
-                                                   readState->operationId,
-                                                   worker, NULL, &readState->buf,
-                                                   &readState->bufLen);
+            RangeQueryArgs args;
+            args.cursor = readState->operationId;
+            args.opts = NULL;
+            args.buf = &readState->buf;
+            args.bufLen = &readState->bufLen;
+            readState->hasNext = KVRangeQueryRequest(relationId, &args);
         } else {
-            readState->hasNext = ReadBatchRequest(relationId,
-                                                  readState->operationId,
-                                                  worker, &readState->buf,
-                                                  &readState->bufLen);
+            ReadBatchArgs args;
+            args.buf = &readState->buf;
+            args.bufLen = &readState->bufLen;
+            args.cursor = readState->operationId;
+            readState->hasNext = KVReadBatchRequest(relationId, &args);
         }
         #else
-        readState->hasNext = ReadBatchRequest(relationId, readState->operationId,
-                                              worker, &readState->buf,
-                                              &readState->bufLen);
+        ReadBatchArgs args;
+        args.buf = &readState->buf;
+        args.bufLen = &readState->bufLen;
+        args.cursor = readState->operationId;
+        readState->hasNext = KVReadBatchRequest(relationId, &args);
         #endif
 
         readState->next  = readState->buf;
@@ -644,12 +644,18 @@ IterateForeignScan(ForeignScanState *scanState) {
         if (!readState->done) {
             k = readState->key->data;
             kLen = readState->key->len;
-            found = GetRequest(relationId, readState->worker, k, kLen, &v, &vLen);
+
+            GetArgs args;
+            args.key = k;
+            args.keyLen = kLen;
+            args.val = &v;
+            args.valLen = &vLen;
+            found = KVGetRequest(relationId, &args);
+
             readState->done = true;
         }
     } else {
-        found = GetNextFromBatch(relationId, readState, readState->worker,
-                                 &k, &kLen, &v, &vLen);
+        found = GetNextFromBatch(relationId, readState, &k, &kLen, &v, &vLen);
     }
 
     if (found) {
@@ -710,19 +716,26 @@ EndForeignScan(ForeignScanState *scanState) {
              * unmap for this backend process should already be done in
              * IterateForeignScan. Now release resource of worker process.
              */
-            ClearRangeQueryMetaRequest(relationId, readState->operationId,
-                                       readState->worker, readState);
+            RangeQueryArgs args;
+            args.cursor = readState->operationId;
+            args.buf = &readState->buf;
+            args.bufLen = &readState->bufLen;
+            KVClearRangeQueryRequest(relationId, &args);
         } else {
-            DelIterRequest(relationId, readState->operationId,
-                           readState->worker, readState);
+            DelCursorArgs args;
+            args.cursor = readState->operationId;
+            args.buf = readState->buf;
+            KVDelCursorRequest(relationId, &args);
         }
         #else
-        DelIterRequest(relationId, readState->operationId, readState->worker,
-                       readState);
+        DelCursorArgs args;
+        args.cursor = readState->operationId;
+        args.buf = readState->buf;
+        KVDelCursorRequest(relationId, &args);
         #endif
     }
 
-    CloseRequest(relationId, readState->worker);
+    KVCloseRequest(relationId);
     pfree(readState);
 }
 
@@ -901,7 +914,6 @@ BeginForeignModify(ModifyTableState *modifyTableState,
     writeState->operation = operation;
 
     Relation relation = resultRelInfo->ri_RelationDesc;
-
     Oid foreignTableId = RelationGetRelid(relation);
     table_open(foreignTableId, ShareUpdateExclusiveLock);
 
@@ -910,17 +922,15 @@ BeginForeignModify(ModifyTableState *modifyTableState,
     #endif
 
     if (operation == CMD_INSERT) {
-        ComparatorOptions opts;
-        SetRelationComparatorOptions(relation, &opts);
+        OpenArgs args;
+        SetRelationComparatorOpts(relation, &args.opts);
+        KVFdwOptions *fdwOptions = KVGetOptions(foreignTableId);
+        args.path = fdwOptions->filename;
         #ifdef VIDARDB
-        WorkerShm *worker = OpenRequest(foreignTableId, &manager, &workerShmHash,
-                                        &opts, planState->fdwOptions->useColumn,
-                                        planState->attrCount);
-        #else
-        WorkerShm *worker = OpenRequest(foreignTableId, &manager, &workerShmHash,
-                                        &opts);
+        args.useColumn = planState->fdwOptions->useColumn;
+        args.attrCount = planState->attrCount;
         #endif
-        writeState->worker = worker;
+        KVOpenRequest(foreignTableId, &args);
     }
 
     resultRelInfo->ri_FdwState = (void *) writeState;
@@ -1005,13 +1015,12 @@ ExecForeignInsert(EState *executorState, ResultRelInfo *resultRelInfo,
 
     SerializeTuple(key, val, slot);
 
-    TableWriteState *writeState = resultRelInfo->ri_FdwState;
-    if (!writeState->worker) {
-        writeState->worker = GetRelationWorker(foreignTableId);
-    }
-
-    PutRequest(foreignTableId, writeState->worker, key->data, key->len,
-               val->data, val->len);
+    PutArgs args;
+    args.keyLen = key->len;
+    args.valLen = val->len;
+    args.key = key->data;
+    args.val = val->data;
+    KVPutRequest(foreignTableId, &args);
 
     if (shouldFree) {
         pfree(heapTuple);
@@ -1073,13 +1082,12 @@ ExecForeignUpdate(EState *executorState, ResultRelInfo *resultRelInfo,
 
     SerializeTuple(key, val, slot);
 
-    TableWriteState *writeState = resultRelInfo->ri_FdwState;
-    if (!writeState->worker) {
-        writeState->worker = GetRelationWorker(foreignTableId);
-    }
-
-    PutRequest(foreignTableId, writeState->worker, key->data, key->len,
-               val->data, val->len);
+    PutArgs args;
+    args.keyLen = key->len;
+    args.valLen = val->len;
+    args.key = key->data;
+    args.val = val->data;
+    KVPutRequest(foreignTableId, &args);
 
     if (shouldFree) {
         pfree(heapTuple);
@@ -1128,12 +1136,10 @@ ExecForeignDelete(EState *executorState, ResultRelInfo *resultRelInfo,
 
     SerializeTuple(key, val, planSlot);
 
-    TableWriteState *writeState = resultRelInfo->ri_FdwState;
-    if (!writeState->worker) {
-        writeState->worker = GetRelationWorker(foreignTableId);
-    }
-
-    DeleteRequest(foreignTableId, writeState->worker, key->data, key->len);
+    DeleteArgs args;
+    args.key = key->data;
+    args.keyLen = key->len;
+    KVDeleteRequest(foreignTableId, &args);
 
     return slot;
 }
@@ -1160,7 +1166,7 @@ EndForeignModify(EState *executorState, ResultRelInfo *resultRelInfo) {
 
         CmdType operation = writeState->operation;
         if (operation == CMD_INSERT) {
-            CloseRequest(foreignTableId, writeState->worker);
+            KVCloseRequest(foreignTableId);
         }
 
         /* CMD_UPDATE and CMD_DELETE close will be taken care of by endScan */

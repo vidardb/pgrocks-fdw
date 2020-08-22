@@ -1,3 +1,17 @@
+/* Copyright 2019 VidarDB Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 #include "kv_fdw.h"
 #include "kv_storage.h"
@@ -35,7 +49,6 @@ typedef struct DroppedObject {
     char *path;
 } DroppedObject;
 
-
 #define PREVIOUS_UTILITY (PreviousProcessUtilityHook != NULL ? \
                           PreviousProcessUtilityHook : standard_ProcessUtility)
 
@@ -44,21 +57,13 @@ typedef struct DroppedObject {
         PREVIOUS_UTILITY(plannedStmt, queryString, context, paramListInfo, \
                          queryEnvironment, destReceiver, completionTag)
 
-
 /*
  * SQL functions
  */
 PG_FUNCTION_INFO_V1(kv_ddl_event_end_trigger);
 
-/*
- * in backend process
- */
-static ManagerShm *manager = NULL;
-static HTAB *workerShmHash = NULL;
-
 /* saved hook value in case of unload */
 static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
-
 
 /* local functions forward declarations */
 static void KVProcessUtility(PlannedStmt *plannedStmt, const char *queryString,
@@ -220,8 +225,8 @@ kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
             appendStringInfo(kvPath, "%s/%s/%u/%u", DataDir, KVFDWNAME,
                              MyDatabaseId, relationId);
 
-            ComparatorOptions opts;
-            SetRelationComparatorOptions(relation, &opts);
+            ComparatorOpts opts;
+            SetRelationComparatorOpts(relation, &opts);
 
             /* Initialize the database */
             #ifdef VIDARDB
@@ -229,12 +234,12 @@ kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
             bool useColumn = (option != NULL) ?
                 (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
             TupleDesc tupleDescriptor = RelationGetDescr(relation);
-            void *kvDB = Open(kvPath->data, useColumn, tupleDescriptor->natts,
-                              &opts);
+            void *kvDB = OpenConn(kvPath->data, useColumn,
+                                  tupleDescriptor->natts, &opts);
             #else
-            void *kvDB = Open(kvPath->data, &opts);
+            void *kvDB = OpenConn(kvPath->data, &opts);
             #endif
-            Close(kvDB);
+            CloseConn(kvDB);
 
             table_close(relation, AccessExclusiveLock);
         }
@@ -465,7 +470,7 @@ SerializeAttribute(TupleDesc tupleDescriptor, Index index, Datum datum,
 }
 
 void
-SetRelationComparatorOptions(Relation relation, ComparatorOptions* opts) {
+SetRelationComparatorOpts(Relation relation, ComparatorOpts *opts) {
     TupleDesc tupleDescriptor = RelationGetDescr(relation);
 
     /* TODO: we assume the 1st column is primary key */
@@ -510,26 +515,27 @@ KVCopyIntoTable(const CopyStmt *copyStmt, const char *queryString) {
     TupleDesc tupleDescriptor = RelationGetDescr(relation);
     int attrCount = tupleDescriptor->natts;
 
-    ComparatorOptions opts;
-    SetRelationComparatorOptions(relation, &opts);
+    OpenArgs args;
+    SetRelationComparatorOpts(relation, &args.opts);
+    KVFdwOptions *fdwOptions = KVGetOptions(relationId);
+    args.path = fdwOptions->filename;
 
     #ifdef VIDARDB
     char *option = KVGetOptionValue(relationId, OPTION_STORAGE_FORMAT);
     bool useColumn = (option != NULL) ?
         (0 == strncmp(option, COLUMNSTORE, sizeof(COLUMNSTORE))): false;
-    WorkerShm *worker = OpenRequest(relationId, &manager, &workerShmHash,
-                                    &opts, useColumn, attrCount);
-    #else
-    WorkerShm *worker = OpenRequest(relationId, &manager, &workerShmHash, &opts);
+    args.useColumn = useColumn;
+    args.attrCount = attrCount;
     #endif
+    KVOpenRequest(relationId, &args);
 
     Datum *values = palloc0(attrCount * sizeof(Datum));
     bool *nulls = palloc0(attrCount * sizeof(bool));
 
     EState *estate = CreateExecutorState();
     ExprContext *econtext = GetPerTupleExprContext(estate);
-    RingBufShm *buf = BeginLoadRequest(relationId, worker);
 
+    uint64 rowCount = 0;
     bool found = true;
     while (found) {
         /* read the next row in tupleContext */
@@ -561,7 +567,14 @@ KVCopyIntoTable(const CopyStmt *copyStmt, const char *queryString) {
                 }
             }
 
-            LoadTuple(buf, key->data, key->len, val->data, val->len);
+            PutArgs args;
+            args.keyLen = key->len;
+            args.valLen = val->len;
+            args.key = key->data;
+            args.val = val->data;
+            KVLoadRequest(relationId, &args);
+
+            rowCount++;
         }
 
         MemoryContextSwitchTo(oldContext);
@@ -574,9 +587,8 @@ KVCopyIntoTable(const CopyStmt *copyStmt, const char *queryString) {
     }
 
     /* end read/write sessions and close the relation */
-    uint64 rowCount = EndLoadRequest(relationId, worker, buf);
     EndCopyFrom(copyState);
-    CloseRequest(relationId, worker);
+    KVCloseRequest(relationId);
     table_close(relation, ShareUpdateExclusiveLock);
 
     return rowCount;
@@ -741,11 +753,7 @@ KVProcessUtility(PlannedStmt *plannedStmt, const char *queryString,
 
             if (removeDirectory) {
                 KVRemoveDatabaseDirectory(MyDatabaseId);
-
-                WorkerProcKey workerKey;
-                workerKey.databaseId = MyDatabaseId;
-                workerKey.relationId = InvalidOid;  /* all */
-                TerminateRequest(&workerKey, &manager);
+                KVTerminateRequest(KVAllRelationId, MyDatabaseId);
             }
         } else {
             /* drop table & drop server */
@@ -765,10 +773,7 @@ KVProcessUtility(PlannedStmt *plannedStmt, const char *queryString,
                     rmtree(obj->path, true);
                 }
 
-                WorkerProcKey workerKey;
-                workerKey.databaseId = MyDatabaseId;
-                workerKey.relationId = obj->objectId;
-                TerminateRequest(&workerKey, &manager);
+                KVTerminateRequest(obj->objectId, MyDatabaseId);
             }
         }
     } else if (nodeTag(parseTree) == T_AlterTableStmt) {
@@ -782,10 +787,7 @@ KVProcessUtility(PlannedStmt *plannedStmt, const char *queryString,
 
         /* delete worker */
         if (OidIsValid(dbId)) {
-            WorkerProcKey workerKey;
-            workerKey.databaseId = dbId;
-            workerKey.relationId = InvalidOid;  /* all */
-            TerminateRequest(&workerKey, &manager);
+            KVTerminateRequest(KVAllRelationId, dbId);
         }
 
         /* delete metadata */
@@ -954,4 +956,10 @@ void
 ErrorReport(int level, int code, const char* msg)
 {
     ereport(level, (errcode(code), errmsg("%s", msg)));
+}
+
+void*
+AllocMemory(uint64 size)
+{
+    return palloc0(size);
 }

@@ -13,14 +13,14 @@
  * limitations under the License.
  */
 
-#include <map>
+#include <unordered_map>
 
 #include "kv_db.h"
 #include "postgres.h"
 #include "miscadmin.h"
 
 static KVManagerClient* manager = NULL;
-static map<KVWorkerId, KVWorkerClient*> workers;
+static std::unordered_map<KVWorkerId, KVWorkerClient*> workers;
 
 /*
  * Implementation for kv client
@@ -35,7 +35,8 @@ InitKVManagerClient()
 static KVWorkerClient*
 GetKVWorkerClient(KVWorkerId workerId)
 {
-    map<KVWorkerId, KVWorkerClient*>::iterator it = workers.find(workerId);
+    std::unordered_map<KVWorkerId, KVWorkerClient*>::iterator it =
+        workers.find(workerId);
     if (it != workers.end())
     {
         return it->second;
@@ -46,7 +47,7 @@ GetKVWorkerClient(KVWorkerId workerId)
         InitKVManagerClient();
     }
 
-    bool success = manager->launch(workerId);
+    bool success = manager->Launch(workerId);
     if (success)
     {
         KVWorkerClient* worker = new KVWorkerClient(workerId);
@@ -64,5 +65,88 @@ bool
 KVOpenRequest(KVRelationId rid, OpenArgs* args)
 {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
-    return worker->open(rid, args);
+    return worker->Open(rid, args);
 }
+
+bool
+KVCloseRequest(KVRelationId rid)
+{
+    KVWorkerClient* worker = GetKVWorkerClient(rid);
+    return worker->Close(rid);
+}
+
+uint64
+KVCountRequest(KVRelationId rid)
+{
+    KVWorkerClient* worker = GetKVWorkerClient(rid);
+    return worker->Count(rid);
+}
+
+bool
+KVPutRequest(KVRelationId rid, PutArgs* args)
+{
+    KVWorkerClient* worker = GetKVWorkerClient(rid);
+    return worker->Put(rid, args);
+}
+
+bool
+KVDeleteRequest(KVRelationId rid, DeleteArgs* args)
+{
+    KVWorkerClient* worker = GetKVWorkerClient(rid);
+    return worker->Delete(rid, args);
+}
+
+void
+KVLoadRequest(KVRelationId rid, PutArgs* args)
+{
+    KVWorkerClient* worker = GetKVWorkerClient(rid);
+    worker->Load(rid, args);
+}
+
+bool
+KVGetRequest(KVRelationId rid, GetArgs* args)
+{
+    KVWorkerClient* worker = GetKVWorkerClient(rid);
+    return worker->Get(rid, args);
+}
+
+void
+KVTerminateRequest(KVRelationId rid, KVDatabaseId dbId)
+{
+    if (!manager)
+    {
+        InitKVManagerClient();
+    }
+
+    manager->Terminate(rid, dbId);
+}
+
+bool
+KVReadBatchRequest(KVRelationId rid, ReadBatchArgs* args)
+{
+    KVWorkerClient* worker = GetKVWorkerClient(rid);
+    return worker->ReadBatch(rid, args);
+}
+
+void
+KVDelCursorRequest(KVRelationId rid, DelCursorArgs* args)
+{
+    KVWorkerClient* worker = GetKVWorkerClient(rid);
+    worker->CloseCursor(rid, args);
+}
+
+#ifdef VIDARDB
+bool
+KVRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args)
+{
+    KVWorkerClient* worker = GetKVWorkerClient(rid);
+    return worker->RangeQuery(rid, args);;
+}
+
+void
+KVClearRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args)
+{
+    KVWorkerClient* worker = GetKVWorkerClient(rid);
+    worker->ClearRangeQuery(rid, args);
+}
+#endif

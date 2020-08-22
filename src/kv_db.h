@@ -16,81 +16,31 @@
 #ifndef KV_DB_H_
 #define KV_DB_H_
 
-#include <map>
+#include <unordered_map>
 #include <semaphore.h>
-
 #include "kv_api.h"
-
-using namespace std;
 
 #define MSGBUFSIZE        65536
 #define MSGPATHPREFIX     "/KV"
 #define MSGHEADER         01
 #define MSGENTITY         02
+#define MSGDISCARD        04
 #define MSGRESQUEUELENGTH 2
 #define MAXPATHLENGTH     64
+#define READBATCHSIZE     4096*20
+#define READBATCHPATH     "/KVReadBatch"
+#ifdef VIDARDB
+#define RANGEQUERYPATH    "/KVRangeQuery"
+#endif
 
 /*
- * Circular Queue exchanges messages between different processes
+ * KV Message Defines
  */
 
-struct CircularQueueData
-{
-    uint64 putPos;           /* the position producer can put data */
-    uint64 getPos;           /* the position consumer can get data */
-    sem_t  mutex;            /* mutual exclusion for position */
-    sem_t  empty;            /* tell wether the data buf is empty */
-    sem_t  full;             /* tell wether the data buf is full */
-    char   data[MSGBUFSIZE]; /* assume ~64K for a tuple is enough */
-};
-
-struct CircularQueueChannel
-{
-    char                        name[MAXPATHLENGTH];
-    volatile bool               create;
-    volatile CircularQueueData* channel;
-
-    void read(uint64 *offset, char *str, uint64 size);
-    void write(uint64 *offset, char *str, uint64 size);
-
-    CircularQueueChannel(KVRelationId rid, const char* tag, bool create);
-    ~CircularQueueChannel();
-};
-
-typedef enum
-{
-    WorkerReady = 0,
-} CtrlType;
-
-struct CtrlData
-{
-    sem_t workerReady;       /* tell wether kv worker is ready */
-    sem_t responseMutex[MSGRESQUEUELENGTH]; /* mutual exclusion for response */
-};
-
-struct CtrlChannel
-{
-    char               name[MAXPATHLENGTH];
-    volatile bool      create;
-    volatile CtrlData* channel;
-
-    void    wait(volatile sem_t* sem);
-    void    notify(volatile sem_t* sem);
-    uint32  leaseResponseQueue();
-    void    unleaseResponseQueue(uint32 index);
-
-    CtrlChannel(KVRelationId rid, const char* tag, bool create);
-    ~CtrlChannel();
-};
-
-/*
- * KV Message contains both header and entity
- */
-
-typedef void (*WriteMessageFunc) (CircularQueueChannel* channel, uint64* offset,
-                                  void* entity, uint64 size);
-typedef void (*ReadMessageFunc)  (CircularQueueChannel* channel, uint64* offset,
-                                  void* entity, uint64 size);
+typedef void (*WriteEntityFunc) (void* channel, uint64* offset, void* entity,
+                                 uint64 size);
+typedef void (*ReadEntityFunc)  (void* channel, uint64* offset, void* entity,
+                                 uint64 size);
 
 typedef enum
 {
@@ -115,96 +65,251 @@ struct KVMessage
     KVMessageHeader  hdr;
     void*            bdy       = NULL;
 
-    /* write & read entity function */
-    ReadMessageFunc  readFunc  = NULL;
-    WriteMessageFunc writeFunc = NULL;
+    ReadEntityFunc   readFunc  = NULL; /* read function */
+    WriteEntityFunc  writeFunc = NULL; /* write function */
 };
 
 /*
- * KV Message Queue exchanges messages between different processes
+ * KV Channel Defines
  */
 
-struct KVMessageQueue
+class KVChannel
 {
-    CtrlChannel*          ctrl;
-    CircularQueueChannel* request;
-    CircularQueueChannel* response[MSGRESQUEUELENGTH];
-    volatile bool         isServer;
-    volatile bool         running;
+  public:
+    virtual ~KVChannel() {};
+    virtual void Send(KVMessage const& msg) = 0;
+    virtual void Recv(KVMessage& msg) { Recv(msg, MSGHEADER | MSGENTITY); };
+    virtual void Recv(KVMessage& msg, int flag) = 0;
+    virtual void Read(uint64 *offset, char *str, uint64 size) = 0;
+    virtual void Write(uint64 *offset, char *str, uint64 size) = 0;
+    virtual void Terminate() = 0;
+};
 
-    void   send(KVMessage const& msg);
-    void   sendWithResponse(KVMessage& sendmsg, KVMessage& recvmsg);
-    void   recv(KVMessage& msg);
-    void   recv(KVMessage& msg, int flag);
-    void   wait(CtrlType type);
-    void   notify(CtrlType type);
-    void   terminate();
-    uint32 leaseResponseQueue();
-    void   unleaseResponseQueue(uint32 index);
+/*
+ * KV Circular Queue Defines
+ */
 
+struct KVCircularQueueData
+{
+    uint64 putPos;           /* the position producer can put data */
+    uint64 getPos;           /* the position consumer can get data */
+    sem_t  mutex;            /* mutual exclusion for position */
+    sem_t  empty;            /* tell wether the data buf is empty */
+    sem_t  full;             /* tell wether the data buf is full */
+    char   data[MSGBUFSIZE]; /* assume ~64K for a tuple is enough */
+};
+
+class KVCircularQueueChannel : public KVChannel
+{
+  public:
+    KVCircularQueueChannel(KVRelationId rid, const char* tag, bool create);
+    ~KVCircularQueueChannel();
+
+    void Send(KVMessage const& msg);
+    void Recv(KVMessage& msg, int flag);
+    void Read(uint64 *offset, char *str, uint64 size);
+    void Write(uint64 *offset, char *str, uint64 size);
+    void Terminate();
+
+  private:
+    char name[MAXPATHLENGTH];
+    bool create;
+    volatile bool running;
+    volatile KVCircularQueueData* channel;
+};
+
+/*
+ * KV Simple Queue Defines
+ */
+
+struct KVSimpleQueueData
+{
+    uint64 getPos;           /* the position consumer can get data */
+    sem_t  mutex;            /* mutual exclusion for response */
+    sem_t  ready;            /* tell wether response is ready */
+    char   data[MSGBUFSIZE]; /* assume ~64K for a tuple is enough */
+};
+
+class KVSimpleQueueChannel : public KVChannel
+{
+  public:
+    KVSimpleQueueChannel(KVRelationId rid, const char* tag, bool create);
+    ~KVSimpleQueueChannel();
+
+    void Send(KVMessage const& msg);
+    void Recv(KVMessage& msg, int flag);
+    void Read(uint64 *offset, char *str, uint64 size);
+    void Write(uint64 *offset, char *str, uint64 size);
+    void Terminate() {};
+    bool Lease();
+    void Unlease();
+
+  private:
+    char name[MAXPATHLENGTH];
+    bool create;
+    volatile KVSimpleQueueData* channel;
+};
+
+/*
+ * KV Ctrl Queue Defines
+ */
+
+typedef enum
+{
+    WorkerReady = 0,
+} KVCtrlType;
+
+struct KVCtrlData
+{
+    sem_t workerReady; /* tell wether kv worker is ready */
+};
+
+class KVCtrlChannel
+{
+  public:
+    KVCtrlChannel(KVRelationId rid, const char* tag, bool create);
+    ~KVCtrlChannel();
+
+    void Wait(KVCtrlType type);
+    void Notify(KVCtrlType type);
+
+  private:
+    char name[MAXPATHLENGTH];
+    bool create;
+    volatile KVCtrlData* channel;
+};
+
+/*
+ * KV Message Queue Defines
+ */
+
+class KVMessageQueue
+{
+  public:
     KVMessageQueue(KVRelationId rid, const char* name, bool isServer);
     ~KVMessageQueue();
-};
 
-/*
- * KV Connection wraps storage API
- */
+    void   Send(KVMessage const& msg);
+    void   Recv(KVMessage& msg) { Recv(msg, MSGHEADER | MSGENTITY); };
+    void   Recv(KVMessage& msg, int flag);
+    void   SendWithResponse(KVMessage& sendmsg, KVMessage& recvmsg);
+    void   Wait(KVCtrlType type);
+    void   Notify(KVCtrlType type);
+    void   UnleaseResponseQueue(uint32 index);
+    uint32 LeaseResponseQueue();
+    void   Terminate();
 
-struct KVConnection
-{
-    void*  db;
-    uint64 ref;
-
-    #ifdef VIDARDB
-    void*  open(char* path, ComparatorOpt* opt, bool useColumn, int attrCount);
-    #else
-    void*  open(char* path, ComparatorOpt* opt);
-    #endif
-    void   close(void* db);
-    uint64 count(void* db);
+  private:
+    KVCtrlChannel* ctrl;
+    KVCircularQueueChannel* request;
+    KVSimpleQueueChannel* response[MSGRESQUEUELENGTH];
+    volatile bool isServer;
 };
 
 /*
  * KV Worker handles requests from kv client
  */
 
-struct KVWorker
+struct KVCursorKey
 {
-    KVMessageQueue* channel;
-    KVConnection*   connection;
-    KVWorkerId      workerId;
-    KVDatabaseId    dbId;
-    volatile bool   running;
+    pid_t      pid;    /* backend pid */
+    KVCursorId cursor;
 
-    void start();
-    void run();
-    void stop();
-    void open(KVWorkerId const& workerId, KVMessage& msg);
-    void terminate(KVWorkerId const& workerId);
-
-    KVWorker(KVWorkerId workerId, KVDatabaseId dbId);
-    ~KVWorker();
+    bool operator==(const KVCursorKey& key) const
+    {
+        return pid == key.pid && cursor == key.cursor;
+    }
 };
 
-struct KVWorkerClient
+#ifdef VIDARDB
+struct KVRangeQueryEntry
 {
+    void* readOpts;
+    void* range;
+};
+#endif
+
+struct KVCursorKeyHashFunc
+{
+    size_t operator()(const KVCursorKey& key) const
+    {
+        return (std::hash<pid_t>()(key.pid)) ^
+               (std::hash<KVCursorId>()(key.cursor));
+    }
+};
+
+class KVWorker
+{
+  public:
+    KVWorker(KVWorkerId workerId, KVDatabaseId dbId);
+    ~KVWorker();
+
+    void Start();
+    void Run();
+    void Stop();
+    void Open(KVWorkerId const& workerId, KVMessage& msg);
+    void Put(KVWorkerId const& workerId, KVMessage& msg);
+    void Delete(KVWorkerId const& workerId, KVMessage& msg);
+    void Load(KVWorkerId const& workerId, KVMessage& msg);
+    void Get(KVWorkerId const& workerId, KVMessage& msg);
+    void Close(KVWorkerId const& workerId, KVMessage& msg);
+    void Count(KVWorkerId const& workerId, KVMessage& msg);
+    void Terminate(KVWorkerId const& workerId, KVMessage& msg);
+    void ReadBatch(KVWorkerId const& workerId, KVMessage& msg);
+    void CloseCursor(KVWorkerId const& workerId, KVMessage& msg);
+    #ifdef VIDARDB
+    void RangeQuery(KVWorkerId const& workerId, KVMessage& msg);
+    void ClearRangeQuery(KVWorkerId const& workerId, KVMessage& msg);
+    #endif
+
+  private:
+    std::unordered_map<KVCursorKey, void*, KVCursorKeyHashFunc> cursors;
+    #ifdef VIDARDB
+    std::unordered_map<KVCursorKey, KVRangeQueryEntry, KVCursorKeyHashFunc> ranges;
+    #endif
     KVMessageQueue* channel;
+    KVWorkerId workerId;
+    KVDatabaseId dbId;
+    volatile bool running;
+    void* conn;
+    uint64 ref;
+};
 
-    bool open(KVWorkerId const& workerId, OpenArgs* args);
-    void terminate(KVWorkerId const& workerId);
-
+class KVWorkerClient
+{
+  public:
     KVWorkerClient(KVWorkerId workerId);
     ~KVWorkerClient();
+
+    bool   Open(KVWorkerId const& workerId, OpenArgs* args);
+    bool   Put(KVWorkerId const& workerId, PutArgs* args);
+    bool   Delete(KVWorkerId const& workerId, DeleteArgs* args);
+    void   Load(KVWorkerId const& workerId, PutArgs* args);
+    bool   Get(KVWorkerId const& workerId, GetArgs* args);
+    bool   Close(KVWorkerId const& workerId);
+    void   Terminate(KVWorkerId const& workerId);
+    bool   ReadBatch(KVWorkerId const& workerId, ReadBatchArgs* args);
+    bool   CloseCursor(KVWorkerId const& workerId, DelCursorArgs* args);
+    #ifdef VIDARDB
+    bool   RangeQuery(KVWorkerId const& workerId, RangeQueryArgs* args);
+    void   ClearRangeQuery(KVWorkerId const& workerId, RangeQueryArgs* args);
+    #endif
+    uint64 Count(KVWorkerId const& workerId);
+
+  private:
+    KVMessageQueue* channel;
 };
 
 struct KVWorkerHandle
 {
     KVWorkerId      workerId;
+    KVDatabaseId    dbId;
     KVWorkerClient* client;
     void*           handle;
 
-    KVWorkerHandle(KVWorkerId workerId, KVWorkerClient* client, void* handle) :
-        workerId(workerId), client(client), handle(handle) {};
+    KVWorkerHandle(KVWorkerId workerId, KVDatabaseId dbId,
+        KVWorkerClient* client, void* handle) :
+        workerId(workerId), dbId(dbId), client(client), handle(handle) {};
     ~KVWorkerHandle();
 };
 
@@ -212,52 +317,50 @@ struct KVWorkerHandle
  * KV Manager manages the lifecycle of kv workers
  */
 
-struct KVManager
+class KVManager
 {
-    map<KVWorkerId, KVWorkerHandle*> workers;
-    KVMessageQueue*                  channel;
-    volatile bool                    running;
-
-    void start();
-    void run();
-    void stop();
-    void launch(KVWorkerId const& workerId, KVMessage const& msg);
-    void terminate(KVWorkerId const& workerId, KVMessage const& msg);
-
+  public:
     KVManager();
     ~KVManager();
+
+    void Start();
+    void Run();
+    void Stop();
+    void Launch(KVWorkerId const& workerId, KVMessage const& msg);
+    void Terminate(KVWorkerId const& workerId, KVMessage const& msg);
+
+  private:
+    std::unordered_map<KVWorkerId, KVWorkerHandle*> workers;
+    KVMessageQueue* channel;
+    volatile bool running;
 };
 
-struct KVManagerClient
+class KVManagerClient
 {
-    KVMessageQueue* channel;
-
-    bool launch(KVWorkerId const& workerId);
-    bool terminate(KVWorkerId const& workerId);
-
+  public:
     KVManagerClient();
     ~KVManagerClient();
+
+    bool Launch(KVWorkerId const& workerId);
+    bool Terminate(KVWorkerId const& workerId, KVDatabaseId const& dbId);
+    void Notify(KVCtrlType type);
+
+  private:
+    KVMessageQueue* channel;
 };
 
 /*
  * API for kv message
  */
 
-extern KVMessage SimpleSuccessMessage();
-extern KVMessage SimpleFailureMessage();
-extern KVMessage SimpleSuccessMessageWithChannel(uint32 channel);
-extern KVMessage SimpleFailureMessageWithChannel(uint32 channel);
+extern KVMessage SimpleSuccessMessage(uint32 channel);
+extern KVMessage SimpleFailureMessage(uint32 channel);
 extern KVMessage SimpleMessage(KVOperation op, KVRelationId rid,
-    KVDatabaseId dbId);
-extern KVMessage SimpleMessageWithEntity(KVOperation op, KVRelationId rid,
-    KVDatabaseId dbId, void* entity, uint64 size);
-extern KVMessage SimpleMessageWithEntity(KVOperation op, KVRelationId rid,
-    KVDatabaseId dbId, void* entity, uint64 size, ReadMessageFunc readFunc,
-    WriteMessageFunc writeFunc);
+                               KVDatabaseId dbId);
 
-extern void CommonWriteMessage(CircularQueueChannel* channel, uint64* offset,
-                               void* entity, uint64 size);
-extern void CommonReadMessage(CircularQueueChannel* channel, uint64* offset,
-                              void* entity, uint64 size);
+extern void CommonWriteEntity(void* channel, uint64* offset, void* entity,
+                              uint64 size);
+extern void CommonReadEntity(void* channel, uint64* offset, void* entity,
+                             uint64 size);
 
 #endif

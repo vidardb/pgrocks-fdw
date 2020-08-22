@@ -1,3 +1,17 @@
+/* Copyright 2019 VidarDB Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 #ifndef KV_POSIX_H_
 #define KV_POSIX_H_
@@ -28,7 +42,6 @@ extern void PthreadSetCancelState(int __state, int *__oldstate, const char *fun)
 
 extern void PthreadSetCancelType(int __type, int *__oldtype, const char *fun);
 
-
 /*
  * SharedMemory
  */
@@ -38,7 +51,6 @@ extern int ShmOpen(const char *__name,
                    const char *fun);
 
 extern void ShmUnlink(const char *__name, const char *fun);
-
 
 /*
  * MemoryMapped
@@ -53,14 +65,12 @@ extern void *Mmap(void *__addr,
 
 extern void Munmap(void *__addr, size_t __len, const char *fun);
 
-
 /*
  * File OPs
  */
 extern void Ftruncate(int __fd, off_t __length, const char *fun);
 
 extern void Fclose(int __fd, const char *fun);
-
 
 /*
  * Semaphore

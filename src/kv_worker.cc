@@ -409,10 +409,15 @@ KVWorkerClient::ClearRangeQuery(KVWorkerId const& workerId, RangeQueryArgs* args
 }
 #endif
 
-KVWorker::KVWorker(KVWorkerId workerId, KVDatabaseId dbId) :
-    workerId(workerId), dbId(dbId)
+KVWorker::KVWorker(KVWorkerId workerId, KVDatabaseId dbId) : workerId(workerId),
+    dbId(dbId), running(false), conn(NULL), ref(0)
 {
     channel = new KVMessageQueue(workerId, WORKER, true);
+
+    cursors.clear();
+    #ifdef VIDARDB
+    ranges.clear();
+    #endif
 }
 
 KVWorker::~KVWorker()
@@ -874,13 +879,17 @@ void
 StartKVWorker(KVWorkerId workerId, KVDatabaseId dbId)
 {
     KVWorker* worker = new KVWorker(workerId, dbId);
-    worker->Start();
-
-    /* notify kv worker be ready */
     KVManagerClient* manager = new KVManagerClient();
+
+    worker->Start();
+    /* notify ready event */
     manager->Notify(WorkerReady);
-    delete manager;
 
     worker->Run();
+
+    /* notify destroyed event */
+    manager->Notify(WorkerDesty);
+
     delete worker;
+    delete manager;
 }

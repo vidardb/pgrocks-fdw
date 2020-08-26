@@ -157,11 +157,13 @@ class KVSimpleQueueChannel : public KVChannel
 typedef enum
 {
     WorkerReady = 0,
+    WorkerDesty,
 } KVCtrlType;
 
 struct KVCtrlData
 {
     sem_t workerReady; /* tell wether kv worker is ready */
+    sem_t workerDesty; /* tell wether kv worker is destroyed */
 };
 
 class KVCtrlChannel
@@ -212,7 +214,7 @@ class KVMessageQueue
 
 struct KVCursorKey
 {
-    pid_t      pid;    /* backend pid */
+    pid_t      pid;    /* backend process pid */
     KVCursorId cursor;
 
     bool operator==(const KVCursorKey& key) const

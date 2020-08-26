@@ -392,6 +392,7 @@ KVCtrlChannel::KVCtrlChannel(KVRelationId rid, const char* tag, bool create) :
     Fclose(fd, __func__);
 
     SemInit(&channel->workerReady, 1, 0, __func__);
+    SemInit(&channel->workerDesty, 1, 0, __func__);
 }
 
 KVCtrlChannel::~KVCtrlChannel()
@@ -403,6 +404,7 @@ KVCtrlChannel::~KVCtrlChannel()
     }
 
     SemDestroy(&channel->workerReady, __func__);
+    SemDestroy(&channel->workerDesty, __func__);
     Munmap((void*) channel, sizeof(*channel), __func__);
     ShmUnlink(name, __func__);
 }
@@ -415,6 +417,9 @@ KVCtrlChannel::Wait(KVCtrlType type)
         case WorkerReady:
             SemWait(&channel->workerReady, __func__);
             break;
+        case WorkerDesty:
+            SemWait(&channel->workerDesty, __func__);
+            break;
     }
 }
 
@@ -425,6 +430,9 @@ KVCtrlChannel::Notify(KVCtrlType type)
     {
         case WorkerReady:
             SemPost(&channel->workerReady, __func__);
+            break;
+        case WorkerDesty:
+            SemPost(&channel->workerDesty, __func__);
             break;
     }
 }

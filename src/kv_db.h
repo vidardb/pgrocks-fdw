@@ -226,8 +226,8 @@ struct KVCursorKey
 #ifdef VIDARDB
 struct KVRangeQueryEntry
 {
-    void* readOpts;
-    void* range;
+    void* readOpts = NULL;
+    void* range    = NULL;
 };
 #endif
 

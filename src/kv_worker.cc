@@ -520,7 +520,7 @@ KVWorker::Open(KVWorkerId const& workerId, KVMessage& msg)
     else
     {
         #ifdef VIDARDB
-        conn = OpenConn(args.path, &args.opts, args.useColumn, args.attrCount);
+        conn = OpenConn(args.path, args.useColumn, args.attrCount, &args.opts);
         #else
         conn = OpenConn(args.path, &args.opts);
         #endif
@@ -757,8 +757,12 @@ KVWorker::RangeQuery(KVWorkerId const& workerId, KVMessage& msg)
     channel->Recv(msg, MSGENTITY);
 
     KVCursorKey key;
-    key.pid = *((pid_t*) buf);
-    key.cursor = *((KVCursorId*) (buf + sizeof(key.pid)));
+    char* current = buf;
+
+    key.pid = *((pid_t*) current);
+    current += sizeof(key.pid);
+    key.cursor = *((KVCursorId*) current);
+    current += sizeof(key.cursor);
 
     KVRangeQueryEntry entry;
     std::unordered_map<KVCursorKey, KVRangeQueryEntry, KVCursorKeyHashFunc>::iterator it;
@@ -767,7 +771,6 @@ KVWorker::RangeQuery(KVWorkerId const& workerId, KVMessage& msg)
     {
         RangeQueryOpts opts;
 
-        char* current = buf + sizeof(key);
         opts.startLen = *((uint64*) current);
         current += sizeof(opts.startLen);
 
@@ -812,7 +815,7 @@ KVWorker::RangeQuery(KVWorkerId const& workerId, KVMessage& msg)
 
     do
     {
-        state.next = RangeQueryRead(entry.range, &entry.readOpts,
+        state.next = RangeQueryRead(conn, entry.range, &entry.readOpts,
                                     &state.size, &result);
     } while (state.next && state.size == 0);
 

@@ -279,23 +279,15 @@ GetKeyBasedQual(Node *node, ForeignScanState *scanState,
     ReleaseSysCache(opertup);
 
     Datum datum;
-    Oid type;
 
     if (IsA(right, Const)) {
         Const *constNode = (Const *) right;
-        type = constNode->consttype;
         datum = constNode->constvalue;
     } else {
         Param *paramNode = (Param *) right;
-        type = paramNode->paramtype;
         ParamListInfo paramListInfo = scanState->ss.ps.state->es_param_list_info;
         datum = paramListInfo->params[paramNode->paramid-1].value;
     }
-
-    TypeCacheEntry *typeEntry = lookup_type_cache(type, 0);
-
-    /* constant gets varlena with 4B header, same with copy uility */
-    datum = ShortVarlena(datum, typeEntry->typlen, typeEntry->typstorage);
 
     /*
      * We can push down this qual if:

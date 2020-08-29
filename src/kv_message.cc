@@ -34,47 +34,47 @@ GetKVMessageSize(KVMessage const& msg)
 }
 
 KVCircularQueueChannel::KVCircularQueueChannel(KVRelationId rid, const char* tag,
-    bool create) : create(create), running(true)
+    bool create) : create_(create), running_(true)
 {
-    StringFormat(name, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
+    StringFormat(name_, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
 
     if (!create)
     {
-        int fd = ShmOpen(name, O_RDWR, 0777, __func__);
-        channel = (volatile KVCircularQueueData*) Mmap(NULL,
+        int fd = ShmOpen(name_, O_RDWR, 0777, __func__);
+        channel_ = (volatile KVCircularQueueData*) Mmap(NULL,
             sizeof(KVCircularQueueData), PROT_READ | PROT_WRITE, MAP_SHARED,
             fd, 0, __func__);
         Fclose(fd, __func__);
         return;
     }
 
-    ShmUnlink(name, __func__);
-    int fd = ShmOpen(name, O_CREAT | O_RDWR, 0777, __func__);
+    ShmUnlink(name_, __func__);
+    int fd = ShmOpen(name_, O_CREAT | O_RDWR, 0777, __func__);
     Ftruncate(fd, sizeof(KVCircularQueueData), __func__);
-    channel = (volatile KVCircularQueueData*) Mmap(NULL,
+    channel_ = (volatile KVCircularQueueData*) Mmap(NULL,
         sizeof(KVCircularQueueData), PROT_READ | PROT_WRITE, MAP_SHARED,
         fd, 0, __func__);
     Fclose(fd, __func__);
 
-    channel->getPos = channel->putPos = 0;
-    SemInit(&channel->mutex, 1, 1, __func__);
-    SemInit(&channel->empty, 1, 0, __func__);
-    SemInit(&channel->full, 1, 0, __func__);
+    channel_->getPos = channel_->putPos = 0;
+    SemInit(&channel_->mutex, 1, 1, __func__);
+    SemInit(&channel_->empty, 1, 0, __func__);
+    SemInit(&channel_->full, 1, 0, __func__);
 }
 
 KVCircularQueueChannel::~KVCircularQueueChannel()
 {
-    if (!create)
+    if (!create_)
     {
-        Munmap((void*) channel, sizeof(*channel), __func__);
+        Munmap((void*) channel_, sizeof(*channel_), __func__);
         return;
     }
 
-    SemDestroy(&channel->mutex, __func__);
-    SemDestroy(&channel->empty, __func__);
-    SemDestroy(&channel->full, __func__);
-    Munmap((void*) channel, sizeof(*channel), __func__);
-    ShmUnlink(name, __func__);
+    SemDestroy(&channel_->mutex, __func__);
+    SemDestroy(&channel_->empty, __func__);
+    SemDestroy(&channel_->full, __func__);
+    Munmap((void*) channel_, sizeof(*channel_), __func__);
+    ShmUnlink(name_, __func__);
 }
 
 void
@@ -86,16 +86,16 @@ KVCircularQueueChannel::Send(KVMessage const& msg)
     {
         uint64 empty = 0;
 
-        SemWait(&channel->mutex, __func__);
-        if (channel->getPos > channel->putPos)
+        SemWait(&channel_->mutex, __func__);
+        if (channel_->getPos > channel_->putPos)
         {
-            empty = channel->getPos - channel->putPos;
+            empty = channel_->getPos - channel_->putPos;
         }
         else
         {
-            empty = MSGBUFSIZE - (channel->putPos - channel->getPos);
+            empty = MSGBUFSIZE - (channel_->putPos - channel_->getPos);
         }
-        SemPost(&channel->mutex, __func__);
+        SemPost(&channel_->mutex, __func__);
 
         /*
          * reserve an empty slot to avoid that the putPos offset is equal to
@@ -104,7 +104,7 @@ KVCircularQueueChannel::Send(KVMessage const& msg)
          */
         if (empty < size + 1)
         {
-            SemWait(&channel->full, __func__);
+            SemWait(&channel_->full, __func__);
             /*
              * maybe the empty slots is still not enough even if has read
              * some small tuples, so re-check is necessary
@@ -116,17 +116,17 @@ KVCircularQueueChannel::Send(KVMessage const& msg)
         }
     }
 
-    uint64 offset = channel->putPos; /* current write position */
+    uint64 offset = channel_->putPos; /* current write position */
     Write(&offset, (char*) &(msg.hdr), sizeof(msg.hdr));
     if (msg.writeFunc)
     {
         (*msg.writeFunc) (this, &offset, msg.bdy, msg.hdr.bdySize);
     }
 
-    SemWait(&channel->mutex, __func__);
-    channel->putPos = offset;
-    SemPost(&channel->mutex, __func__);
-    SemPost(&channel->empty, __func__);
+    SemWait(&channel_->mutex, __func__);
+    channel_->putPos = offset;
+    SemPost(&channel_->mutex, __func__);
+    SemPost(&channel_->empty, __func__);
 }
 
 void
@@ -134,24 +134,24 @@ KVCircularQueueChannel::Recv(KVMessage& msg, int flag)
 {
     if (flag & MSGDISCARD)
     {
-        SemPost(&channel->full, __func__);
+        SemPost(&channel_->full, __func__);
         return;
     }
 
     while (true)
     {
-        if (!running)
+        if (!running_)
         {
             return;
         }
 
-        SemWait(&channel->mutex, __func__);
-        uint64 delta = channel->putPos - channel->getPos;
-        SemPost(&channel->mutex, __func__);
+        SemWait(&channel_->mutex, __func__);
+        uint64 delta = channel_->putPos - channel_->getPos;
+        SemPost(&channel_->mutex, __func__);
 
         if (delta == 0)
         {
-            SemWait(&channel->empty, __func__);
+            SemWait(&channel_->empty, __func__);
         }
         else
         {
@@ -159,7 +159,7 @@ KVCircularQueueChannel::Recv(KVMessage& msg, int flag)
         }
     }
 
-    uint64 offset = channel->getPos; /* current read position */
+    uint64 offset = channel_->getPos; /* current read position */
     if (flag & MSGHEADER)
     {
         Read(&offset, (char*) &(msg.hdr), sizeof(msg.hdr));
@@ -169,22 +169,22 @@ KVCircularQueueChannel::Recv(KVMessage& msg, int flag)
         (*msg.readFunc) (this, &offset, msg.bdy, msg.hdr.bdySize);
     }
 
-    SemWait(&channel->mutex, __func__);
-    channel->getPos = offset;
-    SemPost(&channel->mutex, __func__);
+    SemWait(&channel_->mutex, __func__);
+    channel_->getPos = offset;
+    SemPost(&channel_->mutex, __func__);
 
     if (flag & MSGENTITY)
     {
-        SemPost(&channel->full, __func__);
+        SemPost(&channel_->full, __func__);
     }
 }
 
 void
 KVCircularQueueChannel::Terminate()
 {
-    running = false;
+    running_ = false;
 
-    SemPost(&channel->empty, __func__);
+    SemPost(&channel_->empty, __func__);
 }
 
 void
@@ -195,13 +195,13 @@ KVCircularQueueChannel::Read(uint64 *offset, char *str, uint64 size)
         return;
     }
 
-    volatile char* getPos = channel->data + *offset;
+    volatile char* getPos = channel_->data + *offset;
     uint64 delta = MSGBUFSIZE - *offset;
 
     if (delta < size)
     {
         memcpy(str, (char*) getPos, delta);
-        getPos = channel->data;
+        getPos = channel_->data;
         *offset = 0;
         str += delta;
 
@@ -228,13 +228,13 @@ KVCircularQueueChannel::Write(uint64 *offset, char *str, uint64 size)
         return;
     }
 
-    volatile char* putPos = channel->data + *offset;
+    volatile char* putPos = channel_->data + *offset;
     uint64 delta = MSGBUFSIZE - *offset;
 
     if (size > delta)
     {
         memcpy((char*) putPos, str, delta);
-        putPos = channel->data;
+        putPos = channel_->data;
         *offset = 0;
         str += delta;
 
@@ -254,44 +254,44 @@ KVCircularQueueChannel::Write(uint64 *offset, char *str, uint64 size)
 }
 
 KVSimpleQueueChannel::KVSimpleQueueChannel(KVRelationId rid, const char* tag,
-    bool create) : create(create)
+    bool create) : create_(create)
 {
-    StringFormat(name, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
+    StringFormat(name_, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
 
     if (!create)
     {
-        int fd = ShmOpen(name, O_RDWR, 0777, __func__);
-        channel = (volatile KVSimpleQueueData*) Mmap(NULL,
+        int fd = ShmOpen(name_, O_RDWR, 0777, __func__);
+        channel_ = (volatile KVSimpleQueueData*) Mmap(NULL,
             sizeof(KVSimpleQueueData), PROT_READ | PROT_WRITE, MAP_SHARED,
             fd, 0, __func__);
         Fclose(fd, __func__);
         return;
     }
 
-    ShmUnlink(name, __func__);
-    int fd = ShmOpen(name, O_CREAT | O_RDWR, 0777, __func__);
+    ShmUnlink(name_, __func__);
+    int fd = ShmOpen(name_, O_CREAT | O_RDWR, 0777, __func__);
     Ftruncate(fd, sizeof(KVSimpleQueueData), __func__);
-    channel = (volatile KVSimpleQueueData*) Mmap(NULL,
+    channel_ = (volatile KVSimpleQueueData*) Mmap(NULL,
         sizeof(KVSimpleQueueData), PROT_READ | PROT_WRITE, MAP_SHARED,
         fd, 0, __func__);
     Fclose(fd, __func__);
 
-    SemInit(&channel->mutex, 1, 1, __func__);
-    SemInit(&channel->ready, 1, 0, __func__);
+    SemInit(&channel_->mutex, 1, 1, __func__);
+    SemInit(&channel_->ready, 1, 0, __func__);
 }
 
 KVSimpleQueueChannel::~KVSimpleQueueChannel()
 {
-    if (!create)
+    if (!create_)
     {
-        Munmap((void*) channel, sizeof(*channel), __func__);
+        Munmap((void*) channel_, sizeof(*channel_), __func__);
         return;
     }
 
-    SemDestroy(&channel->mutex, __func__);
-    SemDestroy(&channel->ready, __func__);
-    Munmap((void*) channel, sizeof(*channel), __func__);
-    ShmUnlink(name, __func__);
+    SemDestroy(&channel_->mutex, __func__);
+    SemDestroy(&channel_->ready, __func__);
+    Munmap((void*) channel_, sizeof(*channel_), __func__);
+    ShmUnlink(name_, __func__);
 }
 
 void
@@ -306,7 +306,7 @@ KVSimpleQueueChannel::Send(KVMessage const& msg)
         (*msg.writeFunc) (this, &offset, msg.bdy, msg.hdr.bdySize);
     }
 
-    SemPost(&channel->ready, __func__);
+    SemPost(&channel_->ready, __func__);
 }
 
 void
@@ -316,16 +316,16 @@ KVSimpleQueueChannel::Recv(KVMessage& msg, int flag)
 
     if (flag & MSGHEADER)
     {
-        SemWait(&channel->ready, __func__);
+        SemWait(&channel_->ready, __func__);
 
         Read(&offset, (char*) &(msg.hdr), sizeof(msg.hdr));
 
-        channel->getPos = offset;
+        channel_->getPos = offset;
     }
 
     if ((flag & MSGENTITY) && msg.readFunc)
     {
-        offset = channel->getPos;
+        offset = channel_->getPos;
 
         (*msg.readFunc) (this, &offset, msg.bdy, msg.hdr.bdySize);
     }
@@ -339,7 +339,7 @@ KVSimpleQueueChannel::Read(uint64 *offset, char *str, uint64 size)
         return;
     }
 
-    volatile char* getPos = channel->data + *offset;
+    volatile char* getPos = channel_->data + *offset;
     memcpy(str, (char*) getPos, size);
     (*offset) += size;
 }
@@ -352,7 +352,7 @@ KVSimpleQueueChannel::Write(uint64 *offset, char *str, uint64 size)
         return;
     }
 
-    volatile char* putPos = channel->data + *offset;
+    volatile char* putPos = channel_->data + *offset;
     memcpy((char*) putPos, str, size);
     (*offset) += size;
 }
@@ -360,53 +360,53 @@ KVSimpleQueueChannel::Write(uint64 *offset, char *str, uint64 size)
 bool
 KVSimpleQueueChannel::Lease()
 {
-    return SemTryWait(&channel->mutex, __func__) == 0;
+    return SemTryWait(&channel_->mutex, __func__) == 0;
 }
 
 void
 KVSimpleQueueChannel::Unlease()
 {
-    SemPost(&channel->mutex, __func__);
+    SemPost(&channel_->mutex, __func__);
 }
 
 KVCtrlChannel::KVCtrlChannel(KVRelationId rid, const char* tag, bool create) :
-    create(create)
+    create_(create)
 {
-    StringFormat(name, MAXPATHLENGTH, "%s%s%s%u", MSGPATHPREFIX, tag,
+    StringFormat(name_, MAXPATHLENGTH, "%s%s%s%u", MSGPATHPREFIX, tag,
         CRLCHANNEL, rid);
 
     if (!create)
     {
-        int fd = ShmOpen(name, O_RDWR, 0777, __func__);
-        channel = (volatile KVCtrlData*) Mmap(NULL, sizeof(KVCtrlData),
+        int fd = ShmOpen(name_, O_RDWR, 0777, __func__);
+        channel_ = (volatile KVCtrlData*) Mmap(NULL, sizeof(KVCtrlData),
             PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0, __func__);
         Fclose(fd, __func__);
         return;
     }
 
-    ShmUnlink(name, __func__);
-    int fd = ShmOpen(name, O_CREAT | O_RDWR, 0777, __func__);
+    ShmUnlink(name_, __func__);
+    int fd = ShmOpen(name_, O_CREAT | O_RDWR, 0777, __func__);
     Ftruncate(fd, sizeof(KVCtrlData), __func__);
-    channel = (volatile KVCtrlData*) Mmap(NULL, sizeof(KVCtrlData),
+    channel_ = (volatile KVCtrlData*) Mmap(NULL, sizeof(KVCtrlData),
         PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0, __func__);
     Fclose(fd, __func__);
 
-    SemInit(&channel->workerReady, 1, 0, __func__);
-    SemInit(&channel->workerDesty, 1, 0, __func__);
+    SemInit(&channel_->workerReady, 1, 0, __func__);
+    SemInit(&channel_->workerDesty, 1, 0, __func__);
 }
 
 KVCtrlChannel::~KVCtrlChannel()
 {
-    if (!create)
+    if (!create_)
     {
-        Munmap((void*) channel, sizeof(*channel), __func__);
+        Munmap((void*) channel_, sizeof(*channel_), __func__);
         return;
     }
 
-    SemDestroy(&channel->workerReady, __func__);
-    SemDestroy(&channel->workerDesty, __func__);
-    Munmap((void*) channel, sizeof(*channel), __func__);
-    ShmUnlink(name, __func__);
+    SemDestroy(&channel_->workerReady, __func__);
+    SemDestroy(&channel_->workerDesty, __func__);
+    Munmap((void*) channel_, sizeof(*channel_), __func__);
+    ShmUnlink(name_, __func__);
 }
 
 void
@@ -415,10 +415,10 @@ KVCtrlChannel::Wait(KVCtrlType type)
     switch (type)
     {
         case WorkerReady:
-            SemWait(&channel->workerReady, __func__);
+            SemWait(&channel_->workerReady, __func__);
             break;
         case WorkerDesty:
-            SemWait(&channel->workerDesty, __func__);
+            SemWait(&channel_->workerDesty, __func__);
             break;
     }
 }
@@ -429,39 +429,39 @@ KVCtrlChannel::Notify(KVCtrlType type)
     switch (type)
     {
         case WorkerReady:
-            SemPost(&channel->workerReady, __func__);
+            SemPost(&channel_->workerReady, __func__);
             break;
         case WorkerDesty:
-            SemPost(&channel->workerDesty, __func__);
+            SemPost(&channel_->workerDesty, __func__);
             break;
     }
 }
 
 KVMessageQueue::KVMessageQueue(KVRelationId rid, const char* name,
-    bool isServer) : isServer(isServer)
+    bool isServer) : isServer_(isServer)
 {
     char temp[MAXPATHLENGTH];
 
-    ctrl = new KVCtrlChannel(rid, name, isServer);
+    ctrl_ = new KVCtrlChannel(rid, name, isServer);
     StringFormat(temp, MAXPATHLENGTH, "%s%s", name, REQCHANNEL);
-    request = new KVCircularQueueChannel(rid, temp, isServer);
+    request_ = new KVCircularQueueChannel(rid, temp, isServer);
     for (uint32 i = 0; i < MSGRESQUEUELENGTH; i++)
     {
         StringFormat(temp, MAXPATHLENGTH, "%s%s%d", name, RESCHANNEL, i);
-        response[i] = new KVSimpleQueueChannel(rid, temp, isServer);
+        response_[i] = new KVSimpleQueueChannel(rid, temp, isServer);
     }
 }
 
 KVMessageQueue::~KVMessageQueue()
 {
-    delete request;
+    delete request_;
 
     for (uint32 i = 0; i < MSGRESQUEUELENGTH; i++)
     {
-        delete response[i];
+        delete response_[i];
     }
 
-    delete ctrl;
+    delete ctrl_;
 }
 
 void
@@ -469,7 +469,7 @@ KVMessageQueue::Send(KVMessage const& msg)
 {
     KVChannel* channel = NULL;
 
-    if (isServer)
+    if (isServer_)
     {
         if (msg.hdr.resChan == 0)
         {
@@ -477,11 +477,11 @@ KVMessageQueue::Send(KVMessage const& msg)
             return;
         }
         
-        channel = response[msg.hdr.resChan - 1];
+        channel = response_[msg.hdr.resChan - 1];
     }
     else
     {
-        channel = request;
+        channel = request_;
     }
 
     channel->Send(msg);
@@ -506,9 +506,9 @@ KVMessageQueue::Recv(KVMessage& msg, int flag)
 {
     KVChannel* channel = NULL;
 
-    if (isServer)
+    if (isServer_)
     {
-        channel = request;
+        channel = request_;
     }
     else
     {
@@ -518,7 +518,7 @@ KVMessageQueue::Recv(KVMessage& msg, int flag)
             return;
         }
         
-        channel = response[msg.hdr.resChan - 1];
+        channel = response_[msg.hdr.resChan - 1];
     }
 
     channel->Recv(msg, flag);
@@ -527,11 +527,11 @@ KVMessageQueue::Recv(KVMessage& msg, int flag)
 void
 KVMessageQueue::Terminate()
 {
-    request->Terminate();
+    request_->Terminate();
 
     for (uint32 i = 0; i < MSGRESQUEUELENGTH; i++)
     {
-        response[i]->Terminate();
+        response_[i]->Terminate();
     }
 }
 
@@ -542,7 +542,7 @@ KVMessageQueue::LeaseResponseQueue()
     {
         for (uint32 i = 0; i < MSGRESQUEUELENGTH; i++)
         {
-            if (response[i]->Lease())
+            if (response_[i]->Lease())
             {
                 return i + 1;
             }
@@ -553,19 +553,19 @@ KVMessageQueue::LeaseResponseQueue()
 void
 KVMessageQueue::UnleaseResponseQueue(uint32 index)
 {
-    response[index-1]->Unlease();
+    response_[index-1]->Unlease();
 }
 
 void 
 KVMessageQueue::Wait(KVCtrlType type)
 {
-    ctrl->Wait(type);
+    ctrl_->Wait(type);
 }
 
 void
 KVMessageQueue::Notify(KVCtrlType type)
 {
-    ctrl->Notify(type);
+    ctrl_->Notify(type);
 }
 
 /*

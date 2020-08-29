@@ -112,10 +112,10 @@ class KVCircularQueueChannel : public KVChannel
     void Terminate();
 
   private:
-    char name[MAXPATHLENGTH];
-    bool create;
-    volatile bool running;
-    volatile KVCircularQueueData* channel;
+    char name_[MAXPATHLENGTH];
+    bool create_;
+    volatile bool running_;
+    volatile KVCircularQueueData* channel_;
 };
 
 /*
@@ -145,9 +145,9 @@ class KVSimpleQueueChannel : public KVChannel
     void Unlease();
 
   private:
-    char name[MAXPATHLENGTH];
-    bool create;
-    volatile KVSimpleQueueData* channel;
+    char name_[MAXPATHLENGTH];
+    bool create_;
+    volatile KVSimpleQueueData* channel_;
 };
 
 /*
@@ -176,9 +176,9 @@ class KVCtrlChannel
     void Notify(KVCtrlType type);
 
   private:
-    char name[MAXPATHLENGTH];
-    bool create;
-    volatile KVCtrlData* channel;
+    char name_[MAXPATHLENGTH];
+    bool create_;
+    volatile KVCtrlData* channel_;
 };
 
 /*
@@ -202,10 +202,10 @@ class KVMessageQueue
     void   Terminate();
 
   private:
-    KVCtrlChannel* ctrl;
-    KVCircularQueueChannel* request;
-    KVSimpleQueueChannel* response[MSGRESQUEUELENGTH];
-    volatile bool isServer;
+    KVCtrlChannel* ctrl_;
+    KVCircularQueueChannel* request_;
+    KVSimpleQueueChannel* response_[MSGRESQUEUELENGTH];
+    volatile bool isServer_;
 };
 
 /*
@@ -265,16 +265,15 @@ class KVWorker
     #endif
 
   private:
-    std::unordered_map<KVCursorKey, void*, KVCursorKeyHashFunc> cursors;
+    std::unordered_map<KVCursorKey, void*, KVCursorKeyHashFunc> cursors_;
     #ifdef VIDARDB
-    std::unordered_map<KVCursorKey, KVRangeQueryEntry, KVCursorKeyHashFunc> ranges;
+    std::unordered_map<KVCursorKey, KVRangeQueryEntry, KVCursorKeyHashFunc> ranges_;
     #endif
-    KVMessageQueue* channel;
-    KVWorkerId workerId;
-    KVDatabaseId dbId;
-    volatile bool running;
-    void* conn;
-    uint64 ref;
+    KVMessageQueue* channel_;
+    KVWorkerId workerId_;
+    volatile bool running_;
+    void* conn_;
+    uint64 ref_;
 };
 
 class KVWorkerClient
@@ -299,7 +298,7 @@ class KVWorkerClient
     uint64 Count(KVWorkerId const& workerId);
 
   private:
-    KVMessageQueue* channel;
+    KVMessageQueue* channel_;
 };
 
 struct KVWorkerHandle
@@ -332,9 +331,9 @@ class KVManager
     void Terminate(KVWorkerId const& workerId, KVMessage const& msg);
 
   private:
-    std::unordered_map<KVWorkerId, KVWorkerHandle*> workers;
-    KVMessageQueue* channel;
-    volatile bool running;
+    std::unordered_map<KVWorkerId, KVWorkerHandle*> workers_;
+    KVMessageQueue* channel_;
+    volatile bool running_;
 };
 
 class KVManagerClient
@@ -348,7 +347,7 @@ class KVManagerClient
     void Notify(KVCtrlType type);
 
   private:
-    KVMessageQueue* channel;
+    KVMessageQueue* channel_;
 };
 
 /*

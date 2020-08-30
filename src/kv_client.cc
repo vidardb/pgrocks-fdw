@@ -61,18 +61,18 @@ GetKVWorkerClient(KVWorkerId workerId)
     return NULL;
 }
 
-bool
+void
 KVOpenRequest(KVRelationId rid, OpenArgs* args)
 {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
-    return worker->Open(rid, args);
+    worker->Open(rid, args);
 }
 
-bool
+void
 KVCloseRequest(KVRelationId rid)
 {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
-    return worker->Close(rid);
+    worker->Close(rid);
 }
 
 uint64

@@ -129,8 +129,8 @@ typedef struct RangeQueryArgs
  * Communication API between kv client and kv worker
  */
 
-extern bool   KVOpenRequest(KVRelationId rid, OpenArgs* args);
-extern bool   KVCloseRequest(KVRelationId rid);
+extern void   KVOpenRequest(KVRelationId rid, OpenArgs* args);
+extern void   KVCloseRequest(KVRelationId rid);
 extern uint64 KVCountRequest(KVRelationId rid);
 extern bool   KVPutRequest(KVRelationId rid, PutArgs* args);
 extern bool   KVDeleteRequest(KVRelationId rid, DeleteArgs* args);
@@ -165,6 +165,7 @@ extern int   StringFormat(char *str, size_t count, const char *fmt, ...);
 extern void  ErrorReport(int level, int code, const char* msg);
 extern void  SetRelationComparatorOpts(Relation relation, ComparatorOpts *opts);
 extern void* AllocMemory(uint64 size);
+extern void  FreeMemory(void* ptr);
 extern uint8 EncodeVarintLength(uint64 len, char* buf);
 extern uint8 DecodeVarintLength(char* start, char* limit, uint64* len);
 

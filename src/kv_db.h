@@ -282,15 +282,15 @@ class KVWorkerClient
     KVWorkerClient(KVWorkerId workerId);
     ~KVWorkerClient();
 
-    bool   Open(KVWorkerId const& workerId, OpenArgs* args);
+    void   Open(KVWorkerId const& workerId, OpenArgs* args);
     bool   Put(KVWorkerId const& workerId, PutArgs* args);
     bool   Delete(KVWorkerId const& workerId, DeleteArgs* args);
     void   Load(KVWorkerId const& workerId, PutArgs* args);
     bool   Get(KVWorkerId const& workerId, GetArgs* args);
-    bool   Close(KVWorkerId const& workerId);
+    void   Close(KVWorkerId const& workerId);
     void   Terminate(KVWorkerId const& workerId);
     bool   ReadBatch(KVWorkerId const& workerId, ReadBatchArgs* args);
-    bool   CloseCursor(KVWorkerId const& workerId, DelCursorArgs* args);
+    void   CloseCursor(KVWorkerId const& workerId, DelCursorArgs* args);
     #ifdef VIDARDB
     bool   RangeQuery(KVWorkerId const& workerId, RangeQueryArgs* args);
     void   ClearRangeQuery(KVWorkerId const& workerId, RangeQueryArgs* args);

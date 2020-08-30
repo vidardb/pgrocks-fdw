@@ -963,3 +963,8 @@ AllocMemory(uint64 size)
 {
     return palloc0(size);
 }
+
+void FreeMemory(void* ptr)
+{
+    pfree(ptr);
+}

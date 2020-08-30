@@ -19,6 +19,10 @@
 #include "postgres.h"
 #include "miscadmin.h"
 
+/*
+ * In backend process scope
+ */
+
 static KVManagerClient* manager = NULL;
 static std::unordered_map<KVWorkerId, KVWorkerClient*> workers;
 
@@ -119,6 +123,7 @@ KVTerminateRequest(KVRelationId rid, KVDatabaseId dbId)
     }
 
     manager->Terminate(rid, dbId);
+    workers.erase(rid);
 }
 
 bool

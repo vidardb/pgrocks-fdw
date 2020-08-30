@@ -47,8 +47,9 @@ PG_FUNCTION_INFO_V1(kv_fdw_handler);
 PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 /*
- * in backend process
+ * in backend process scope
  */
+
 static uint64 operationId = 0;  /* a SQL might cause multiple scans */
 
 

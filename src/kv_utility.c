@@ -940,6 +940,15 @@ TerminateKVWorker(void* worker)
     pfree(handle);
 }
 
+bool
+CheckKVWorkerAlive(void* worker)
+{
+    pid_t pid;
+    BackgroundWorkerHandle* handle = (BackgroundWorkerHandle*) worker;
+    BgwHandleStatus status = GetBackgroundWorkerPid(handle, &pid);
+    return BGWH_STARTED == status;
+}
+
 int
 StringFormat(char *str, size_t count, const char *fmt, ...)
 {

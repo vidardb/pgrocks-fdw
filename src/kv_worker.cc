@@ -22,7 +22,7 @@
 static const char* WORKER = "Worker";
 
 /*
- * Implementation for kv worker
+ * Implementation for kv worker client
  */
 
 KVWorkerHandle::~KVWorkerHandle()
@@ -399,6 +399,10 @@ KVWorkerClient::ClearRangeQuery(KVWorkerId const& workerId, RangeQueryArgs* args
     channel_->Send(sendmsg);
 }
 #endif
+
+/*
+ * Implementation for kv worker
+ */
 
 KVWorker::KVWorker(KVWorkerId workerId, KVDatabaseId dbId) :
     workerId_(workerId), running_(false), conn_(NULL), ref_(0)

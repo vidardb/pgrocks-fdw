@@ -19,7 +19,7 @@
 #include "kv_posix.h"
 
 /*
- * Implementation for kv message queue
+ * Implementation for kv circular queue channel
  */
 
 static char const *CRLCHANNEL = "Ctrl";
@@ -253,6 +253,10 @@ KVCircularQueueChannel::Write(uint64 *offset, char *str, uint64 size)
     }
 }
 
+/*
+ * Implementation for kv simple queue channel
+ */
+
 KVSimpleQueueChannel::KVSimpleQueueChannel(KVRelationId rid, const char* tag,
     bool create) : create_(create)
 {
@@ -369,6 +373,10 @@ KVSimpleQueueChannel::Unlease()
     SemPost(&channel_->mutex, __func__);
 }
 
+/*
+ * Implementation for kv ctrl queue channel
+ */
+
 KVCtrlChannel::KVCtrlChannel(KVRelationId rid, const char* tag, bool create) :
     create_(create)
 {
@@ -436,6 +444,10 @@ KVCtrlChannel::Notify(KVCtrlType type)
             break;
     }
 }
+
+/*
+ * Implementation for kv message queue
+ */
 
 KVMessageQueue::KVMessageQueue(KVRelationId rid, const char* name,
     bool isServer) : isServer_(isServer)

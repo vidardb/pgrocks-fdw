@@ -156,6 +156,7 @@ extern void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId);
 extern void  KVWorkerMain(Datum arg);
 extern void  StartKVWorker(KVWorkerId workerId, KVDatabaseId dbId);
 extern void  TerminateKVWorker(void* worker);
+extern bool  CheckKVWorkerAlive(void* worker);
 
 /*
  * Utility API for string format, error report and other tools

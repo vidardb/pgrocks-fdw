@@ -18,6 +18,10 @@
 #include "kv_db.h"
 #include "miscadmin.h"
 
+/*
+ * In kv manager process scope
+ */
+
 static char const *MANAGER = "Manager";
 static KVManager *manager = NULL;
 
@@ -130,10 +134,20 @@ KVManager::Stop()
 void
 KVManager::Launch(KVWorkerId const& workerId, KVMessage const& msg)
 {
-    if (workers_.find(workerId) != workers_.end())
+    std::unordered_map<KVWorkerId, KVWorkerHandle*>::iterator it =
+        workers_.find(workerId);
+    if (it != workers_.end())
     {
-        channel_->Send(SimpleSuccessMessage(msg.hdr.resChan));
-        return;
+        if (CheckKVWorkerAlive(it->second->handle))
+        {
+            channel_->Send(SimpleSuccessMessage(msg.hdr.resChan));
+            return;
+        }
+        else
+        {
+            delete it->second;
+            workers_.erase(it);
+        }
     }
 
     void* handle = LaunchKVWorker(workerId, msg.hdr.dbId);
@@ -168,11 +182,14 @@ KVManager::Terminate(KVWorkerId const& workerId, KVMessage const& msg)
             }
 
             KVWorkerHandle* handle = it->second;
-            handle->client->Terminate(handle->workerId);
-            /* wait destroyed event */
-            channel_->Wait(WorkerDesty);
-            TerminateKVWorker(handle->handle);
+            if (CheckKVWorkerAlive(handle->handle))
+            {
+                handle->client->Terminate(handle->workerId);
+                /* wait destroyed event */
+                channel_->Wait(WorkerDesty);
+            }
 
+            TerminateKVWorker(handle->handle);
             it = workers_.erase(it);
             delete handle;
         }
@@ -190,11 +207,14 @@ KVManager::Terminate(KVWorkerId const& workerId, KVMessage const& msg)
     }
 
     KVWorkerHandle* handle = it->second;
-    handle->client->Terminate(handle->workerId);
-    /* wait destroyed event */
-    channel_->Wait(WorkerDesty);
-    TerminateKVWorker(handle->handle);
+    if (CheckKVWorkerAlive(handle->handle))
+    {
+        handle->client->Terminate(handle->workerId);
+        /* wait destroyed event */
+        channel_->Wait(WorkerDesty);
+    }
 
+    TerminateKVWorker(handle->handle);
     workers_.erase(it);
     delete handle;
 

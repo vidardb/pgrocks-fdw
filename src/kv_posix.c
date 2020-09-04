@@ -18,45 +18,6 @@
 #include "postgres.h"
 
 
-void PthreadCreate(pthread_t *__restrict __newthread,
-                   const pthread_attr_t *__restrict __attr,
-                   void *(*__start_routine)(void *),
-                   void *__restrict __arg,
-                   const char *fun) {
-    int status = pthread_create(__newthread, __attr, __start_routine, __arg);
-    if (status != 0) {
-        ereport(ERROR, (errmsg("%s %s error number: %d", fun, __func__, status)));
-    }
-}
-
-void PthreadJoin(pthread_t __th, void **__thread_return, const char *fun) {
-    int status = pthread_join(__th, __thread_return);
-    if (status != 0) {
-        ereport(ERROR, (errmsg("%s %s error number: %d", fun, __func__, status)));
-    }
-}
-
-void PthreadCancel(pthread_t __th, const char *fun) {
-    int status = pthread_cancel(__th);
-    if (status != 0) {
-        ereport(ERROR, (errmsg("%s %s error number: %d", fun, __func__, status)));
-    }
-}
-
-void PthreadSetCancelState(int __state, int *__oldstate, const char *fun) {
-    int status = pthread_setcancelstate(__state, __oldstate);
-    if (status != 0) {
-        ereport(ERROR, (errmsg("%s %s error number: %d", fun, __func__, status)));
-    }
-}
-
-void PthreadSetCancelType(int __type, int *__oldtype, const char *fun) {
-    int status = pthread_setcanceltype(__type, __oldtype);
-    if (status != 0) {
-        ereport(ERROR, (errmsg("%s %s error number: %d", fun, __func__, status)));
-    }
-}
-
 int ShmOpen(const char *__name, int __oflag, mode_t __mode, const char *fun) {
     int fd = shm_open(__name, __oflag, __mode);
     if (fd == -1) {
@@ -72,13 +33,8 @@ void ShmUnlink(const char *__name, const char *fun) {
     }
 }
 
-void *Mmap(void *__addr,
-           size_t __len,
-           int __prot,
-           int __flags,
-           int __fd,
-           off_t  __offset,
-           const char *fun) {
+void *Mmap(void *__addr, size_t __len, int __prot, int __flags, int __fd,
+           off_t  __offset, const char *fun) {
     caddr_t memptr = mmap(__addr, __len, __prot, __flags, __fd, __offset);
     if (memptr == MAP_FAILED) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));

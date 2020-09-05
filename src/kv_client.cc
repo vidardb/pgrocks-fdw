@@ -1,4 +1,4 @@
-/* Copyright 2020 VidarDB Inc.
+/* Copyright 2020-present VidarDB Inc. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -134,7 +134,7 @@ KVReadBatchRequest(KVRelationId rid, ReadBatchArgs* args)
 }
 
 void
-KVDelCursorRequest(KVRelationId rid, DelCursorArgs* args)
+KVCloseCursorRequest(KVRelationId rid, CloseCursorArgs* args)
 {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     worker->CloseCursor(rid, args);

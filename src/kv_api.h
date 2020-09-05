@@ -1,4 +1,4 @@
-/* Copyright 2020 VidarDB Inc.
+/* Copyright 2020-present VidarDB Inc. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -98,11 +98,11 @@ typedef struct ReadBatchArgs
     uint64*    bufLen;
 } ReadBatchArgs;
 
-typedef struct DelCursorArgs
+typedef struct CloseCursorArgs
 {
     KVCursorId cursor;
     void*      buf;
-} DelCursorArgs;
+} CloseCursorArgs;
 
 #ifdef VIDARDB
 typedef struct RangeQueryOpts
@@ -138,7 +138,7 @@ extern void   KVLoadRequest(KVRelationId rid, PutArgs* args);
 extern bool   KVGetRequest(KVRelationId rid, GetArgs* args);
 extern void   KVTerminateRequest(KVRelationId rid, KVDatabaseId dbId);
 extern bool   KVReadBatchRequest(KVRelationId rid, ReadBatchArgs* args);
-extern void   KVDelCursorRequest(KVRelationId rid, DelCursorArgs* args);
+extern void   KVCloseCursorRequest(KVRelationId rid, CloseCursorArgs* args);
 #ifdef VIDARDB
 extern bool   KVRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args);
 extern void   KVClearRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args);

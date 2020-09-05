@@ -1,4 +1,4 @@
-/* Copyright 2020 VidarDB Inc.
+/* Copyright 2020-present VidarDB Inc. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,13 +27,13 @@ static char const *REQCHANNEL = "Request";
 static char const *RESCHANNEL = "Response";
 
 static uint64
-GetKVMessageSize(KVMessage const& msg)
+GetKVMessageSize(const KVMessage& msg)
 {
     uint64 hdrSize = sizeof(msg.hdr);
-    return hdrSize + msg.hdr.bdySize;
+    return hdrSize + msg.hdr.etySize;
 }
 
-KVCircularQueueChannel::KVCircularQueueChannel(KVRelationId rid, const char* tag,
+KVCircularChannel::KVCircularChannel(KVRelationId rid, const char* tag,
     bool create) : create_(create), running_(true)
 {
     StringFormat(name_, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
@@ -41,8 +41,8 @@ KVCircularQueueChannel::KVCircularQueueChannel(KVRelationId rid, const char* tag
     if (!create)
     {
         int fd = ShmOpen(name_, O_RDWR, 0777, __func__);
-        channel_ = (volatile KVCircularQueueData*) Mmap(NULL,
-            sizeof(KVCircularQueueData), PROT_READ | PROT_WRITE, MAP_SHARED,
+        channel_ = (volatile KVCircularChannelData*) Mmap(NULL,
+            sizeof(KVCircularChannelData), PROT_READ | PROT_WRITE, MAP_SHARED,
             fd, 0, __func__);
         Fclose(fd, __func__);
         return;
@@ -50,9 +50,9 @@ KVCircularQueueChannel::KVCircularQueueChannel(KVRelationId rid, const char* tag
 
     ShmUnlink(name_, __func__);
     int fd = ShmOpen(name_, O_CREAT | O_RDWR, 0777, __func__);
-    Ftruncate(fd, sizeof(KVCircularQueueData), __func__);
-    channel_ = (volatile KVCircularQueueData*) Mmap(NULL,
-        sizeof(KVCircularQueueData), PROT_READ | PROT_WRITE, MAP_SHARED,
+    Ftruncate(fd, sizeof(KVCircularChannelData), __func__);
+    channel_ = (volatile KVCircularChannelData*) Mmap(NULL,
+        sizeof(KVCircularChannelData), PROT_READ | PROT_WRITE, MAP_SHARED,
         fd, 0, __func__);
     Fclose(fd, __func__);
 
@@ -62,7 +62,7 @@ KVCircularQueueChannel::KVCircularQueueChannel(KVRelationId rid, const char* tag
     SemInit(&channel_->full, 1, 0, __func__);
 }
 
-KVCircularQueueChannel::~KVCircularQueueChannel()
+KVCircularChannel::~KVCircularChannel()
 {
     if (!create_)
     {
@@ -78,7 +78,7 @@ KVCircularQueueChannel::~KVCircularQueueChannel()
 }
 
 void
-KVCircularQueueChannel::Send(KVMessage const& msg)
+KVCircularChannel::Send(const KVMessage& msg)
 {
     uint64 size = GetKVMessageSize(msg);
 
@@ -120,7 +120,7 @@ KVCircularQueueChannel::Send(KVMessage const& msg)
     Write(&offset, (char*) &(msg.hdr), sizeof(msg.hdr));
     if (msg.writeFunc)
     {
-        (*msg.writeFunc) (this, &offset, msg.bdy, msg.hdr.bdySize);
+        (*msg.writeFunc) (this, &offset, msg.ety, msg.hdr.etySize);
     }
 
     SemWait(&channel_->mutex, __func__);
@@ -130,7 +130,7 @@ KVCircularQueueChannel::Send(KVMessage const& msg)
 }
 
 void
-KVCircularQueueChannel::Recv(KVMessage& msg, int flag)
+KVCircularChannel::Recv(KVMessage& msg, int flag)
 {
     if (flag & MSGDISCARD)
     {
@@ -166,7 +166,7 @@ KVCircularQueueChannel::Recv(KVMessage& msg, int flag)
     }
     if ((flag & MSGENTITY) && msg.readFunc)
     {
-        (*msg.readFunc) (this, &offset, msg.bdy, msg.hdr.bdySize);
+        (*msg.readFunc) (this, &offset, msg.ety, msg.hdr.etySize);
     }
 
     SemWait(&channel_->mutex, __func__);
@@ -180,7 +180,7 @@ KVCircularQueueChannel::Recv(KVMessage& msg, int flag)
 }
 
 void
-KVCircularQueueChannel::Terminate()
+KVCircularChannel::Terminate()
 {
     running_ = false;
 
@@ -188,7 +188,7 @@ KVCircularQueueChannel::Terminate()
 }
 
 void
-KVCircularQueueChannel::Read(uint64 *offset, char *str, uint64 size)
+KVCircularChannel::Read(uint64 *offset, char *str, uint64 size)
 {
     if (size == 0)
     {
@@ -221,7 +221,7 @@ KVCircularQueueChannel::Read(uint64 *offset, char *str, uint64 size)
 }
 
 void
-KVCircularQueueChannel::Write(uint64 *offset, char *str, uint64 size)
+KVCircularChannel::Write(uint64 *offset, char *str, uint64 size)
 {
     if (size == 0)
     {
@@ -257,7 +257,7 @@ KVCircularQueueChannel::Write(uint64 *offset, char *str, uint64 size)
  * Implementation for kv simple queue channel
  */
 
-KVSimpleQueueChannel::KVSimpleQueueChannel(KVRelationId rid, const char* tag,
+KVSimpleChannel::KVSimpleChannel(KVRelationId rid, const char* tag,
     bool create) : create_(create)
 {
     StringFormat(name_, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
@@ -265,8 +265,8 @@ KVSimpleQueueChannel::KVSimpleQueueChannel(KVRelationId rid, const char* tag,
     if (!create)
     {
         int fd = ShmOpen(name_, O_RDWR, 0777, __func__);
-        channel_ = (volatile KVSimpleQueueData*) Mmap(NULL,
-            sizeof(KVSimpleQueueData), PROT_READ | PROT_WRITE, MAP_SHARED,
+        channel_ = (volatile KVSimpleChannelData*) Mmap(NULL,
+            sizeof(KVSimpleChannelData), PROT_READ | PROT_WRITE, MAP_SHARED,
             fd, 0, __func__);
         Fclose(fd, __func__);
         return;
@@ -274,9 +274,9 @@ KVSimpleQueueChannel::KVSimpleQueueChannel(KVRelationId rid, const char* tag,
 
     ShmUnlink(name_, __func__);
     int fd = ShmOpen(name_, O_CREAT | O_RDWR, 0777, __func__);
-    Ftruncate(fd, sizeof(KVSimpleQueueData), __func__);
-    channel_ = (volatile KVSimpleQueueData*) Mmap(NULL,
-        sizeof(KVSimpleQueueData), PROT_READ | PROT_WRITE, MAP_SHARED,
+    Ftruncate(fd, sizeof(KVSimpleChannelData), __func__);
+    channel_ = (volatile KVSimpleChannelData*) Mmap(NULL,
+        sizeof(KVSimpleChannelData), PROT_READ | PROT_WRITE, MAP_SHARED,
         fd, 0, __func__);
     Fclose(fd, __func__);
 
@@ -284,7 +284,7 @@ KVSimpleQueueChannel::KVSimpleQueueChannel(KVRelationId rid, const char* tag,
     SemInit(&channel_->ready, 1, 0, __func__);
 }
 
-KVSimpleQueueChannel::~KVSimpleQueueChannel()
+KVSimpleChannel::~KVSimpleChannel()
 {
     if (!create_)
     {
@@ -299,7 +299,7 @@ KVSimpleQueueChannel::~KVSimpleQueueChannel()
 }
 
 void
-KVSimpleQueueChannel::Send(KVMessage const& msg)
+KVSimpleChannel::Send(const KVMessage& msg)
 {
     uint64 offset = 0; /* from start position */
 
@@ -307,14 +307,14 @@ KVSimpleQueueChannel::Send(KVMessage const& msg)
 
     if (msg.writeFunc)
     {
-        (*msg.writeFunc) (this, &offset, msg.bdy, msg.hdr.bdySize);
+        (*msg.writeFunc) (this, &offset, msg.ety, msg.hdr.etySize);
     }
 
     SemPost(&channel_->ready, __func__);
 }
 
 void
-KVSimpleQueueChannel::Recv(KVMessage& msg, int flag)
+KVSimpleChannel::Recv(KVMessage& msg, int flag)
 {
     uint64 offset = 0; /* from start position */
 
@@ -331,12 +331,12 @@ KVSimpleQueueChannel::Recv(KVMessage& msg, int flag)
     {
         offset = channel_->getPos;
 
-        (*msg.readFunc) (this, &offset, msg.bdy, msg.hdr.bdySize);
+        (*msg.readFunc) (this, &offset, msg.ety, msg.hdr.etySize);
     }
 }
 
 void
-KVSimpleQueueChannel::Read(uint64 *offset, char *str, uint64 size)
+KVSimpleChannel::Read(uint64 *offset, char *str, uint64 size)
 {
     if (size == 0)
     {
@@ -349,7 +349,7 @@ KVSimpleQueueChannel::Read(uint64 *offset, char *str, uint64 size)
 }
 
 void
-KVSimpleQueueChannel::Write(uint64 *offset, char *str, uint64 size)
+KVSimpleChannel::Write(uint64 *offset, char *str, uint64 size)
 {
     if (size == 0)
     {
@@ -362,13 +362,13 @@ KVSimpleQueueChannel::Write(uint64 *offset, char *str, uint64 size)
 }
 
 bool
-KVSimpleQueueChannel::Lease()
+KVSimpleChannel::Lease()
 {
     return SemTryWait(&channel_->mutex, __func__) == 0;
 }
 
 void
-KVSimpleQueueChannel::Unlease()
+KVSimpleChannel::Unlease()
 {
     SemPost(&channel_->mutex, __func__);
 }
@@ -456,11 +456,11 @@ KVMessageQueue::KVMessageQueue(KVRelationId rid, const char* name,
 
     ctrl_ = new KVCtrlChannel(rid, name, isServer);
     StringFormat(temp, MAXPATHLENGTH, "%s%s", name, REQCHANNEL);
-    request_ = new KVCircularQueueChannel(rid, temp, isServer);
+    request_ = new KVCircularChannel(rid, temp, isServer);
     for (uint32 i = 0; i < MSGRESQUEUELENGTH; i++)
     {
         StringFormat(temp, MAXPATHLENGTH, "%s%s%d", name, RESCHANNEL, i);
-        response_[i] = new KVSimpleQueueChannel(rid, temp, isServer);
+        response_[i] = new KVSimpleChannel(rid, temp, isServer);
     }
 }
 
@@ -477,7 +477,7 @@ KVMessageQueue::~KVMessageQueue()
 }
 
 void
-KVMessageQueue::Send(KVMessage const& msg)
+KVMessageQueue::Send(const KVMessage& msg)
 {
     KVChannel* channel = NULL;
 
@@ -585,7 +585,7 @@ KVMessageQueue::Notify(KVCtrlType type)
  */
 
 KVMessage
-SimpleSuccessMessage(uint32 channel)
+SuccessMessage(uint32 channel)
 {
     KVMessage msg;
     msg.hdr.status = KVStatusSuccess;
@@ -594,7 +594,7 @@ SimpleSuccessMessage(uint32 channel)
 }
 
 KVMessage
-SimpleFailureMessage(uint32 channel)
+FailureMessage(uint32 channel)
 {
     KVMessage msg;
     msg.hdr.status = KVStatusFailure;

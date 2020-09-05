@@ -1,4 +1,4 @@
-/* Copyright 2020 VidarDB Inc.
+/* Copyright 2020-present VidarDB Inc. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ KVManagerClient::~KVManagerClient()
 }
 
 bool
-KVManagerClient::Launch(KVWorkerId const& workerId)
+KVManagerClient::Launch(KVWorkerId workerId)
 {
     KVMessage recvmsg;
     KVMessage sendmsg = SimpleMessage(KVOpLaunch, workerId, MyDatabaseId);
@@ -49,7 +49,7 @@ KVManagerClient::Launch(KVWorkerId const& workerId)
 }
 
 bool
-KVManagerClient::Terminate(KVWorkerId const& workerId, KVDatabaseId const& dbId)
+KVManagerClient::Terminate(KVWorkerId workerId, KVDatabaseId dbId)
 {
     KVMessage recvmsg;
     KVMessage sendmsg = SimpleMessage(KVOpTerminate, workerId, dbId);
@@ -132,7 +132,7 @@ KVManager::Stop()
 }
 
 void
-KVManager::Launch(KVWorkerId const& workerId, KVMessage const& msg)
+KVManager::Launch(KVWorkerId workerId, const KVMessage& msg)
 {
     std::unordered_map<KVWorkerId, KVWorkerHandle*>::iterator it =
         workers_.find(workerId);
@@ -140,7 +140,7 @@ KVManager::Launch(KVWorkerId const& workerId, KVMessage const& msg)
     {
         if (CheckKVWorkerAlive(it->second->handle))
         {
-            channel_->Send(SimpleSuccessMessage(msg.hdr.resChan));
+            channel_->Send(SuccessMessage(msg.hdr.resChan));
             return;
         }
         else
@@ -153,7 +153,7 @@ KVManager::Launch(KVWorkerId const& workerId, KVMessage const& msg)
     void* handle = LaunchKVWorker(workerId, msg.hdr.dbId);
     if (!handle)
     {
-        channel_->Send(SimpleFailureMessage(msg.hdr.resChan));
+        channel_->Send(FailureMessage(msg.hdr.resChan));
         return;
     }
 
@@ -164,11 +164,11 @@ KVManager::Launch(KVWorkerId const& workerId, KVMessage const& msg)
     KVWorkerClient* client = new KVWorkerClient(workerId);
     KVWorkerHandle* worker = new KVWorkerHandle(workerId, dbId, client, handle);
     workers_.insert({workerId, worker});
-    channel_->Send(SimpleSuccessMessage(msg.hdr.resChan));
+    channel_->Send(SuccessMessage(msg.hdr.resChan));
 }
 
 void
-KVManager::Terminate(KVWorkerId const& workerId, KVMessage const& msg)
+KVManager::Terminate(KVWorkerId workerId, const KVMessage& msg)
 {
     if (workerId == KVAllRelationId)
     {
@@ -194,7 +194,7 @@ KVManager::Terminate(KVWorkerId const& workerId, KVMessage const& msg)
             delete handle;
         }
 
-        channel_->Send(SimpleSuccessMessage(msg.hdr.resChan));
+        channel_->Send(SuccessMessage(msg.hdr.resChan));
         return;
     }
 
@@ -202,7 +202,7 @@ KVManager::Terminate(KVWorkerId const& workerId, KVMessage const& msg)
         workers_.find(workerId);
     if (it == workers_.end())
     {
-        channel_->Send(SimpleSuccessMessage(msg.hdr.resChan));
+        channel_->Send(SuccessMessage(msg.hdr.resChan));
         return;
     }
 
@@ -218,7 +218,7 @@ KVManager::Terminate(KVWorkerId const& workerId, KVMessage const& msg)
     workers_.erase(it);
     delete handle;
 
-    channel_->Send(SimpleSuccessMessage(msg.hdr.resChan));
+    channel_->Send(SuccessMessage(msg.hdr.resChan));
 }
 
 /*

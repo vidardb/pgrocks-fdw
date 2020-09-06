@@ -47,6 +47,9 @@ ENV_EXTS ?=
 src/kv_storage.bc:
 	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_storage.cc
 
+src/kv_posix.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_posix.cc
+
 src/kv_client.bc:
 	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_client.cc
 

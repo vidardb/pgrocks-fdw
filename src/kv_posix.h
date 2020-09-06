@@ -16,54 +16,47 @@
 #ifndef KV_POSIX_H_
 #define KV_POSIX_H_
 
+
 #include <sys/mman.h>
 #include <unistd.h>
 #include <semaphore.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 /*
  * SharedMemory
  */
-extern int ShmOpen(const char *__name, int __oflag, mode_t __mode,
-                   const char *fun);
+extern int ShmOpen(const char *name, int oflag, mode_t mode, const char *fun);
 
-extern void ShmUnlink(const char *__name, const char *fun);
+extern void ShmUnlink(const char *name, const char *fun);
 
 /*
  * MemoryMapped
  */
-extern void *Mmap(void *__addr, size_t __len, int __prot, int __flags, int __fd,
-                  off_t __offset, const char *fun);
+extern void *Mmap(void *addr, size_t len, int prot, int flags, int fd,
+                  off_t offset, const char *fun);
 
-extern void Munmap(void *__addr, size_t __len, const char *fun);
+extern void Munmap(void *addr, size_t len, const char *fun);
 
 /*
  * File OPs
  */
-extern void Ftruncate(int __fd, off_t __length, const char *fun);
+extern void Ftruncate(int fd, off_t length, const char *fun);
 
-extern void Fclose(int __fd, const char *fun);
+extern void Fclose(int fd, const char *fun);
 
 /*
  * Semaphore
  */
-extern void SemInit(volatile sem_t *__sem, int __pshared, unsigned int __value,
+extern void SemInit(volatile sem_t *sem, int pshared, unsigned int value,
                     const char *fun);
 
-extern void SemDestroy(volatile sem_t *__sem, const char *fun);
+extern void SemDestroy(volatile sem_t *sem, const char *fun);
 
-extern void SemPost(volatile sem_t *__sem, const char *fun);
+extern void SemPost(volatile sem_t *sem, const char *fun);
 
-extern int SemWait(volatile sem_t *__sem, const char *fun);
+extern int SemWait(volatile sem_t *sem, const char *fun);
 
-extern int SemTryWait(volatile sem_t *__sem, const char *fun);
+extern int SemTryWait(volatile sem_t *sem, const char *fun);
 
-#ifdef __cplusplus
-}
-#endif
 
 #endif

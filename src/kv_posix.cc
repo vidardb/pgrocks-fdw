@@ -15,72 +15,74 @@
 
 #include "kv_posix.h"
 
+extern "C" {
 #include "postgres.h"
+}
 
 
-int ShmOpen(const char *__name, int __oflag, mode_t __mode, const char *fun) {
-    int fd = shm_open(__name, __oflag, __mode);
+int ShmOpen(const char *name, int oflag, mode_t mode, const char *fun) {
+    int fd = shm_open(name, oflag, mode);
     if (fd == -1) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }
     return fd;
 }
 
-void ShmUnlink(const char *__name, const char *fun) {
-    if (shm_unlink(__name) == -1) {
+void ShmUnlink(const char *name, const char *fun) {
+    if (shm_unlink(name) == -1) {
         ereport(WARNING, (errmsg("%s %s failed", fun, __func__),
                           errhint("maybe no shared memory to unlink")));
     }
 }
 
-void *Mmap(void *__addr, size_t __len, int __prot, int __flags, int __fd,
-           off_t  __offset, const char *fun) {
-    caddr_t memptr = mmap(__addr, __len, __prot, __flags, __fd, __offset);
+void *Mmap(void *addr, size_t len, int prot, int flags, int fd, off_t offset,
+           const char *fun) {
+    void *memptr = mmap(addr, len, prot, flags, fd, offset);
     if (memptr == MAP_FAILED) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }
     return memptr;
 }
 
-void Munmap(void *__addr, size_t __len, const char *fun) {
-    if (munmap(__addr, __len) == -1) {
+void Munmap(void *addr, size_t len, const char *fun) {
+    if (munmap(addr, len) == -1) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }
 }
 
-void Ftruncate(int __fd, off_t __length, const char *fun) {
-    if (ftruncate(__fd, __length) == -1) {
+void Ftruncate(int fd, off_t length, const char *fun) {
+    if (ftruncate(fd, length) == -1) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }
 }
 
-void Fclose(int __fd, const char *fun) {
-    if (close(__fd) == -1) {
+void Fclose(int fd, const char *fun) {
+    if (close(fd) == -1) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }
 }
 
-void SemInit(volatile sem_t *__sem, int __pshared, unsigned int __value,
-    const char *fun) {
-    if (sem_init((sem_t*) __sem, __pshared, __value) == -1) {
+void SemInit(volatile sem_t *sem, int pshared, unsigned int value,
+             const char *fun) {
+    if (sem_init((sem_t*) sem, pshared, value) == -1) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }
 }
 
-void SemDestroy(volatile sem_t *__sem, const char *fun) {
-    if (sem_destroy((sem_t*) __sem) == -1) {
+void SemDestroy(volatile sem_t *sem, const char *fun) {
+    if (sem_destroy((sem_t*) sem) == -1) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }
 }
 
-void SemPost(volatile sem_t *__sem, const char *fun) {
-    if (sem_post((sem_t*) __sem) == -1) {
+void SemPost(volatile sem_t *sem, const char *fun) {
+    if (sem_post((sem_t*) sem) == -1) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }
 }
 
-int SemWait(volatile sem_t *__sem, const char *fun) {
-    if (sem_wait((sem_t*) __sem) == -1) {
+int SemWait(volatile sem_t *sem, const char *fun) {
+    if (sem_wait((sem_t*) sem) == -1) {
         if (errno == EINTR) {
             return -1;
         }
@@ -89,8 +91,8 @@ int SemWait(volatile sem_t *__sem, const char *fun) {
     return 0;
 }
 
-int SemTryWait(volatile sem_t *__sem, const char *fun) {
-    int ret = sem_trywait((sem_t*) __sem);
+int SemTryWait(volatile sem_t *sem, const char *fun) {
+    int ret = sem_trywait((sem_t*) sem);
     if (ret == -1 && errno != EAGAIN) {
         ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
     }

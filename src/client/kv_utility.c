@@ -14,9 +14,8 @@
  */
 
 #include "kv_fdw.h"
-#include "kv_storage.h"
-#include "kv_posix.h"
-#include "kv_api.h"
+#include "../server/kv_storage.h"
+#include "../kv_api.h"
 
 #include <sys/stat.h>
 

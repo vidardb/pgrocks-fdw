@@ -15,9 +15,11 @@
 
 #include <unordered_map>
 
-#include "kv_db.h"
 #include "postgres.h"
 #include "miscadmin.h"
+#include "../kv_api.h"
+#include "../server/kv_manager.h"
+
 
 /*
  * In backend process scope

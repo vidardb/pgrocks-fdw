@@ -25,38 +25,38 @@
 /*
  * SharedMemory
  */
-extern int ShmOpen(const char *name, int oflag, mode_t mode, const char *fun);
+extern int ShmOpen(const char* name, int oflag, mode_t mode, const char* fun);
 
-extern void ShmUnlink(const char *name, const char *fun);
+extern void ShmUnlink(const char* name, const char* fun);
 
 /*
  * MemoryMapped
  */
-extern void *Mmap(void *addr, size_t len, int prot, int flags, int fd,
-                  off_t offset, const char *fun);
+extern void* Mmap(void* addr, size_t len, int prot, int flags, int fd,
+                  off_t offset, const char* fun);
 
-extern void Munmap(void *addr, size_t len, const char *fun);
+extern void Munmap(void* addr, size_t len, const char* fun);
 
 /*
  * File OPs
  */
-extern void Ftruncate(int fd, off_t length, const char *fun);
+extern void Ftruncate(int fd, off_t length, const char* fun);
 
-extern void Fclose(int fd, const char *fun);
+extern void Fclose(int fd, const char* fun);
 
 /*
  * Semaphore
  */
-extern void SemInit(volatile sem_t *sem, int pshared, unsigned int value,
-                    const char *fun);
+extern void SemInit(volatile sem_t* sem, int pshared, unsigned int value,
+                    const char* fun);
 
-extern void SemDestroy(volatile sem_t *sem, const char *fun);
+extern void SemDestroy(volatile sem_t* sem, const char* fun);
 
-extern void SemPost(volatile sem_t *sem, const char *fun);
+extern void SemPost(volatile sem_t* sem, const char* fun);
 
-extern int SemWait(volatile sem_t *sem, const char *fun);
+extern int SemWait(volatile sem_t* sem, const char* fun);
 
-extern int SemTryWait(volatile sem_t *sem, const char *fun);
+extern int SemTryWait(volatile sem_t* sem, const char* fun);
 
 
 #endif

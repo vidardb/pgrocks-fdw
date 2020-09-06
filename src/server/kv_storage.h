@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 
-#include "kv_api.h"
+#include "../kv_api.h"
 
 /**
  * C wrapper of storage engine API

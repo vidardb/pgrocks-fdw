@@ -13,11 +13,23 @@
  * limitations under the License.
  */
 
-#include "kv_db.h"
-#include "kv_posix.h"
+#include "kv_worker.h"
+#include "kv_manager.h"
+#include "../ipc/kv_posix.h"
 #include "kv_storage.h"
+
 #include "miscadmin.h"
+
 #include "fcntl.h"
+
+
+#define MSGPATHPREFIX     "/KV"
+#define MSGDISCARD        04
+//#define READBATCHSIZE     4096*20
+#define READBATCHPATH     "/KVReadBatch"
+#ifdef VIDARDB
+#define RANGEQUERYPATH    "/KVRangeQuery"
+#endif
 
 static const char* WORKER = "Worker";
 
@@ -25,23 +37,15 @@ static const char* WORKER = "Worker";
  * Implementation for kv worker client
  */
 
-KVWorkerHandle::~KVWorkerHandle()
-{
-    delete client;
-}
-
-KVWorkerClient::KVWorkerClient(KVWorkerId workerId)
-{
+KVWorkerClient::KVWorkerClient(KVWorkerId workerId) {
     channel_ = new KVMessageQueue(workerId, WORKER, false);
 }
 
-KVWorkerClient::~KVWorkerClient()
-{
+KVWorkerClient::~KVWorkerClient() {
     delete channel_;
 }
 
-void WriteOpenArgs(void* channel, uint64* offset, void* entity, uint64 size)
-{
+void WriteOpenArgs(void* channel, uint64* offset, void* entity, uint64 size) {
     OpenArgs* args = (OpenArgs*) entity;
 
     ((KVChannel*) channel)->Write(offset, (char*) &args->opts,
@@ -55,8 +59,7 @@ void WriteOpenArgs(void* channel, uint64* offset, void* entity, uint64 size)
     ((KVChannel*) channel)->Write(offset, args->path, strlen(args->path));
 }
 
-void ReadOpenArgs(void* channel, uint64* offset, void* entity, uint64 size)
-{
+void ReadOpenArgs(void* channel, uint64* offset, void* entity, uint64 size) {
     OpenArgs* args = (OpenArgs*) entity;
     uint64 delta = sizeof(args->opts);
 
@@ -72,9 +75,7 @@ void ReadOpenArgs(void* channel, uint64* offset, void* entity, uint64 size)
     ((KVChannel*) channel)->Read(offset, args->path, size - delta);
 }
 
-void
-KVWorkerClient::Open(KVWorkerId workerId, OpenArgs* args)
-{
+void KVWorkerClient::Open(KVWorkerId workerId, OpenArgs* args) {
     uint64 size = sizeof(args->opts) + strlen(args->path);
     #ifdef VIDARDB
     size += (sizeof(args->useColumn) + sizeof(args->attrCount));
@@ -88,8 +89,7 @@ KVWorkerClient::Open(KVWorkerId workerId, OpenArgs* args)
     channel_->Send(sendmsg);
 }
 
-void WritePutArgs(void* channel, uint64* offset, void* entity, uint64 size)
-{
+void WritePutArgs(void* channel, uint64* offset, void* entity, uint64 size) {
     PutArgs* args = (PutArgs*) entity;
 
     ((KVChannel*) channel)->Write(offset, (char*) &args->keyLen,
@@ -98,9 +98,7 @@ void WritePutArgs(void* channel, uint64* offset, void* entity, uint64 size)
     ((KVChannel*) channel)->Write(offset, args->val, args->valLen);
 }
 
-bool
-KVWorkerClient::Put(KVWorkerId workerId, PutArgs* args)
-{
+bool KVWorkerClient::Put(KVWorkerId workerId, PutArgs* args) {
     uint64 size = args->keyLen + args->valLen + sizeof(args->keyLen);
 
     KVMessage sendmsg = SimpleMessage(KVOpPut, workerId, MyDatabaseId);
@@ -114,9 +112,7 @@ KVWorkerClient::Put(KVWorkerId workerId, PutArgs* args)
     return recvmsg.hdr.status == KVStatusSuccess;
 }
 
-bool
-KVWorkerClient::Delete(KVWorkerId workerId, DeleteArgs* args)
-{
+bool KVWorkerClient::Delete(KVWorkerId workerId, DeleteArgs* args) {
     KVMessage sendmsg = SimpleMessage(KVOpDel, workerId, MyDatabaseId);
     sendmsg.ety = args->key;
     sendmsg.hdr.etySize = args->keyLen;
@@ -128,9 +124,7 @@ KVWorkerClient::Delete(KVWorkerId workerId, DeleteArgs* args)
     return recvmsg.hdr.status == KVStatusSuccess;
 }
 
-void
-KVWorkerClient::Load(KVWorkerId workerId, PutArgs* args)
-{
+void KVWorkerClient::Load(KVWorkerId workerId, PutArgs* args) {
     uint64 size = args->keyLen + args->valLen + sizeof(args->keyLen);
 
     KVMessage sendmsg = SimpleMessage(KVOpLoad, workerId, MyDatabaseId);
@@ -141,9 +135,7 @@ KVWorkerClient::Load(KVWorkerId workerId, PutArgs* args)
     channel_->Send(sendmsg);
 }
 
-bool
-KVWorkerClient::Get(KVWorkerId workerId, GetArgs* args)
-{
+bool KVWorkerClient::Get(KVWorkerId workerId, GetArgs* args) {
     KVMessage sendmsg = SimpleMessage(KVOpGet, workerId, MyDatabaseId);
     sendmsg.ety = args->key;
     sendmsg.hdr.etySize = args->keyLen;
@@ -166,15 +158,11 @@ KVWorkerClient::Get(KVWorkerId workerId, GetArgs* args)
     return recvmsg.hdr.status == KVStatusSuccess;
 }
 
-void
-KVWorkerClient::Close(KVWorkerId workerId)
-{
+void KVWorkerClient::Close(KVWorkerId workerId) {
     channel_->Send(SimpleMessage(KVOpClose, workerId, MyDatabaseId));
 }
 
-uint64
-KVWorkerClient::Count(KVWorkerId workerId)
-{
+uint64 KVWorkerClient::Count(KVWorkerId workerId) {
     uint64 count;
 
     KVMessage recvmsg;
@@ -188,14 +176,11 @@ KVWorkerClient::Count(KVWorkerId workerId)
     return count;
 }
 
-void
-KVWorkerClient::Terminate(KVWorkerId workerId)
-{
+void KVWorkerClient::Terminate(KVWorkerId workerId) {
     channel_->Send(SimpleMessage(KVOpTerminate, workerId, MyDatabaseId));
 }
 
-void WriteReadBatchArgs(void* channel, uint64* offset, void* entity, uint64 size)
-{
+void WriteReadBatchArgs(void* channel, uint64* offset, void* entity, uint64 size) {
     ReadBatchArgs* args = (ReadBatchArgs*) entity;
 
     pid_t pid = getpid();
@@ -204,11 +189,8 @@ void WriteReadBatchArgs(void* channel, uint64* offset, void* entity, uint64 size
                                   sizeof(args->cursor));
 }
 
-bool
-KVWorkerClient::ReadBatch(KVWorkerId workerId, ReadBatchArgs* args)
-{
-    if (*(args->buf) != NULL)
-    {
+bool KVWorkerClient::ReadBatch(KVWorkerId workerId, ReadBatchArgs* args) {
+    if (*(args->buf) != NULL) {
         Munmap(*(args->buf), READBATCHSIZE, __func__);
     }
 
@@ -223,19 +205,15 @@ KVWorkerClient::ReadBatch(KVWorkerId workerId, ReadBatchArgs* args)
     recvmsg.readFunc = CommonReadEntity;
     channel_->SendWithResponse(sendmsg, recvmsg);
 
-    if (recvmsg.hdr.status != KVStatusSuccess)
-    {
+    if (recvmsg.hdr.status != KVStatusSuccess) {
         return false;
     }
 
     bool next = *((bool*) buf);
     *(args->bufLen) = *((uint64*) (buf + sizeof(next)));
-    if (*(args->bufLen) == 0)
-    {
+    if (*(args->bufLen) == 0) {
         *(args->buf) = NULL;
-    }
-    else
-    {
+    } else {
         char  name[MAXPATHLENGTH];
         pid_t pid = getpid();
 
@@ -250,8 +228,7 @@ KVWorkerClient::ReadBatch(KVWorkerId workerId, ReadBatchArgs* args)
     return next;
 }
 
-void WriteDelCursorArgs(void* channel, uint64* offset, void* entity, uint64 size)
-{
+void WriteDelCursorArgs(void* channel, uint64* offset, void* entity, uint64 size) {
     CloseCursorArgs* args = (CloseCursorArgs*) entity;
 
     pid_t pid = getpid();
@@ -260,19 +237,16 @@ void WriteDelCursorArgs(void* channel, uint64* offset, void* entity, uint64 size
                                   sizeof(args->cursor));
 }
 
-void
-KVWorkerClient::CloseCursor(KVWorkerId workerId, CloseCursorArgs* args)
-{
-    if (args->buf)
-    {
+void KVWorkerClient::CloseCursor(KVWorkerId workerId, CloseCursorArgs* args) {
+    if (args->buf) {
         Munmap(args->buf, READBATCHSIZE, __func__);
     }
 
     char  name[MAXPATHLENGTH];
     pid_t pid = getpid();
 
-    StringFormat(name, MAXPATHLENGTH, "%s%d%d%lu", READBATCHPATH, pid,
-                 workerId, args->cursor);
+    StringFormat(name, MAXPATHLENGTH, "%s%d%d%lu", READBATCHPATH, pid, workerId,
+                 args->cursor);
     ShmUnlink(name, __func__);
 
     KVMessage sendmsg = SimpleMessage(KVOpDelCursor, workerId, MyDatabaseId);
@@ -285,8 +259,7 @@ KVWorkerClient::CloseCursor(KVWorkerId workerId, CloseCursorArgs* args)
 
 #ifdef VIDARDB
 void WriteRangeQueryArgs(void* channel, uint64* offset, void* entity,
-    uint64 size)
-{
+                         uint64 size) {
     RangeQueryArgs* args = (RangeQueryArgs*) entity;
     RangeQueryOpts* opts = args->opts;
 
@@ -295,19 +268,16 @@ void WriteRangeQueryArgs(void* channel, uint64* offset, void* entity,
     ((KVChannel*) channel)->Write(offset, (char*) &args->cursor,
                                   sizeof(args->cursor));
 
-    if (opts)
-    {
+    if (opts) {
         ((KVChannel*) channel)->Write(offset, (char*) &(opts->startLen),
                        sizeof(opts->startLen));
-        if (opts->startLen > 0)
-        {
+        if (opts->startLen > 0) {
             ((KVChannel*) channel)->Write(offset, opts->start, opts->startLen);
         }
 
         ((KVChannel*) channel)->Write(offset, (char*) &(opts->limitLen),
                        sizeof(opts->limitLen));
-        if (opts->limitLen > 0)
-        {
+        if (opts->limitLen > 0) {
             ((KVChannel*) channel)->Write(offset, opts->limit, opts->limitLen);
         }
 
@@ -315,27 +285,22 @@ void WriteRangeQueryArgs(void* channel, uint64* offset, void* entity,
                        sizeof(opts->batchCapacity));
         ((KVChannel*) channel)->Write(offset, (char*) &opts->attrCount,
                        sizeof(opts->attrCount));
-        if (opts->attrCount > 0)
-        {
+        if (opts->attrCount > 0) {
             ((KVChannel*) channel)->Write(offset, (char*) opts->attrs,
                            opts->attrCount * sizeof(*(opts->attrs)));
         }
     }
 }
 
-bool
-KVWorkerClient::RangeQuery(KVWorkerId workerId, RangeQueryArgs* args)
-{
-    if (*(args->buf) && *(args->bufLen) > 0)
-    {
+bool KVWorkerClient::RangeQuery(KVWorkerId workerId, RangeQueryArgs* args) {
+    if (*(args->buf) && *(args->bufLen) > 0) {
         Munmap(*(args->buf), *(args->bufLen), __func__);
     }
 
     KVMessage sendmsg = SimpleMessage(KVOpRangeQuery, workerId, MyDatabaseId);
     sendmsg.ety = args;
     sendmsg.hdr.etySize = sizeof(pid_t) + sizeof(args->cursor);
-    if (args->opts)
-    {
+    if (args->opts) {
         sendmsg.hdr.etySize += sizeof(args->opts->startLen);
         sendmsg.hdr.etySize += args->opts->startLen;
         sendmsg.hdr.etySize += sizeof(args->opts->limitLen);
@@ -353,19 +318,15 @@ KVWorkerClient::RangeQuery(KVWorkerId workerId, RangeQueryArgs* args)
     recvmsg.readFunc = CommonReadEntity;
     channel_->SendWithResponse(sendmsg, recvmsg);
 
-    if (recvmsg.hdr.status != KVStatusSuccess)
-    {
+    if (recvmsg.hdr.status != KVStatusSuccess) {
         return false;
     }
 
     bool next = *((bool*) buf);
     *(args->bufLen) = *((uint64*) (buf + sizeof(next)));
-    if (*(args->bufLen) == 0)
-    {
+    if (*(args->bufLen) == 0) {
         *(args->buf) = NULL;
-    }
-    else
-    {
+    } else {
         char  name[MAXPATHLENGTH];
         pid_t pid = getpid();
 
@@ -373,24 +334,19 @@ KVWorkerClient::RangeQuery(KVWorkerId workerId, RangeQueryArgs* args)
                      workerId, args->cursor);
         int fd = ShmOpen(name, O_RDWR, 0777, __func__);
         *(args->buf) = (char*) Mmap(NULL, *(args->bufLen),
-                                    PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0,
-                                    __func__);
+            PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0, __func__);
         Fclose(fd, __func__);
     }
 
     return next;
 }
 
-void
-KVWorkerClient::ClearRangeQuery(KVWorkerId workerId, RangeQueryArgs* args)
-{
-    if (*(args->buf) && *(args->bufLen) > 0)
-    {
+void KVWorkerClient::ClearRangeQuery(KVWorkerId workerId, RangeQueryArgs* args) {
+    if (*(args->buf) && *(args->bufLen) > 0) {
         Munmap(*(args->buf), *(args->bufLen), __func__);
     }
 
-    KVMessage sendmsg = SimpleMessage(KVOpClearRangeQuery, workerId,
-                                      MyDatabaseId);
+    KVMessage sendmsg = SimpleMessage(KVOpClearRangeQuery, workerId, MyDatabaseId);
     args->opts = NULL;
     sendmsg.ety = args;
     sendmsg.hdr.etySize = sizeof(pid_t) + sizeof(args->cursor);
@@ -405,8 +361,8 @@ KVWorkerClient::ClearRangeQuery(KVWorkerId workerId, RangeQueryArgs* args)
  */
 
 KVWorker::KVWorker(KVWorkerId workerId, KVDatabaseId dbId) :
-    running_(false), conn_(NULL), ref_(0)
-{
+    running_(false), conn_(NULL), ref_(0) {
+
     channel_ = new KVMessageQueue(workerId, WORKER, true);
 
     cursors_.clear();
@@ -415,33 +371,24 @@ KVWorker::KVWorker(KVWorkerId workerId, KVDatabaseId dbId) :
     #endif
 }
 
-KVWorker::~KVWorker()
-{
-    if (conn_)
-    {
+KVWorker::~KVWorker() {
+    if (conn_) {
         CloseConn(conn_);
         conn_ = NULL;
     }
-
     delete channel_;
 }
 
-void
-KVWorker::Start()
-{
+void KVWorker::Start() {
     running_ = true;
 }
 
-void
-KVWorker::Run()
-{
-    while (running_)
-    {
+void KVWorker::Run() {
+    while (running_) {
         KVMessage msg;
         channel_->Recv(msg, MSGHEADER);
 
-        switch (msg.hdr.op)
-        {
+        switch (msg.hdr.op) {
             case KVOpDummy:
                 break;
             case KVOpOpen:
@@ -489,17 +436,12 @@ KVWorker::Run()
     }
 }
 
-void
-KVWorker::Stop()
-{
+void KVWorker::Stop() {
     running_ = false;
-
     channel_->Terminate();
 }
 
-void
-KVWorker::Open(KVWorkerId workerId, KVMessage& msg)
-{
+void KVWorker::Open(KVWorkerId workerId, KVMessage& msg) {
     OpenArgs args;
     args.path = (char*) AllocMemory(msg.hdr.etySize);
 
@@ -507,12 +449,9 @@ KVWorker::Open(KVWorkerId workerId, KVMessage& msg)
     msg.readFunc = ReadOpenArgs;
     channel_->Recv(msg, MSGENTITY);
 
-    if (conn_)
-    {
+    if (conn_) {
         ref_++;
-    }
-    else
-    {
+    } else {
         #ifdef VIDARDB
         conn_ = OpenConn(args.path, args.useColumn, args.attrCount, &args.opts);
         #else
@@ -524,9 +463,7 @@ KVWorker::Open(KVWorkerId workerId, KVMessage& msg)
     FreeMemory(args.path);
 }
 
-void
-KVWorker::Put(KVWorkerId workerId, KVMessage& msg)
-{
+void KVWorker::Put(KVWorkerId workerId, KVMessage& msg) {
     msg.ety = AllocMemory(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
@@ -537,43 +474,32 @@ KVWorker::Put(KVWorkerId workerId, KVMessage& msg)
     args.key = (char*) msg.ety + sizeof(args.keyLen);
     args.val = (char*) msg.ety + sizeof(args.keyLen) + args.keyLen;
 
-    bool success = PutRecord(conn_, args.key, args.keyLen, args.val,
-                             args.valLen);
-    if (success)
-    {
+    bool success = PutRecord(conn_, args.key, args.keyLen, args.val, args.valLen);
+    if (success) {
         channel_->Send(SuccessMessage(msg.hdr.resChan));
-    }
-    else
-    {
+    } else {
         channel_->Send(FailureMessage(msg.hdr.resChan));
     }
 
     FreeMemory(msg.ety);
 }
 
-void
-KVWorker::Delete(KVWorkerId workerId, KVMessage& msg)
-{
+void KVWorker::Delete(KVWorkerId workerId, KVMessage& msg) {
     msg.ety = AllocMemory(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
 
     bool success = DelRecord(conn_, (char*) msg.ety, msg.hdr.etySize);
-    if (success)
-    {
+    if (success) {
         channel_->Send(SuccessMessage(msg.hdr.resChan));
-    }
-    else
-    {
+    } else {
         channel_->Send(FailureMessage(msg.hdr.resChan));
     }
 
     FreeMemory(msg.ety);
 }
 
-void
-KVWorker::Load(KVWorkerId workerId, KVMessage& msg)
-{
+void KVWorker::Load(KVWorkerId workerId, KVMessage& msg) {
     msg.ety = AllocMemory(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
@@ -589,9 +515,7 @@ KVWorker::Load(KVWorkerId workerId, KVMessage& msg)
     FreeMemory(msg.ety);
 }
 
-void
-KVWorker::Get(KVWorkerId workerId, KVMessage& msg)
-{
+void KVWorker::Get(KVWorkerId workerId, KVMessage& msg) {
     char*  val;
     uint64 valLen;
 
@@ -599,38 +523,29 @@ KVWorker::Get(KVWorkerId workerId, KVMessage& msg)
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
 
-    bool success = GetRecord(conn_, (char*) msg.ety, msg.hdr.etySize, &val,
-                             &valLen);
-    if (success)
-    {
+    bool success = GetRecord(conn_, (char*) msg.ety, msg.hdr.etySize, &val, &valLen);
+    if (success) {
         KVMessage sendmsg = SuccessMessage(msg.hdr.resChan);
         sendmsg.hdr.etySize = valLen;
         sendmsg.ety = val;
         sendmsg.writeFunc = CommonWriteEntity;
         channel_->Send(sendmsg);
-    }
-    else
-    {
+    } else {
         channel_->Send(FailureMessage(msg.hdr.resChan));
     }
 
     FreeMemory(msg.ety);
 }
 
-void
-KVWorker::Close(KVWorkerId workerId, KVMessage& msg)
-{
+void KVWorker::Close(KVWorkerId workerId, KVMessage& msg) {
     channel_->Recv(msg, MSGDISCARD);
 
-    if (conn_)
-    {
+    if (conn_) {
         ref_--;
     }
 }
 
-void
-KVWorker::Count(KVWorkerId workerId, KVMessage& msg)
-{
+void KVWorker::Count(KVWorkerId workerId, KVMessage& msg) {
     channel_->Recv(msg, MSGDISCARD);
 
     uint64 count = GetCount(conn_);
@@ -644,23 +559,18 @@ KVWorker::Count(KVWorkerId workerId, KVMessage& msg)
     channel_->Send(sendmsg);
 }
 
-void
-KVWorker::Terminate(KVWorkerId workerId, KVMessage& msg)
-{
+void KVWorker::Terminate(KVWorkerId workerId, KVMessage& msg) {
     channel_->Recv(msg, MSGDISCARD);
-
     Stop();
 }
 
-struct ReadBatchState
-{
+struct ReadBatchState {
     bool   next;
     uint64 size;
 };
 
 void WriteReadBatchState(void* channel, uint64* offset, void* entity,
-    uint64 size)
-{
+                         uint64 size) {
     ReadBatchState* state = (ReadBatchState*) entity;
 
     ((KVChannel*) channel)->Write(offset, (char*) &state->next,
@@ -669,9 +579,7 @@ void WriteReadBatchState(void* channel, uint64* offset, void* entity,
                                   sizeof(state->size));
 }
 
-void
-KVWorker::ReadBatch(KVWorkerId workerId, KVMessage& msg)
-{
+void KVWorker::ReadBatch(KVWorkerId workerId, KVMessage& msg) {
     msg.ety = AllocMemory(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
@@ -683,13 +591,10 @@ KVWorker::ReadBatch(KVWorkerId workerId, KVMessage& msg)
     void* cursor = NULL;
     std::unordered_map<KVCursorKey, void*, KVCursorKeyHashFunc>::iterator it;
     it = cursors_.find(key);
-    if (it == cursors_.end())
-    {
+    if (it == cursors_.end()) {
         cursor = GetIter(conn_);
         cursors_.insert({key, cursor});
-    }
-    else
-    {
+    } else {
         cursor = it->second;
     }
 
@@ -716,9 +621,7 @@ KVWorker::ReadBatch(KVWorkerId workerId, KVMessage& msg)
     FreeMemory(msg.ety);
 }
 
-void
-KVWorker::CloseCursor(KVWorkerId workerId, KVMessage& msg)
-{
+void KVWorker::CloseCursor(KVWorkerId workerId, KVMessage& msg) {
     msg.ety = AllocMemory(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
@@ -729,8 +632,7 @@ KVWorker::CloseCursor(KVWorkerId workerId, KVMessage& msg)
 
     std::unordered_map<KVCursorKey, void*, KVCursorKeyHashFunc>::iterator it;
     it = cursors_.find(key);
-    if (it == cursors_.end())
-    {
+    if (it == cursors_.end()) {
         FreeMemory(msg.ety);
         return;
     }
@@ -741,9 +643,7 @@ KVWorker::CloseCursor(KVWorkerId workerId, KVMessage& msg)
 }
 
 #ifdef VIDARDB
-void
-KVWorker::RangeQuery(KVWorkerId workerId, KVMessage& msg)
-{
+void KVWorker::RangeQuery(KVWorkerId workerId, KVMessage& msg) {
     msg.ety = AllocMemory(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
@@ -758,15 +658,13 @@ KVWorker::RangeQuery(KVWorkerId workerId, KVMessage& msg)
     KVRangeQueryEntry entry;
     std::unordered_map<KVCursorKey, KVRangeQueryEntry, KVCursorKeyHashFunc>::iterator it;
     it = ranges_.find(key);
-    if (it == ranges_.end())
-    {
+    if (it == ranges_.end()) {
         RangeQueryOpts opts;
 
         opts.startLen = *((uint64*) current);
         current += sizeof(opts.startLen);
 
-        if (opts.startLen > 0)
-        {
+        if (opts.startLen > 0) {
             opts.start = (char*) AllocMemory(opts.startLen);
             memcpy(opts.start, current, opts.startLen);
             current += opts.startLen;
@@ -775,8 +673,7 @@ KVWorker::RangeQuery(KVWorkerId workerId, KVMessage& msg)
         opts.limitLen = *((uint64*) current);
         current += sizeof(opts.limitLen);
 
-        if (opts.limitLen > 0)
-        {
+        if (opts.limitLen > 0) {
             opts.limit = (char*) AllocMemory(opts.limitLen);
             memcpy(opts.limit, current, opts.limitLen);
             current += opts.limitLen;
@@ -788,24 +685,20 @@ KVWorker::RangeQuery(KVWorkerId workerId, KVMessage& msg)
         opts.attrCount = *((int*) current);
         current += sizeof(opts.attrCount);
 
-        if (opts.attrCount > 0)
-        {
+        if (opts.attrCount > 0) {
             opts.attrs = (AttrNumber*) current;
         }
 
         ParseRangeQueryOptions(&opts, &entry.range, &entry.readOpts);
         ranges_.insert({key, entry});
-    }
-    else
-    {
+    } else {
         entry = it->second;
     }
 
     void* result = NULL;
     ReadBatchState state;
 
-    do
-    {
+    do {
         state.next = RangeQueryRead(conn_, entry.range, &entry.readOpts,
                                     &state.size, &result);
     } while (state.next && state.size == 0);
@@ -816,8 +709,7 @@ KVWorker::RangeQuery(KVWorkerId workerId, KVMessage& msg)
     ShmUnlink(name, __func__);
 
     char* shm = NULL;
-    if (state.size > 0)
-    {
+    if (state.size > 0) {
         int fd = ShmOpen(name, O_CREAT | O_RDWR, 0777, __func__);
         Ftruncate(fd, state.size, __func__);
         shm = (char*) Mmap(NULL, state.size, PROT_READ | PROT_WRITE, MAP_SHARED,
@@ -826,8 +718,7 @@ KVWorker::RangeQuery(KVWorkerId workerId, KVMessage& msg)
     }
 
     ParseRangeQueryResult(result, shm);
-    if (state.size > 0)
-    {
+    if (state.size > 0) {
         Munmap(shm, state.size, __func__);
     }
 
@@ -841,9 +732,7 @@ KVWorker::RangeQuery(KVWorkerId workerId, KVMessage& msg)
     FreeMemory(msg.ety);
 }
 
-void
-KVWorker::ClearRangeQuery(KVWorkerId workerId, KVMessage& msg)
-{
+void KVWorker::ClearRangeQuery(KVWorkerId workerId, KVMessage& msg) {
     msg.ety = AllocMemory(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
@@ -854,8 +743,7 @@ KVWorker::ClearRangeQuery(KVWorkerId workerId, KVMessage& msg)
 
     std::unordered_map<KVCursorKey, KVRangeQueryEntry, KVCursorKeyHashFunc>::iterator it;
     it = ranges_.find(key);
-    if (it == ranges_.end())
-    {
+    if (it == ranges_.end()) {
         FreeMemory(msg.ety);
         return;
     }
@@ -871,9 +759,7 @@ KVWorker::ClearRangeQuery(KVWorkerId workerId, KVMessage& msg)
 }
 #endif
 
-void
-StartKVWorker(KVWorkerId workerId, KVDatabaseId dbId)
-{
+void StartKVWorker(KVWorkerId workerId, KVDatabaseId dbId) {
     KVWorker* worker = new KVWorker(workerId, dbId);
     KVManagerClient* manager = new KVManagerClient();
 

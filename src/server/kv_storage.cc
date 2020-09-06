@@ -33,7 +33,7 @@ using namespace rocksdb;
 using namespace std;
 
 #include "kv_storage.h"
-#include "kv_db.h"
+#include "kv_worker.h"
 
 extern "C" {
 #include "fmgr.h"
@@ -452,10 +452,10 @@ class PGDataTypeComparator : public Comparator {
   private:
     ComparatorOpts options_;
     FmgrInfo funcManager_;
-    std::mutex *mutex_;
-    bool *firstCall_;
+    std::mutex* mutex_;
+    bool* firstCall_;
     ResourceOwner resourceOwner_;
-    FunctionCallInfoBaseData *funcCallInfo_;
+    FunctionCallInfoBaseData* funcCallInfo_;
 };
 
 void* NewDataTypeComparator(ComparatorOpts* options) {

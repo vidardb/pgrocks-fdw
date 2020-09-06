@@ -21,8 +21,9 @@ PG_CPPFLAGS += -Wno-deprecated-declarations
 SHLIB_LINK  += -lstdc++
 endif
 
-OBJS         = src/kv_fdw.o src/kv_utility.o src/kv_storage.o src/kv_posix.o \
-			   src/kv_client.o src/kv_message.o src/kv_worker.o src/kv_manager.o
+OBJS         = src/client/kv_fdw.o src/client/kv_utility.o src/server/kv_storage.o src/ipc/kv_posix.o \
+			   src/ipc/kv_message.o src/ipc/kv_channel.o src/ipc/kv_mq.o \
+			   src/client/kv_client.o src/server/kv_worker.o src/server/kv_manager.o
 
 EXTENSION    = kv_fdw
 DATA         = sql/kv_fdw--0.0.1.sql
@@ -44,23 +45,29 @@ NETWORK ?= default
 APT_OPTS ?=
 ENV_EXTS ?=
 
-src/kv_storage.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_storage.cc
+src/server/kv_storage.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/server/kv_storage.cc
 
-src/kv_posix.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_posix.cc
+src/ipc/kv_posix.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/ipc/kv_posix.cc
 
-src/kv_client.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_client.cc
+src/ipc/kv_message.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/ipc/kv_message.cc
 
-src/kv_message.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_message.cc
+src/ipc/kv_channel.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/ipc/kv_channel.cc
 
-src/kv_worker.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_worker.cc
+src/ipc/kv_mq.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/ipc/kv_mq.cc
+	
+src/client/kv_client.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/client/kv_client.cc
 
-src/kv_manager.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/kv_manager.cc
+src/server/kv_worker.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/server/kv_worker.cc
+
+src/server/kv_manager.bc:
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/server/kv_manager.cc
 
 .PHONY: docker-image
 docker-image:

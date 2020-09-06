@@ -14,7 +14,7 @@
  */
 
 #include "kv_fdw.h"
-#include "kv_api.h"
+#include "../kv_api.h"
 
 #include "access/reloptions.h"
 #include "foreign/fdwapi.h"

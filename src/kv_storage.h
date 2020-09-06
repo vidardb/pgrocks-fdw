@@ -24,7 +24,7 @@ extern "C" {
 #include "kv_api.h"
 
 /**
- * C wrapper
+ * C wrapper of storage engine API
  */
 
 #ifdef VIDARDB
@@ -36,7 +36,6 @@ void   CloseConn(void* conn);
 uint64 GetCount(void* conn);
 void*  GetIter(void* conn);
 void   DelIter(void* it);
-bool   Next(void* conn, void* iter, char* buffer);
 bool   BatchRead(void* conn, void* iter, char* buf, size_t* bufLen);
 bool   GetRecord(void* conn, char* key, size_t keyLen, char** val, size_t* valLen);
 bool   PutRecord(void* conn, char* key, size_t keyLen, char* val, size_t valLen);
@@ -51,9 +50,6 @@ void ParseRangeQueryResult(void* result, char* buf);
 void ClearRangeQueryMeta(void* range, void* readOptions);
 #endif
 
-
-/* Create a datatype comparator wrapper for storage engine */
-void* NewDataTypeComparator(ComparatorOpts* options);
 
 #ifdef __cplusplus
 }

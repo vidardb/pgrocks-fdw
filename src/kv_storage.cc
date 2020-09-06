@@ -43,6 +43,12 @@ extern "C" {
 #include "utils/resowner.h"
 }
 
+/*
+ * Forward Declaration
+ * Create a datatype comparator wrapper for storage engine
+ */
+void* NewDataTypeComparator(ComparatorOpts* options);
+
 
 #ifdef VIDARDB
 void* OpenConn(char* path, bool useColumn, int attrCount, ComparatorOpts* opts) {
@@ -86,11 +92,9 @@ void* OpenConn(char* path, ComparatorOpts* opts) {
 
 void CloseConn(void* conn) {
     DB* db_ptr = static_cast<DB*>(conn);
-    #ifdef VIDARDB
     const Comparator* wrap_cmp = db_ptr->GetOptions().comparator;
     const Comparator* root_cmp = wrap_cmp->GetRootComparator();
     delete root_cmp;
-    #endif
     delete db_ptr;
 }
 
@@ -270,8 +274,7 @@ bool RangeQueryRead(void* conn, void* range, void** readOptions, size_t* bufLen,
          */
         *bufLen = 0;
     } else {
-        *bufLen = ro->result_key_size +
-                  ro->result_val_size +
+        *bufLen = ro->result_key_size + ro->result_val_size +
                   sizeof(size_t) * 2 * res->size();
     }
 
@@ -330,12 +333,8 @@ class PGDataTypeComparator : public Comparator {
         *firstCall_ = true;
         resourceOwner_ = ResourceOwnerCreate(NULL, "ComparatorResourceOwner");
         funcCallInfo_ = (FunctionCallInfoBaseData*) palloc0(sizeof(*funcCallInfo_));
-        InitFunctionCallInfoData(*funcCallInfo_,
-                                 &funcManager_,
-                                 2,
-                                 options_.attrCollOid,
-                                 NULL,
-                                 NULL);
+        InitFunctionCallInfoData(*funcCallInfo_, &funcManager_, 2,
+                                 options_.attrCollOid, NULL, NULL);
         funcCallInfo_->args[0].isnull = false;
         funcCallInfo_->args[1].isnull = false;
     }

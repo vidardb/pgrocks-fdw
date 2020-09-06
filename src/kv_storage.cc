@@ -30,19 +30,18 @@ using namespace rocksdb;
 #endif
 
 #include <mutex>
+using namespace std;
+
 #include "kv_storage.h"
 #include "kv_db.h"
 
-using namespace std;
-
 extern "C" {
-
-#include "kv_fdw.h"
 #include "fmgr.h"
 #include "access/xact.h"
 #include "access/tupmacs.h"
 #include "miscadmin.h"
 #include "utils/resowner.h"
+}
 
 
 #ifdef VIDARDB
@@ -462,6 +461,4 @@ class PGDataTypeComparator : public Comparator {
 
 void* NewDataTypeComparator(ComparatorOpts* options) {
     return new PGDataTypeComparator(options);
-}
-
 }

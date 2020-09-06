@@ -16,13 +16,14 @@
 #ifndef KV_API_H_
 #define KV_API_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "postgres.h"
 #include "utils/relcache.h"
 #include "access/attnum.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #define KVAllRelationId InvalidOid
 

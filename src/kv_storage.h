@@ -16,17 +16,12 @@
 #ifndef KV_STORAGE_H_
 #define KV_STORAGE_H_
 
-#if defined(__cplusplus)
+#ifdef __cplusplus
 extern "C" {
 #endif
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <fcntl.h>
-#include "postgres.h"
-#include "kv_posix.h"
+
 #include "kv_api.h"
-#include "access/attnum.h"
 
 /**
  * C wrapper
@@ -56,10 +51,11 @@ void ParseRangeQueryResult(void* result, char* buf);
 void ClearRangeQueryMeta(void* range, void* readOptions);
 #endif
 
+
 /* Create a datatype comparator wrapper for storage engine */
 void* NewDataTypeComparator(ComparatorOpts* options);
 
-#if defined(__cplusplus)
+#ifdef __cplusplus
 }
 #endif
 

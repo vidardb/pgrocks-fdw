@@ -48,6 +48,7 @@ typedef struct DroppedObject {
     char *path;
 } DroppedObject;
 
+
 #define PREVIOUS_UTILITY (PreviousProcessUtilityHook != NULL ? \
                           PreviousProcessUtilityHook : standard_ProcessUtility)
 
@@ -55,6 +56,14 @@ typedef struct DroppedObject {
                               destReceiver, completionTag) \
         PREVIOUS_UTILITY(plannedStmt, queryString, context, paramListInfo, \
                          queryEnvironment, destReceiver, completionTag)
+
+
+/* Forward Declaration */
+void  KVManagerMain(Datum arg);
+void  LaunchKVManager(void);
+void  KVWorkerMain(Datum arg);
+void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId);
+
 
 /*
  * SQL functions
@@ -928,24 +937,6 @@ LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId)
     Assert(status == BGWH_STARTED);
 
     return handle;
-}
-
-void 
-TerminateKVWorker(void* worker)
-{
-    BackgroundWorkerHandle* handle = (BackgroundWorkerHandle*) worker;
-    TerminateBackgroundWorker(handle);
-    WaitForBackgroundWorkerShutdown(handle);
-    pfree(handle);
-}
-
-bool
-CheckKVWorkerAlive(void* worker)
-{
-    pid_t pid;
-    BackgroundWorkerHandle* handle = (BackgroundWorkerHandle*) worker;
-    BgwHandleStatus status = GetBackgroundWorkerPid(handle, &pid);
-    return BGWH_STARTED == status;
 }
 
 int

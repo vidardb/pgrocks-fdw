@@ -15,9 +15,11 @@
 
 
 #include "kv_manager.h"
-#include <assert.h>
 
+extern "C" {
 #include "miscadmin.h"
+#include "postmaster/bgworker.h"
+}
 
 /*
  * In kv manager process scope
@@ -69,6 +71,13 @@ void KVManager::Run() {
     }
 }
 
+static void TerminateKVWorker(void* worker) {
+    BackgroundWorkerHandle* handle = (BackgroundWorkerHandle*) worker;
+    TerminateBackgroundWorker(handle);
+    WaitForBackgroundWorkerShutdown(handle);
+    pfree(handle);
+}
+
 void KVManager::Stop() {
     std::unordered_map<KVWorkerId, KVWorkerHandle*>::iterator it;
     for (it = workers_.begin(); it != workers_.end(); it++) {
@@ -80,6 +89,13 @@ void KVManager::Stop() {
 
     running_ = false;
     channel_->Terminate();
+}
+
+static bool CheckKVWorkerAlive(void* worker) {
+    pid_t pid;
+    BackgroundWorkerHandle* handle = (BackgroundWorkerHandle*) worker;
+    BgwHandleStatus status = GetBackgroundWorkerPid(handle, &pid);
+    return BGWH_STARTED == status;
 }
 
 void KVManager::Launch(KVWorkerId workerId, const KVMessage& msg) {
@@ -202,6 +218,5 @@ void StartKVManager(void) {
  * Terminate kv manager
  */
 void TerminateKVManager(void) {
-    assert(manager);
     manager->Stop();
 }

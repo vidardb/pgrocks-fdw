@@ -149,15 +149,10 @@ extern void   KVClearRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args);
  * Utility API for kv manager and kv worker
  */
 
-extern void  LaunchKVManager(void);
-extern void  KVManagerMain(Datum arg);
 extern void  StartKVManager(void);
 extern void  TerminateKVManager(void);
 extern void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId);
-extern void  KVWorkerMain(Datum arg);
 extern void  StartKVWorker(KVWorkerId workerId, KVDatabaseId dbId);
-extern void  TerminateKVWorker(void* worker);
-extern bool  CheckKVWorkerAlive(void* worker);
 
 /*
  * Utility API for string format, error report and other tools

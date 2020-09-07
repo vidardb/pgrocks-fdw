@@ -13,13 +13,14 @@
  * limitations under the License.
  */
 
-
 #include "kv_manager.h"
 
 extern "C" {
+#include "postgres.h"
 #include "miscadmin.h"
 #include "postmaster/bgworker.h"
 }
+
 
 /*
  * In kv manager process scope
@@ -27,7 +28,6 @@ extern "C" {
 
 static const char* MANAGER = "Manager";
 static KVManager* manager = NULL;
-
 
 /*
  * Implementation for kv manager
@@ -65,8 +65,7 @@ void KVManager::Run() {
                 Terminate(msg.hdr.relId, msg);
                 break;
             default:
-                ErrorReport(WARNING, ERRCODE_WARNING,
-                    "unsupported op in kv manager");
+                ereport(WARNING, (errmsg("invalid operation: %d", msg.hdr.op)));
         }
     }
 }

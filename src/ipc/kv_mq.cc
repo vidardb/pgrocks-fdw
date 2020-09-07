@@ -13,23 +13,26 @@
  * limitations under the License.
  */
 
-
 #include "kv_mq.h"
 
+extern "C" {
+#include "postgres.h"
+}
 
-static char const *REQCHANNEL = "Request";
-static char const *RESCHANNEL = "Response";
 
+#define MSGREQCHANNELNAME "Request"
+#define MSGRESCHANNELNAME "Response"
 
-KVMessageQueue::KVMessageQueue(KVRelationId rid, const char* name, bool isServer) {
+KVMessageQueue::KVMessageQueue(KVRelationId rid, const char* name,
+                               bool isServer) {
     isServer_ = isServer;
     char temp[MAXPATHLENGTH];
 
     ctrl_ = new KVCtrlChannel(rid, name, isServer);
-    StringFormat(temp, MAXPATHLENGTH, "%s%s", name, REQCHANNEL);
+    snprintf(temp, MAXPATHLENGTH, "%s%s", name, MSGREQCHANNELNAME);
     request_ = new KVCircularChannel(rid, temp, isServer);
     for (uint32 i = 0; i < MSGRESQUEUELENGTH; i++) {
-        StringFormat(temp, MAXPATHLENGTH, "%s%s%d", name, RESCHANNEL, i);
+        snprintf(temp, MAXPATHLENGTH, "%s%s%d", name, MSGRESCHANNELNAME, i);
         response_[i] = new KVSimpleChannel(rid, temp, isServer);
     }
 }
@@ -49,7 +52,7 @@ void KVMessageQueue::Send(const KVMessage& msg) {
 
     if (isServer_) {
         if (msg.hdr.resChan == 0) {
-            ErrorReport(WARNING, ERRCODE_WARNING, "invalid response channel");
+            ereport(WARNING, (errmsg("invalid response channel")));
             return;
         }
 
@@ -80,7 +83,7 @@ void KVMessageQueue::Recv(KVMessage& msg, int flag) {
         channel = request_;
     } else {
         if (msg.hdr.resChan == 0) {
-            ErrorReport(WARNING, ERRCODE_WARNING, "invalid response channel");
+            ereport(WARNING, (errmsg("invalid response channel")));
             return;
         }
 

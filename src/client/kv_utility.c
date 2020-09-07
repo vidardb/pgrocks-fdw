@@ -85,8 +85,7 @@ static void KVProcessUtility(PlannedStmt *plannedStmt, const char *queryString,
  * previous utility hook, and then install our hook to pre-intercept calls to
  * the copy command.
  */
-void
-_PG_init(void) {
+void _PG_init(void) {
     PreviousProcessUtilityHook = ProcessUtility_hook;
     ProcessUtility_hook = KVProcessUtility;
 
@@ -97,14 +96,12 @@ _PG_init(void) {
  * _PG_fini is called when the module is unloaded. This function uninstalls the
  * extension's hooks.
  */
-void
-_PG_fini(void) {
+void _PG_fini(void) {
     ProcessUtility_hook = PreviousProcessUtilityHook;
 }
 
 /* Checks if a directory exists for the given directory name. */
-static bool
-KVDirectoryExists(StringInfo directoryName) {
+static bool KVDirectoryExists(StringInfo directoryName) {
     bool directoryExists = true;
     struct stat directoryStat;
     if (stat(directoryName->data, &directoryStat) == 0) {
@@ -134,8 +131,7 @@ KVDirectoryExists(StringInfo directoryName) {
  * used to store automatically managed kv_fdw files. The path to
  * the directory is $PGDATA/kv_fdw/{databaseOid}.
  */
-static void
-KVCreateDatabaseDirectory(Oid databaseOid) {
+static void KVCreateDatabaseDirectory(Oid databaseOid) {
     StringInfo directoryPath = makeStringInfo();
     appendStringInfo(directoryPath, "%s/%s", DataDir, KVFDWNAME);
     if (!KVDirectoryExists(directoryPath)) {
@@ -162,8 +158,7 @@ KVCreateDatabaseDirectory(Oid databaseOid) {
  * Checks if the given foreign server belongs to kv_fdw. If it
  * does, the function returns true. Otherwise, it returns false.
  */
-static bool
-KVServer(ForeignServer *server) {
+static bool KVServer(ForeignServer *server) {
     char *fdwName = GetForeignDataWrapper(server->fdwid)->fdwname;
     return strncmp(fdwName, KVFDWNAME, NAMEDATALEN) == 0;
 }
@@ -172,8 +167,7 @@ KVServer(ForeignServer *server) {
  * Checks if the given table name belongs to a foreign KV table.
  * If it does, the function returns true. Otherwise, it returns false.
  */
-static bool
-KVTable(Oid relationId) {
+static bool KVTable(Oid relationId) {
     if (relationId == InvalidOid) {
         return false;
     }
@@ -196,8 +190,7 @@ KVTable(Oid relationId) {
  * ddl_command_end event. This function creates required directories after the
  * CREATE SERVER statement and after the CREATE FOREIGN TABLE statement.
  */
-Datum
-kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
+Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
     /* error if event trigger manager did not call this function */
     if (!CALLED_AS_EVENT_TRIGGER(fcinfo)) {
         ereport(ERROR, (errmsg("trigger not fired by event trigger manager")));
@@ -261,8 +254,7 @@ kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
  * However it does not remove 'kv_fdw' directory even if there
  * are no other databases left.
  */
-static void
-KVRemoveDatabaseDirectory(Oid databaseOid) {
+static void KVRemoveDatabaseDirectory(Oid databaseOid) {
     StringInfo databaseDirectoryPath = makeStringInfo();
     appendStringInfo(databaseDirectoryPath, "%s/%s/%u", DataDir, KVFDWNAME,
                      databaseOid);
@@ -276,8 +268,7 @@ KVRemoveDatabaseDirectory(Oid databaseOid) {
  * Constructs the default file path to use for a kv_fdw table.
  * The path is of the form $PGDATA/kv_fdw/{databaseOid}/{relfilenode}.
  */
-static char *
-KVDefaultFilePath(Oid foreignTableId) {
+static char* KVDefaultFilePath(Oid foreignTableId) {
     StringInfo filePath = makeStringInfo();
     appendStringInfo(filePath, "%s/%s/%u/%u", DataDir, KVFDWNAME, MyDatabaseId,
                      foreignTableId);
@@ -290,8 +281,7 @@ KVDefaultFilePath(Oid foreignTableId) {
  * looks for the option with the given name. If found, the function returns the
  * option's value. This function is unchanged from mongo_fdw.
  */
-char *
-KVGetOptionValue(Oid foreignTableId, const char *optionName) {
+char* KVGetOptionValue(Oid foreignTableId, const char *optionName) {
     ForeignTable *foreignTable = GetForeignTable(foreignTableId);
     ForeignServer *foreignServer = GetForeignServer(foreignTable->serverid);
 
@@ -318,8 +308,7 @@ KVGetOptionValue(Oid foreignTableId, const char *optionName) {
  * foreign table, and if not present, falls back to default values.
  * This function errors out if given option values are considered invalid.
  */
-KVFdwOptions *
-KVGetOptions(Oid foreignTableId) {
+KVFdwOptions* KVGetOptions(Oid foreignTableId) {
     KVFdwOptions *options = palloc0(sizeof(KVFdwOptions));
 
     char *filename = KVGetOptionValue(foreignTableId, OPTION_FILENAME);
@@ -343,8 +332,7 @@ KVGetOptions(Oid foreignTableId) {
  * Extracts and returns the list of kv file (directory) names from DROP table
  * statement.
  */
-static List *
-KVDroppedFilenameList(DropStmt *dropStmt) {
+static List* KVDroppedFilenameList(DropStmt *dropStmt) {
     List *droppedFileList = NIL;
     if (dropStmt->removeType == OBJECT_FOREIGN_TABLE) {
 
@@ -371,8 +359,7 @@ KVDroppedFilenameList(DropStmt *dropStmt) {
  * "COPY kv_table TO ...." statement. If it is then the function returns
  * true. The function returns false otherwise.
  */
-static bool
-KVCopyTableStatement(CopyStmt* copyStmt) {
+static bool KVCopyTableStatement(CopyStmt* copyStmt) {
     if (!copyStmt->relation) {
         return false;
     }
@@ -385,8 +372,7 @@ KVCopyTableStatement(CopyStmt* copyStmt) {
  * Checks if superuser privilege is required by copy operation and reports
  * error if user does not have superuser rights.
  */
-static void
-KVCheckSuperuserPrivilegesForCopy(const CopyStmt* copyStmt) {
+static void KVCheckSuperuserPrivilegesForCopy(const CopyStmt* copyStmt) {
     /*
      * We disallow copy from file or program except to superusers. These checks
      * are based on the checks in DoCopy() function of copy.c.
@@ -406,8 +392,7 @@ KVCheckSuperuserPrivilegesForCopy(const CopyStmt* copyStmt) {
     }
 }
 
-Datum
-ShortVarlena(Datum datum, int typeLength, char storage) {
+Datum ShortVarlena(Datum datum, int typeLength, char storage) {
     /* Make sure item to be inserted is not toasted */
     if (typeLength == -1) {
         datum = PointerGetDatum(PG_DETOAST_DATUM_PACKED(datum));
@@ -426,9 +411,8 @@ ShortVarlena(Datum datum, int typeLength, char storage) {
     PG_RETURN_DATUM(datum);
 }
 
-void
-SerializeNullAttribute(TupleDesc tupleDescriptor, Index index,
-                       StringInfo buffer) {
+void SerializeNullAttribute(TupleDesc tupleDescriptor, Index index,
+                            StringInfo buffer) {
     enlargeStringInfo(buffer, buffer->len + HEADERBUFFSIZE);
     char *current = buffer->data + buffer->len;
     memset(current, 0, HEADERBUFFSIZE);
@@ -436,9 +420,8 @@ SerializeNullAttribute(TupleDesc tupleDescriptor, Index index,
     buffer->len += headerLen;
 }
 
-void
-SerializeAttribute(TupleDesc tupleDescriptor, Index index, Datum datum,
-                   StringInfo buffer) {
+void SerializeAttribute(TupleDesc tupleDescriptor, Index index, Datum datum,
+                        StringInfo buffer) {
     Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
     bool byValue = attributeForm->attbyval;
     int typeLength = attributeForm->attlen;
@@ -477,8 +460,7 @@ SerializeAttribute(TupleDesc tupleDescriptor, Index index, Datum datum,
     buffer->len = datumLength + headerLen;
 }
 
-void
-SetRelationComparatorOpts(Relation relation, ComparatorOpts *opts) {
+void SetRelationComparatorOpts(Relation relation, ComparatorOpts *opts) {
     TupleDesc tupleDescriptor = RelationGetDescr(relation);
 
     /* TODO: we assume the 1st column is primary key */
@@ -499,8 +481,7 @@ SetRelationComparatorOpts(Relation relation, ComparatorOpts *opts) {
  * specified in the foreign table options. Finally, the function returns the
  * number of copied rows.
  */
-static uint64
-KVCopyIntoTable(const CopyStmt *copyStmt, const char *queryString) {
+static uint64 KVCopyIntoTable(const CopyStmt *copyStmt, const char *queryString) {
     /* Only superuser can copy from or to local file */
     KVCheckSuperuserPrivilegesForCopy(copyStmt);
 
@@ -607,8 +588,7 @@ KVCopyIntoTable(const CopyStmt *copyStmt, const char *queryString) {
  * "COPY (SELECT * FROM kv_table) TO ..." and forwarded to Postgres native
  * COPY handler. Function returns number of files copied to external stream.
  */
-static uint64
-KVCopyOutTable(CopyStmt *copyStmt, const char *queryString) {
+static uint64 KVCopyOutTable(CopyStmt *copyStmt, const char *queryString) {
     if (copyStmt->attlist != NIL) {
         ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
                         errmsg("copy column list is not supported"),
@@ -656,8 +636,7 @@ KVCopyOutTable(CopyStmt *copyStmt, const char *queryString) {
  * change existing data. However, it is not strict enough to prevent cast like
  * float <--> integer, which does not deserialize successfully in our case.
  */
-static void
-KVCheckAlterTable(AlterTableStmt *alterStmt) {
+static void KVCheckAlterTable(AlterTableStmt *alterStmt) {
     ObjectType objectType = alterStmt->relkind;
     /* we are only interested in foreign table changes */
     if (objectType != OBJECT_TABLE && objectType != OBJECT_FOREIGN_TABLE) {
@@ -713,11 +692,12 @@ KVCheckAlterTable(AlterTableStmt *alterStmt) {
  * statements, the function calls the previous utility hook or the standard
  * utility command via macro CALL_PREVIOUS_UTILITY.
  */
-static void
-KVProcessUtility(PlannedStmt *plannedStmt, const char *queryString,
-                 ProcessUtilityContext context, ParamListInfo paramListInfo,
-                 QueryEnvironment *queryEnvironment, DestReceiver *destReceiver,
-                 char *completionTag) {
+static void KVProcessUtility(PlannedStmt *plannedStmt, const char *queryString,
+                             ProcessUtilityContext context,
+                             ParamListInfo paramListInfo,
+                             QueryEnvironment *queryEnvironment,
+                             DestReceiver *destReceiver,
+                             char *completionTag) {
     Node *parseTree = plannedStmt->utilityStmt;
     if (nodeTag(parseTree) == T_CopyStmt) {
 
@@ -814,9 +794,7 @@ KVProcessUtility(PlannedStmt *plannedStmt, const char *queryString,
  * Set a flag to let the main loop to terminate, and set our latch to 
  * wake it up.
  */
-static void
-KVManagerSigHandler(SIGNAL_ARGS)
-{
+static void KVManagerSigHandler(SIGNAL_ARGS) {
     int save_errno = errno;
 
     TerminateKVManager();
@@ -828,9 +806,7 @@ KVManagerSigHandler(SIGNAL_ARGS)
 /*
  * Entrypoint for kv manager
  */
-void
-KVManagerMain(Datum arg)
-{
+void KVManagerMain(Datum arg) {
     /* Establish signal handlers before unblocking signals. */
     /* pqsignal(SIGTERM, KVManagerSigHandler); */
 
@@ -853,9 +829,7 @@ KVManagerMain(Datum arg)
 /*
  * Launch kv manager process
  */
-void
-LaunchKVManager(void)
-{
+void LaunchKVManager(void) {
     printf("\n~~~~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
 
     if (!process_shared_preload_libraries_in_progress)
@@ -880,9 +854,7 @@ LaunchKVManager(void)
 /*
  * Entrypoint for kv worker
  */
-void
-KVWorkerMain(Datum arg)
-{
+void KVWorkerMain(Datum arg) {
     KVDatabaseId dbId = (KVDatabaseId) DatumGetObjectId(arg);
     KVWorkerId workerId = *((KVWorkerId*) (MyBgworkerEntry->bgw_extra));
 
@@ -896,9 +868,7 @@ KVWorkerMain(Datum arg)
 /*
  * Launch kv worker process
  */
-void*
-LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId)
-{
+void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId) {
     BackgroundWorker worker;
     memset(&worker, 0, sizeof(worker));
     worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
@@ -914,21 +884,18 @@ LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId)
     worker.bgw_notify_pid = MyProcPid;
 
     BackgroundWorkerHandle* handle;
-    if (!RegisterDynamicBackgroundWorker(&worker, &handle))
-    {
+    if (!RegisterDynamicBackgroundWorker(&worker, &handle)) {
         return NULL;
     }
 
     pid_t pid;
     BgwHandleStatus status = WaitForBackgroundWorkerStartup(handle, &pid);
-    if (status == BGWH_STOPPED)
-    {
+    if (status == BGWH_STOPPED) {
         ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
                 errmsg("could not start background process"),
                 errhint("More details may be available in the server log.")));
     }
-    if (status == BGWH_POSTMASTER_DIED)
-    {
+    if (status == BGWH_POSTMASTER_DIED) {
         ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
                 errmsg("cannot start background processes without postmaster"),
                 errhint("Kill all remaining database processes and restart "
@@ -937,33 +904,4 @@ LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId)
     Assert(status == BGWH_STARTED);
 
     return handle;
-}
-
-int
-StringFormat(char *str, size_t count, const char *fmt, ...)
-{
-    int			len;
-    va_list		args;
-
-    va_start(args, fmt);
-    len = pg_vsnprintf(str, count, fmt, args);
-    va_end(args);
-    return len;
-}
-
-void
-ErrorReport(int level, int code, const char* msg)
-{
-    ereport(level, (errcode(code), errmsg("%s", msg)));
-}
-
-void*
-AllocMemory(uint64 size)
-{
-    return palloc0(size);
-}
-
-void FreeMemory(void* ptr)
-{
-    pfree(ptr);
 }

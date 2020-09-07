@@ -14,12 +14,13 @@
  */
 
 #include <unordered_map>
-
-#include "postgres.h"
-#include "miscadmin.h"
 #include "../kv_api.h"
 #include "../server/kv_manager.h"
 
+extern "C" {
+#include "postgres.h"
+#include "miscadmin.h"
+}
 
 /*
  * In backend process scope
@@ -32,95 +33,74 @@ static std::unordered_map<KVWorkerId, KVWorkerClient*> workers;
  * Implementation for kv client
  */
 
-static void
-InitKVManagerClient()
-{
+static void InitKVManagerClient() {
     manager = new KVManagerClient();
 }
 
-static KVWorkerClient*
-GetKVWorkerClient(KVWorkerId workerId)
-{
+static KVWorkerClient* GetKVWorkerClient(KVWorkerId workerId) {
     std::unordered_map<KVWorkerId, KVWorkerClient*>::iterator it =
         workers.find(workerId);
-    if (it != workers.end())
-    {
+    if (it != workers.end()) {
         return it->second;
     }
 
-    if (!manager)
-    {
+    if (!manager) {
         InitKVManagerClient();
     }
 
     bool success = manager->Launch(workerId);
-    if (success)
-    {
+    if (success) {
         KVWorkerClient* worker = new KVWorkerClient(workerId);
         workers.insert({workerId, worker});
         return worker;
     }
 
-    ErrorReport(ERROR, ERRCODE_CONFIGURATION_LIMIT_EXCEEDED,
-                "too many background workers (consider increasing the "
-                "configuration parameter \"max_worker_processes\")");
+    ereport(ERROR, (errcode(ERRCODE_CONFIGURATION_LIMIT_EXCEEDED),
+            errmsg("too many background workers"),
+            errhint("Up to %d background workers can be registered with"
+                    " the current settings.", max_worker_processes),
+            errhint("Consider increasing the configuration parameter "
+                    "\"max_worker_processes\".")));
     return NULL;
 }
 
-void
-KVOpenRequest(KVRelationId rid, OpenArgs* args)
-{
+void KVOpenRequest(KVRelationId rid, OpenArgs* args) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     worker->Open(rid, args);
 }
 
-void
-KVCloseRequest(KVRelationId rid)
-{
+void KVCloseRequest(KVRelationId rid) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     worker->Close(rid);
 }
 
-uint64
-KVCountRequest(KVRelationId rid)
-{
+uint64 KVCountRequest(KVRelationId rid) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     return worker->Count(rid);
 }
 
-bool
-KVPutRequest(KVRelationId rid, PutArgs* args)
-{
+bool KVPutRequest(KVRelationId rid, PutArgs* args) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     return worker->Put(rid, args);
 }
 
-bool
-KVDeleteRequest(KVRelationId rid, DeleteArgs* args)
-{
+bool KVDeleteRequest(KVRelationId rid, DeleteArgs* args) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     return worker->Delete(rid, args);
 }
 
-void
-KVLoadRequest(KVRelationId rid, PutArgs* args)
-{
+void KVLoadRequest(KVRelationId rid, PutArgs* args) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     worker->Load(rid, args);
 }
 
-bool
-KVGetRequest(KVRelationId rid, GetArgs* args)
-{
+bool KVGetRequest(KVRelationId rid, GetArgs* args) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     return worker->Get(rid, args);
 }
 
-void
-KVTerminateRequest(KVRelationId rid, KVDatabaseId dbId)
-{
-    if (!manager)
-    {
+void KVTerminateRequest(KVRelationId rid, KVDatabaseId dbId) {
+    if (!manager) {
         InitKVManagerClient();
     }
 
@@ -128,31 +108,23 @@ KVTerminateRequest(KVRelationId rid, KVDatabaseId dbId)
     workers.erase(rid);
 }
 
-bool
-KVReadBatchRequest(KVRelationId rid, ReadBatchArgs* args)
-{
+bool KVReadBatchRequest(KVRelationId rid, ReadBatchArgs* args) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     return worker->ReadBatch(rid, args);
 }
 
-void
-KVCloseCursorRequest(KVRelationId rid, CloseCursorArgs* args)
-{
+void KVCloseCursorRequest(KVRelationId rid, CloseCursorArgs* args) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     worker->CloseCursor(rid, args);
 }
 
 #ifdef VIDARDB
-bool
-KVRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args)
-{
+bool KVRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     return worker->RangeQuery(rid, args);;
 }
 
-void
-KVClearRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args)
-{
+void KVClearRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     worker->ClearRangeQuery(rid, args);
 }

@@ -13,9 +13,8 @@
  * limitations under the License.
  */
 
-#ifndef SRC_KV_MANAGER_H_
-#define SRC_KV_MANAGER_H_
-
+#ifndef KV_MANAGER_H_
+#define KV_MANAGER_H_
 
 #include <unordered_map>
 #include "../ipc/kv_mq.h"
@@ -61,5 +60,4 @@ class KVManagerClient {
     KVMessageQueue* channel_;
 };
 
-
-#endif /* SRC_KV_MANAGER_H_ */
+#endif  /* KV_MANAGER_H_ */

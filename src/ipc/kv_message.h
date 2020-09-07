@@ -13,10 +13,11 @@
  * limitations under the License.
  */
 
-#ifndef SRC_KV_MESSAGE_H_
-#define SRC_KV_MESSAGE_H_
+#ifndef KV_MESSAGE_H_
+#define KV_MESSAGE_H_
 
 #include "../kv_api.h"
+
 
 /*
  * A kv message contains both header and entity (optional), and it also
@@ -42,7 +43,6 @@ struct KVMessageHeader {
     uint64          etySize = 0; /* message entity size */
 };
 
-
 typedef void (*WriteEntityFunc) (void* channel, uint64* offset, void* entity,
                                  uint64 size);
 typedef void (*ReadEntityFunc)  (void* channel, uint64* offset, void* entity,
@@ -56,14 +56,14 @@ struct KVMessage {
     WriteEntityFunc  writeFunc = NULL; /* write function */
 };
 
-
 extern KVMessage SuccessMessage(uint32 channel);
 extern KVMessage FailureMessage(uint32 channel);
-extern KVMessage SimpleMessage(KVOperation op, KVRelationId rid, KVDatabaseId dbId);
+extern KVMessage SimpleMessage(KVOperation op, KVRelationId rid,
+                               KVDatabaseId dbId);
 
 extern void CommonWriteEntity(void* channel, uint64* offset, void* entity,
                               uint64 size);
 extern void CommonReadEntity(void* channel, uint64* offset, void* entity,
                              uint64 size);
 
-#endif /* SRC_KV_MESSAGE_H_ */
+#endif  /* KV_MESSAGE_H_ */

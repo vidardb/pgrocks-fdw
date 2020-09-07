@@ -52,9 +52,8 @@ PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 static uint64 operationId = 0;  /* a SQL might cause multiple scans */
 
-
-static void
-GetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
+static void GetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel,
+                              Oid foreignTableId) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Obtain relation size estimates for a foreign table. This is called at
@@ -145,8 +144,8 @@ GetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
     KVCloseRequest(foreignTableId);
 }
 
-static void
-GetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
+static void GetForeignPaths(PlannerInfo *root, RelOptInfo *baserel,
+                            Oid foreignTableId) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Create possible access paths for a scan on a foreign table. This is
@@ -180,10 +179,10 @@ GetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
                                               NIL)); /* no fdw_private data */
 }
 
-static ForeignScan *
-GetForeignPlan(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId,
-               ForeignPath *bestPath, List *targetList, List *scanClauses,
-               Plan *outerPlan) {
+static ForeignScan * GetForeignPlan(PlannerInfo *root, RelOptInfo *baserel,
+                                    Oid foreignTableId, ForeignPath *bestPath,
+                                    List *targetList, List *scanClauses,
+                                    Plan *outerPlan) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Create a ForeignScan plan node from the selected foreign access path.
@@ -239,9 +238,8 @@ GetForeignPlan(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId,
                             NIL, /* no remote quals */ NULL);
 }
 
-static void
-GetKeyBasedQual(Node *node, ForeignScanState *scanState,
-                TableReadState *readState) {
+static void GetKeyBasedQual(Node *node, ForeignScanState *scanState,
+                            TableReadState *readState) {
     if (!node || !IsA(node, OpExpr)) {
         return;
     }
@@ -306,8 +304,7 @@ GetKeyBasedQual(Node *node, ForeignScanState *scanState,
     return;
 }
 
-static void
-BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
+static void BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Begin executing a foreign scan. This is called during executor startup.
@@ -428,10 +425,9 @@ BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
  * where we need to match the tuple when do deserialization.
  * Update and Delete also provide full tuple.
  */
-static void
-DeserializeColumnTuple(char *key, size_t kLen, char *val, size_t vLen,
-                       TupleTableSlot *tupleSlot, List *targetList,
-                       bool fullTuple) {
+static void DeserializeColumnTuple(char *key, size_t kLen, char *val,
+                                   size_t vLen, TupleTableSlot *tupleSlot,
+                                   List *targetList, bool fullTuple) {
     Datum *values = tupleSlot->tts_values;
     bool *nulls = tupleSlot->tts_isnull;
 
@@ -511,9 +507,8 @@ DeserializeColumnTuple(char *key, size_t kLen, char *val, size_t vLen,
 }
 #endif
 
-static void
-DeserializeTuple(char *key, size_t kLen, char *val, size_t vLen,
-                 TupleTableSlot *tupleSlot) {
+static void DeserializeTuple(char *key, size_t kLen, char *val, size_t vLen,
+                             TupleTableSlot *tupleSlot) {
     Datum *values = tupleSlot->tts_values;
     bool *nulls = tupleSlot->tts_isnull;
 
@@ -554,9 +549,9 @@ DeserializeTuple(char *key, size_t kLen, char *val, size_t vLen,
     }
 }
 
-static bool
-GetNextFromBatch(Oid relationId, TableReadState *readState, char **key,
-    size_t *keyLen, char **val, size_t *valLen) {
+static bool GetNextFromBatch(Oid relationId, TableReadState *readState,
+                             char **key, size_t *keyLen, char **val,
+                             size_t *valLen) {
     bool found = false;
     if (readState->next < readState->buf + readState->bufLen) {
         found = true;
@@ -601,11 +596,11 @@ GetNextFromBatch(Oid relationId, TableReadState *readState, char **key,
         *val = readState->next;
         readState->next += *valLen;
     }
+
     return found;
 }
 
-static TupleTableSlot *
-IterateForeignScan(ForeignScanState *scanState) {
+static TupleTableSlot* IterateForeignScan(ForeignScanState *scanState) {
 //    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Fetch one row from the foreign source, returning it in a tuple table
@@ -678,8 +673,7 @@ IterateForeignScan(ForeignScanState *scanState) {
     return tupleSlot;
 }
 
-static void
-ReScanForeignScan(ForeignScanState *scanState) {
+static void ReScanForeignScan(ForeignScanState *scanState) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Restart the scan from the beginning. Note that any parameters the scan
@@ -690,8 +684,7 @@ ReScanForeignScan(ForeignScanState *scanState) {
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 }
 
-static void
-EndForeignScan(ForeignScanState *scanState) {
+static void EndForeignScan(ForeignScanState *scanState) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * End the scan and release resources. It is normally not important to
@@ -740,9 +733,8 @@ EndForeignScan(ForeignScanState *scanState) {
     pfree(readState);
 }
 
-static void
-AddForeignUpdateTargets(Query *parsetree, RangeTblEntry *tableEntry,
-                        Relation targetRelation) {
+static void AddForeignUpdateTargets(Query *parsetree, RangeTblEntry *tableEntry,
+                                    Relation targetRelation) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * UPDATE and DELETE operations are performed against rows previously
@@ -792,9 +784,8 @@ AddForeignUpdateTargets(Query *parsetree, RangeTblEntry *tableEntry,
     parsetree->targetList = lappend(parsetree->targetList, entry);
 }
 
-static List *
-PlanForeignModify(PlannerInfo *root, ModifyTable *plan, Index resultRelation,
-                  int subplanIndex) {
+static List* PlanForeignModify(PlannerInfo *root, ModifyTable *plan,
+                               Index resultRelation, int subplanIndex) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Perform any additional planning actions needed for an insert, update,
@@ -872,10 +863,9 @@ PlanForeignModify(PlannerInfo *root, ModifyTable *plan, Index resultRelation,
     #endif
 }
 
-static void
-BeginForeignModify(ModifyTableState *modifyTableState,
-                   ResultRelInfo *resultRelInfo, List *fdwPrivate,
-                   int subplanIndex, int executorFlags) {
+static void BeginForeignModify(ModifyTableState *modifyTableState,
+                               ResultRelInfo *resultRelInfo, List *fdwPrivate,
+                               int subplanIndex, int executorFlags) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Begin executing a foreign table modification operation. This routine is
@@ -942,8 +932,8 @@ BeginForeignModify(ModifyTableState *modifyTableState,
     #endif
 }
 
-static void
-SerializeTuple(StringInfo key, StringInfo val, TupleTableSlot *tupleSlot) {
+static void SerializeTuple(StringInfo key, StringInfo val,
+                           TupleTableSlot *tupleSlot) {
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
     int count = tupleDescriptor->natts;
 
@@ -963,9 +953,10 @@ SerializeTuple(StringInfo key, StringInfo val, TupleTableSlot *tupleSlot) {
     }
 }
 
-static TupleTableSlot *
-ExecForeignInsert(EState *executorState, ResultRelInfo *resultRelInfo,
-                  TupleTableSlot *slot, TupleTableSlot *planSlot) {
+static TupleTableSlot* ExecForeignInsert(EState *executorState,
+                                         ResultRelInfo *resultRelInfo,
+                                         TupleTableSlot *slot,
+                                         TupleTableSlot *planSlot) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Insert one tuple into the foreign table. executorState is global
@@ -1030,9 +1021,10 @@ ExecForeignInsert(EState *executorState, ResultRelInfo *resultRelInfo,
     return slot;
 }
 
-static TupleTableSlot *
-ExecForeignUpdate(EState *executorState, ResultRelInfo *resultRelInfo,
-                  TupleTableSlot *slot, TupleTableSlot *planSlot) {
+static TupleTableSlot* ExecForeignUpdate(EState *executorState,
+                                         ResultRelInfo *resultRelInfo,
+                                         TupleTableSlot *slot,
+                                         TupleTableSlot *planSlot) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Update one tuple in the foreign table. executorState is global execution
@@ -1097,9 +1089,10 @@ ExecForeignUpdate(EState *executorState, ResultRelInfo *resultRelInfo,
     return slot;
 }
 
-static TupleTableSlot *
-ExecForeignDelete(EState *executorState, ResultRelInfo *resultRelInfo,
-                  TupleTableSlot *slot, TupleTableSlot *planSlot) {
+static TupleTableSlot* ExecForeignDelete(EState *executorState,
+                                         ResultRelInfo *resultRelInfo,
+                                         TupleTableSlot *slot,
+                                         TupleTableSlot *planSlot) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Delete one tuple from the foreign table. executorState is global
@@ -1145,8 +1138,7 @@ ExecForeignDelete(EState *executorState, ResultRelInfo *resultRelInfo,
     return slot;
 }
 
-static void
-EndForeignModify(EState *executorState, ResultRelInfo *resultRelInfo) {
+static void EndForeignModify(EState *executorState, ResultRelInfo *resultRelInfo) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * End the table update and release resources. It is normally not important
@@ -1177,9 +1169,8 @@ EndForeignModify(EState *executorState, ResultRelInfo *resultRelInfo) {
     }
 }
 
-static void
-ExplainForeignScan(ForeignScanState *scanState,
-                   struct ExplainState * explainState) {
+static void ExplainForeignScan(ForeignScanState *scanState,
+                               struct ExplainState * explainState) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Print additional EXPLAIN output for a foreign table scan. This function
@@ -1195,10 +1186,10 @@ ExplainForeignScan(ForeignScanState *scanState,
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 }
 
-static void
-ExplainForeignModify(ModifyTableState *modifyTableState,
-                     ResultRelInfo *relationInfo, List *fdwPrivate,
-                     int subplanIndex, struct ExplainState *explainState) {
+static void ExplainForeignModify(ModifyTableState *modifyTableState,
+                                 ResultRelInfo *relationInfo, List *fdwPrivate,
+                                int subplanIndex,
+                                struct ExplainState *explainState) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Print additional EXPLAIN output for a foreign table update. This
@@ -1215,10 +1206,9 @@ ExplainForeignModify(ModifyTableState *modifyTableState,
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 }
 
-static bool
-AnalyzeForeignTable(Relation relation,
-                    AcquireSampleRowsFunc *acquireSampleRowsFunc,
-                    BlockNumber *totalPageCount) {
+static bool AnalyzeForeignTable(Relation relation,
+                                AcquireSampleRowsFunc *acquireSampleRowsFunc,
+                                BlockNumber *totalPageCount) {
     printf("\n-----------------%s----------------------\n", __func__);
     /* ----
      * This function is called when ANALYZE is executed on a foreign table. If
@@ -1252,8 +1242,7 @@ AnalyzeForeignTable(Relation relation,
     return false;
 }
 
-Datum
-kv_fdw_handler(PG_FUNCTION_ARGS) {
+Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
     printf("\n-----------------%s----------------------\n", __func__);
     FdwRoutine *routine = makeNode(FdwRoutine);
 
@@ -1297,8 +1286,7 @@ kv_fdw_handler(PG_FUNCTION_ARGS) {
     PG_RETURN_POINTER(routine);
 }
 
-Datum
-kv_fdw_validator(PG_FUNCTION_ARGS) {
+Datum kv_fdw_validator(PG_FUNCTION_ARGS) {
     printf("\n-----------------%s----------------------\n", __func__);
     //List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
 

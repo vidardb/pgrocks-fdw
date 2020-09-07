@@ -17,15 +17,14 @@
 #include "kv_manager.h"
 #include "../ipc/kv_posix.h"
 #include "kv_storage.h"
-
-#include "miscadmin.h"
-
 #include "fcntl.h"
 
+extern "C" {
+#include "postgres.h"
+#include "miscadmin.h"
+}
 
-#define MSGPATHPREFIX     "/KV"
-#define MSGDISCARD        04
-//#define READBATCHSIZE     4096*20
+
 #define READBATCHPATH     "/KVReadBatch"
 #ifdef VIDARDB
 #define RANGEQUERYPATH    "/KVRangeQuery"
@@ -149,7 +148,7 @@ bool KVWorkerClient::Get(KVWorkerId workerId, GetArgs* args) {
     channel_->Recv(recvmsg, MSGHEADER);
 
     *(args->valLen) = recvmsg.hdr.etySize;
-    *(args->val) = (char*) AllocMemory(*(args->valLen));
+    *(args->val) = (char*) palloc0(*(args->valLen));
     recvmsg.ety = *(args->val);
     recvmsg.readFunc = CommonReadEntity;
     channel_->Recv(recvmsg, MSGENTITY);
@@ -217,8 +216,8 @@ bool KVWorkerClient::ReadBatch(KVWorkerId workerId, ReadBatchArgs* args) {
         char  name[MAXPATHLENGTH];
         pid_t pid = getpid();
 
-        StringFormat(name, MAXPATHLENGTH, "%s%d%d%lu", READBATCHPATH, pid,
-                     workerId, args->cursor);
+        snprintf(name, MAXPATHLENGTH, "%s%d%d%lu", READBATCHPATH, pid, workerId,
+                 args->cursor);
         int fd = ShmOpen(name, O_RDWR, 0777, __func__);
         *(args->buf) = (char*) Mmap(NULL, READBATCHSIZE, PROT_READ | PROT_WRITE,
                                     MAP_SHARED, fd, 0, __func__);
@@ -245,8 +244,8 @@ void KVWorkerClient::CloseCursor(KVWorkerId workerId, CloseCursorArgs* args) {
     char  name[MAXPATHLENGTH];
     pid_t pid = getpid();
 
-    StringFormat(name, MAXPATHLENGTH, "%s%d%d%lu", READBATCHPATH, pid, workerId,
-                 args->cursor);
+    snprintf(name, MAXPATHLENGTH, "%s%d%d%lu", READBATCHPATH, pid, workerId,
+             args->cursor);
     ShmUnlink(name, __func__);
 
     KVMessage sendmsg = SimpleMessage(KVOpDelCursor, workerId, MyDatabaseId);
@@ -330,8 +329,8 @@ bool KVWorkerClient::RangeQuery(KVWorkerId workerId, RangeQueryArgs* args) {
         char  name[MAXPATHLENGTH];
         pid_t pid = getpid();
 
-        StringFormat(name, MAXPATHLENGTH, "%s%d%d%lu", RANGEQUERYPATH, pid,
-                     workerId, args->cursor);
+        snprintf(name, MAXPATHLENGTH, "%s%d%d%lu", RANGEQUERYPATH, pid,
+                 workerId, args->cursor);
         int fd = ShmOpen(name, O_RDWR, 0777, __func__);
         *(args->buf) = (char*) Mmap(NULL, *(args->bufLen),
             PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0, __func__);
@@ -430,8 +429,7 @@ void KVWorker::Run() {
                 break;
             #endif
             default:
-                ErrorReport(WARNING, ERRCODE_WARNING,
-                    "unsupported op in kv worker");
+                ereport(WARNING, (errmsg("invalid operation: %d", msg.hdr.op)));
         }
     }
 }
@@ -443,7 +441,7 @@ void KVWorker::Stop() {
 
 void KVWorker::Open(KVWorkerId workerId, KVMessage& msg) {
     OpenArgs args;
-    args.path = (char*) AllocMemory(msg.hdr.etySize);
+    args.path = (char*) palloc0(msg.hdr.etySize);
 
     msg.ety = &args;
     msg.readFunc = ReadOpenArgs;
@@ -460,11 +458,11 @@ void KVWorker::Open(KVWorkerId workerId, KVMessage& msg) {
         ref_++;
     }
 
-    FreeMemory(args.path);
+    pfree(args.path);
 }
 
 void KVWorker::Put(KVWorkerId workerId, KVMessage& msg) {
-    msg.ety = AllocMemory(msg.hdr.etySize);
+    msg.ety = palloc0(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
 
@@ -481,11 +479,11 @@ void KVWorker::Put(KVWorkerId workerId, KVMessage& msg) {
         channel_->Send(FailureMessage(msg.hdr.resChan));
     }
 
-    FreeMemory(msg.ety);
+    pfree(msg.ety);
 }
 
 void KVWorker::Delete(KVWorkerId workerId, KVMessage& msg) {
-    msg.ety = AllocMemory(msg.hdr.etySize);
+    msg.ety = palloc0(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
 
@@ -496,11 +494,11 @@ void KVWorker::Delete(KVWorkerId workerId, KVMessage& msg) {
         channel_->Send(FailureMessage(msg.hdr.resChan));
     }
 
-    FreeMemory(msg.ety);
+    pfree(msg.ety);
 }
 
 void KVWorker::Load(KVWorkerId workerId, KVMessage& msg) {
-    msg.ety = AllocMemory(msg.hdr.etySize);
+    msg.ety = palloc0(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
 
@@ -512,14 +510,14 @@ void KVWorker::Load(KVWorkerId workerId, KVMessage& msg) {
 
     PutRecord(conn_, args.key, args.keyLen, args.val, args.valLen);
 
-    FreeMemory(msg.ety);
+    pfree(msg.ety);
 }
 
 void KVWorker::Get(KVWorkerId workerId, KVMessage& msg) {
     char*  val;
     uint64 valLen;
 
-    msg.ety = AllocMemory(msg.hdr.etySize);
+    msg.ety = palloc0(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
 
@@ -534,7 +532,7 @@ void KVWorker::Get(KVWorkerId workerId, KVMessage& msg) {
         channel_->Send(FailureMessage(msg.hdr.resChan));
     }
 
-    FreeMemory(msg.ety);
+    pfree(msg.ety);
 }
 
 void KVWorker::Close(KVWorkerId workerId, KVMessage& msg) {
@@ -580,7 +578,7 @@ void WriteReadBatchState(void* channel, uint64* offset, void* entity,
 }
 
 void KVWorker::ReadBatch(KVWorkerId workerId, KVMessage& msg) {
-    msg.ety = AllocMemory(msg.hdr.etySize);
+    msg.ety = palloc0(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
 
@@ -599,8 +597,8 @@ void KVWorker::ReadBatch(KVWorkerId workerId, KVMessage& msg) {
     }
 
     char name[MAXPATHLENGTH];
-    StringFormat(name, MAXPATHLENGTH, "%s%d%d%lu", READBATCHPATH, key.pid,
-                 workerId, key.cursor);
+    snprintf(name, MAXPATHLENGTH, "%s%d%d%lu", READBATCHPATH, key.pid, workerId,
+             key.cursor);
     ShmUnlink(name, __func__);
     int fd = ShmOpen(name, O_CREAT | O_RDWR, 0777, __func__);
     Ftruncate(fd, READBATCHSIZE, __func__);
@@ -618,11 +616,11 @@ void KVWorker::ReadBatch(KVWorkerId workerId, KVMessage& msg) {
 
     channel_->Send(sendmsg);
 
-    FreeMemory(msg.ety);
+    pfree(msg.ety);
 }
 
 void KVWorker::CloseCursor(KVWorkerId workerId, KVMessage& msg) {
-    msg.ety = AllocMemory(msg.hdr.etySize);
+    msg.ety = palloc0(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
 
@@ -633,18 +631,18 @@ void KVWorker::CloseCursor(KVWorkerId workerId, KVMessage& msg) {
     std::unordered_map<KVCursorKey, void*, KVCursorKeyHashFunc>::iterator it;
     it = cursors_.find(key);
     if (it == cursors_.end()) {
-        FreeMemory(msg.ety);
+        pfree(msg.ety);
         return;
     }
 
     DelIter(it->second);
     cursors_.erase(it);
-    FreeMemory(msg.ety);
+    pfree(msg.ety);
 }
 
 #ifdef VIDARDB
 void KVWorker::RangeQuery(KVWorkerId workerId, KVMessage& msg) {
-    msg.ety = AllocMemory(msg.hdr.etySize);
+    msg.ety = palloc0(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
 
@@ -665,7 +663,7 @@ void KVWorker::RangeQuery(KVWorkerId workerId, KVMessage& msg) {
         current += sizeof(opts.startLen);
 
         if (opts.startLen > 0) {
-            opts.start = (char*) AllocMemory(opts.startLen);
+            opts.start = (char*) palloc0(opts.startLen);
             memcpy(opts.start, current, opts.startLen);
             current += opts.startLen;
         }
@@ -674,7 +672,7 @@ void KVWorker::RangeQuery(KVWorkerId workerId, KVMessage& msg) {
         current += sizeof(opts.limitLen);
 
         if (opts.limitLen > 0) {
-            opts.limit = (char*) AllocMemory(opts.limitLen);
+            opts.limit = (char*) palloc0(opts.limitLen);
             memcpy(opts.limit, current, opts.limitLen);
             current += opts.limitLen;
         }
@@ -704,8 +702,8 @@ void KVWorker::RangeQuery(KVWorkerId workerId, KVMessage& msg) {
     } while (state.next && state.size == 0);
 
     char name[MAXPATHLENGTH];
-    StringFormat(name, MAXPATHLENGTH, "%s%d%d%lu", RANGEQUERYPATH, key.pid,
-                 workerId, key.cursor);
+    snprintf(name, MAXPATHLENGTH, "%s%d%d%lu", RANGEQUERYPATH, key.pid,
+             workerId, key.cursor);
     ShmUnlink(name, __func__);
 
     char* shm = NULL;
@@ -729,11 +727,11 @@ void KVWorker::RangeQuery(KVWorkerId workerId, KVMessage& msg) {
 
     channel_->Send(sendmsg);
 
-    FreeMemory(msg.ety);
+    pfree(msg.ety);
 }
 
 void KVWorker::ClearRangeQuery(KVWorkerId workerId, KVMessage& msg) {
-    msg.ety = AllocMemory(msg.hdr.etySize);
+    msg.ety = palloc0(msg.hdr.etySize);
     msg.readFunc = CommonReadEntity;
     channel_->Recv(msg, MSGENTITY);
 
@@ -744,7 +742,7 @@ void KVWorker::ClearRangeQuery(KVWorkerId workerId, KVMessage& msg) {
     std::unordered_map<KVCursorKey, KVRangeQueryEntry, KVCursorKeyHashFunc>::iterator it;
     it = ranges_.find(key);
     if (it == ranges_.end()) {
-        FreeMemory(msg.ety);
+        pfree(msg.ety);
         return;
     }
 
@@ -752,10 +750,10 @@ void KVWorker::ClearRangeQuery(KVWorkerId workerId, KVMessage& msg) {
     ranges_.erase(it);
 
     char name[MAXPATHLENGTH];
-    StringFormat(name, MAXPATHLENGTH, "%s%d%d%lu", RANGEQUERYPATH, key.pid,
-                 workerId, key.cursor);
+    snprintf(name, MAXPATHLENGTH, "%s%d%d%lu", RANGEQUERYPATH, key.pid,
+             workerId, key.cursor);
     ShmUnlink(name, __func__);
-    FreeMemory(msg.ety);
+    pfree(msg.ety);
 }
 #endif
 

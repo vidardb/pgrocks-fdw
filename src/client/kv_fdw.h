@@ -39,7 +39,6 @@
 #define BATCHCAPACITY         8*1024*1024
 #endif
 
-
 /* Holds the option values to be used when reading or writing files.
  * To resolve these values, we first check foreign table's options,
  * and if not present, we then fall back to the default values.
@@ -97,23 +96,17 @@ typedef struct TableWriteState {
     CmdType operation;
 } TableWriteState;
 
-
 /* Function declarations for extension loading and unloading */
 extern void _PG_init(void);
-
 extern void _PG_fini(void);
 
 /* Functions used across files in kv_fdw */
-extern KVFdwOptions *KVGetOptions(Oid foreignTableId);
-
-extern void SerializeNullAttribute(TupleDesc tupleDescriptor, Index index,
-                                   StringInfo buffer);
-
-extern void SerializeAttribute(TupleDesc tupleDescriptor, Index index,
-                               Datum datum, StringInfo buffer);
-
-extern char *KVGetOptionValue(Oid foreignTableId, const char *optionName);
-
+extern KVFdwOptions* KVGetOptions(Oid foreignTableId);
+extern void  SerializeNullAttribute(TupleDesc tupleDescriptor, Index index,
+                                    StringInfo buffer);
+extern void  SerializeAttribute(TupleDesc tupleDescriptor, Index index,
+                                Datum datum, StringInfo buffer);
+extern char* KVGetOptionValue(Oid foreignTableId, const char* optionName);
 extern Datum ShortVarlena(Datum datum, int typeLength, char storage);
 
-#endif
+#endif  /* KV_FDW_H_ */

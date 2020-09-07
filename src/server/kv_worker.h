@@ -13,16 +13,14 @@
  * limitations under the License.
  */
 
-#ifndef SRC_KV_WORKER_H_
-#define SRC_KV_WORKER_H_
-
+#ifndef KV_WORKER_H_
+#define KV_WORKER_H_
 
 #include <unordered_map>
 #include "../ipc/kv_mq.h"
 
 
-#define READBATCHSIZE     4096*20
-
+#define READBATCHSIZE 4096*20
 
 struct KVCursorKey {
     pid_t      pid;     /* backend process pid */
@@ -129,5 +127,4 @@ struct KVWorkerHandle {
     ~KVWorkerHandle() { delete client; }
 };
 
-
-#endif /* SRC_KV_WORKER_H_ */
+#endif  /* KV_WORKER_H_ */

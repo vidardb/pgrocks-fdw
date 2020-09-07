@@ -13,19 +13,19 @@
  * limitations under the License.
  */
 
-#ifndef SRC_KV_CHANNEL_H_
-#define SRC_KV_CHANNEL_H_
-
+#ifndef KV_CHANNEL_H_
+#define KV_CHANNEL_H_
 
 #include "kv_message.h"
 #include "kv_posix.h"
 
 
-#define MSGHEADER         01
-#define MSGENTITY         02
-#define MAXPATHLENGTH     64
-#define MSGBUFSIZE        65536
-
+#define MSGHEADER     01
+#define MSGENTITY     02
+#define MSGDISCARD    04
+#define MAXPATHLENGTH 64
+#define MSGBUFSIZE    65536
+#define MSGPATHPREFIX "/KV"
 
 /*
  * A kv channel abstract class which defines some kv message process
@@ -43,7 +43,6 @@ class KVChannel {
     virtual void Write(uint64* offset, char* str, uint64 size) = 0;
     virtual void Terminate() = 0;
 };
-
 
 /*
  * A kv circular channel which utilizes the ring buffer algorithm to implement
@@ -80,7 +79,6 @@ class KVCircularChannel : public KVChannel {
     volatile KVCircularChannelData* channel_;
 };
 
-
 /*
  * A kv simple channel which implements the kv message's mutual exclusive
  * read and write mechanism.
@@ -115,7 +113,6 @@ class KVSimpleChannel : public KVChannel {
     volatile KVSimpleChannelData* channel_;
 };
 
-
 /*
  * A kv control channel which defines some semaphores to coordinate kv manager
  * and kv worker processes.
@@ -148,4 +145,4 @@ class KVCtrlChannel {
     volatile KVCtrlData* channel_;
 };
 
-#endif /* SRC_KV_CHANNEL_H_ */
+#endif  /* KV_CHANNEL_H_ */

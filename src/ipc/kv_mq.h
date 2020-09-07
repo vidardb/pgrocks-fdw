@@ -13,15 +13,13 @@
  * limitations under the License.
  */
 
-#ifndef SRC_KV_MQ_H_
-#define SRC_KV_MQ_H_
-
+#ifndef KV_MQ_H_
+#define KV_MQ_H_
 
 #include "kv_channel.h"
 
 
 #define MSGRESQUEUELENGTH 2
-
 
 /*
  * A message queue which exchanges messages between different processes as a
@@ -29,7 +27,6 @@
  * message receiver, two simple channels as message senders, and a control
  * channel as a coordinator.
  */
-
 class KVMessageQueue {
   public:
     KVMessageQueue(KVRelationId rid, const char* name, bool isServer);
@@ -52,5 +49,4 @@ class KVMessageQueue {
     volatile bool isServer_;
 };
 
-
-#endif /* SRC_KV_MQ_H_ */
+#endif  /* KV_MQ_H_ */

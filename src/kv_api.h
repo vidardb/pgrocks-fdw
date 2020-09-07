@@ -32,8 +32,7 @@ typedef Oid    KVRelationId;
 typedef Oid    KVWorkerId;
 typedef uint64 KVCursorId;
 
-typedef enum
-{
+typedef enum {
     KVOpDummy = 0, /* placeholder */
     KVOpOpen,
     KVOpClose,
@@ -52,16 +51,14 @@ typedef enum
     KVOpTerminate,
 } KVOperation;
 
-typedef struct ComparatorOpts
-{
+typedef struct ComparatorOpts {
     Oid   cmpFuncOid;
     Oid   attrCollOid;
     bool  attrByVal;
     int16 attrLength;
 } ComparatorOpts;
 
-typedef struct OpenArgs
-{
+typedef struct OpenArgs {
     ComparatorOpts opts;
     #ifdef VIDARDB
     bool           useColumn;
@@ -70,44 +67,38 @@ typedef struct OpenArgs
     char*          path;
 } OpenArgs;
 
-typedef struct PutArgs
-{
+typedef struct PutArgs {
     uint64 keyLen;
     uint64 valLen;
     char*  key;
     char*  val;
 } PutArgs;
 
-typedef struct DeleteArgs
-{
+typedef struct DeleteArgs {
     uint64 keyLen;
     char*  key;
 } DeleteArgs;
 
-typedef struct GetArgs
-{
+typedef struct GetArgs {
     uint64  keyLen;
     char*   key;
     uint64* valLen;
     char**  val;
 } GetArgs;
 
-typedef struct ReadBatchArgs
-{
+typedef struct ReadBatchArgs {
     KVCursorId cursor;
     char**     buf;
     uint64*    bufLen;
 } ReadBatchArgs;
 
-typedef struct CloseCursorArgs
-{
+typedef struct CloseCursorArgs {
     KVCursorId cursor;
     void*      buf;
 } CloseCursorArgs;
 
 #ifdef VIDARDB
-typedef struct RangeQueryOpts
-{
+typedef struct RangeQueryOpts {
     uint64      startLen;
     uint64      limitLen;
     char*       start;
@@ -117,8 +108,7 @@ typedef struct RangeQueryOpts
     uint64      batchCapacity;
 } RangeQueryOpts;
 
-typedef struct RangeQueryArgs
-{
+typedef struct RangeQueryArgs {
     KVCursorId      cursor;
     char**          buf;
     uint64*         bufLen;
@@ -155,14 +145,10 @@ extern void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId);
 extern void  StartKVWorker(KVWorkerId workerId, KVDatabaseId dbId);
 
 /*
- * Utility API for string format, error report and other tools
+ * Utility API for comparator, encoding and decoding
  */
 
-extern int   StringFormat(char *str, size_t count, const char *fmt, ...);
-extern void  ErrorReport(int level, int code, const char* msg);
-extern void  SetRelationComparatorOpts(Relation relation, ComparatorOpts *opts);
-extern void* AllocMemory(uint64 size);
-extern void  FreeMemory(void* ptr);
+extern void  SetRelationComparatorOpts(Relation relation, ComparatorOpts* opts);
 extern uint8 EncodeVarintLength(uint64 len, char* buf);
 extern uint8 DecodeVarintLength(char* start, char* limit, uint64* len);
 
@@ -170,4 +156,4 @@ extern uint8 DecodeVarintLength(char* start, char* limit, uint64* len);
 }
 #endif
 
-#endif
+#endif  /* KV_API_H_ */

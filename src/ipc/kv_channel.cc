@@ -14,26 +14,24 @@
  */
 
 #include "kv_channel.h"
-#include "port.h"
-
 #include <fcntl.h>
 
+extern "C" {
+#include "postgres.h"
+}
 
-#define MSGPATHPREFIX     "/KV"
-#define MSGDISCARD        04
 
-
-static char const *CRLCHANNEL = "Ctrl";
-
+#define MSGCRLCHANNELNAME "Ctrl"
 
 /*
  * Implementation for kv circular channel
  */
+
 KVCircularChannel::KVCircularChannel(KVRelationId rid, const char* tag,
                                      bool create) {
     create_ = create;
     running_ = true;
-    pg_snprintf(name_, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
+    snprintf(name_, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
 
     if (!create_) {
         int fd = ShmOpen(name_, O_RDWR, 0777, __func__);
@@ -219,7 +217,7 @@ void KVCircularChannel::Write(uint64* offset, char* str, uint64 size) {
 
 KVSimpleChannel::KVSimpleChannel(KVRelationId rid, const char* tag, bool create) {
     create_ = create;
-    StringFormat(name_, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
+    snprintf(name_, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
 
     if (!create) {
         int fd = ShmOpen(name_, O_RDWR, 0777, __func__);
@@ -256,7 +254,6 @@ void KVSimpleChannel::Send(const KVMessage& msg) {
     uint64 offset = 0; /* from start position */
 
     Write(&offset, (char*) &(msg.hdr), sizeof(msg.hdr));
-
     if (msg.writeFunc) {
         (*msg.writeFunc) (this, &offset, msg.ety, msg.hdr.etySize);
     }
@@ -275,7 +272,6 @@ void KVSimpleChannel::Recv(KVMessage& msg, int flag) {
 
     if ((flag & MSGENTITY) && msg.readFunc) {
         offset = channel_->getPos;
-
         (*msg.readFunc) (this, &offset, msg.ety, msg.hdr.etySize);
     }
 }
@@ -315,8 +311,8 @@ void KVSimpleChannel::Unlease() {
 
 KVCtrlChannel::KVCtrlChannel(KVRelationId rid, const char* tag, bool create) {
     create_ = create;
-    StringFormat(name_, MAXPATHLENGTH, "%s%s%s%u", MSGPATHPREFIX, tag,
-        CRLCHANNEL, rid);
+    snprintf(name_, MAXPATHLENGTH, "%s%s%s%u", MSGPATHPREFIX, tag,
+             MSGCRLCHANNELNAME, rid);
 
     if (!create) {
         int fd = ShmOpen(name_, O_RDWR, 0777, __func__);

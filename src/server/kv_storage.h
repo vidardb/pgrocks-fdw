@@ -20,8 +20,8 @@
 extern "C" {
 #endif
 
-
 #include "../kv_api.h"
+
 
 /**
  * C wrapper of storage engine API
@@ -40,19 +40,17 @@ bool   BatchRead(void* conn, void* iter, char* buf, size_t* bufLen);
 bool   GetRecord(void* conn, char* key, size_t keyLen, char** val, size_t* valLen);
 bool   PutRecord(void* conn, char* key, size_t keyLen, char* val, size_t valLen);
 bool   DelRecord(void* conn, char* key, size_t keyLen);
-
 #ifdef VIDARDB
-void ParseRangeQueryOptions(RangeQueryOpts* queryOptions, void** range,
-                            void** readOptions);
-bool RangeQueryRead(void* conn, void* range, void** readOptions, size_t* bufLen,
-                    void** result);
-void ParseRangeQueryResult(void* result, char* buf);
-void ClearRangeQueryMeta(void* range, void* readOptions);
+void   ParseRangeQueryOptions(RangeQueryOpts* queryOptions, void** range,
+                              void** readOptions);
+bool   RangeQueryRead(void* conn, void* range, void** readOptions,
+                      size_t* bufLen, void** result);
+void   ParseRangeQueryResult(void* result, char* buf);
+void   ClearRangeQueryMeta(void* range, void* readOptions);
 #endif
-
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif  /* KV_STORAGE_H_ */

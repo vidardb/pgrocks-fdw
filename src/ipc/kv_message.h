@@ -16,7 +16,7 @@
 #ifndef KV_MESSAGE_H_
 #define KV_MESSAGE_H_
 
-#include "../kv_api.h"
+#include "kv_api.h"
 
 
 typedef enum {
@@ -54,6 +54,10 @@ struct KVMessageHeader {
     uint64          etySize = 0; /* message entity size */
 };
 
+/*
+ * Custom message entity read and write function definition
+ */
+
 typedef void (*WriteEntityFunc) (void* channel, uint64* offset, void* entity,
                                  uint64 size);
 typedef void (*ReadEntityFunc)  (void* channel, uint64* offset, void* entity,
@@ -79,6 +83,10 @@ extern KVMessage SuccessMessage(uint32 channel);
 extern KVMessage FailureMessage(uint32 channel);
 extern KVMessage SimpleMessage(KVOperation op, KVRelationId rid,
                                KVDatabaseId dbId);
+
+/*
+ * Common message entity read and write function
+ */
 
 extern void CommonWriteEntity(void* channel, uint64* offset, void* entity,
                               uint64 size);

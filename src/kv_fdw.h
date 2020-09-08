@@ -18,9 +18,7 @@
 
 #include <stdbool.h>
 #include <semaphore.h>
-
 #include "kv_api.h"
-
 #include "postgres.h"
 #include "lib/stringinfo.h"
 #include "nodes/nodes.h"
@@ -46,22 +44,22 @@
  * and if not present, we then fall back to the default values.
  */
 typedef struct KVFdwOptions {
-    char *filename;
+    char* filename;
     #ifdef VIDARDB
-    bool useColumn;
+    bool  useColumn;
     int32 batchCapacity;
     #endif
 } KVFdwOptions;
 
 /* Functions used across files in kv_fdw */
 extern KVFdwOptions* KVGetOptions(Oid foreignTableId);
-extern void  SerializeNullAttribute(TupleDesc tupleDescriptor, Index index,
-                                    StringInfo buffer);
-extern void  SerializeAttribute(TupleDesc tupleDescriptor, Index index,
-                                Datum datum, StringInfo buffer);
-extern int DeserializeAttribute(TupleDesc tupleDescriptor, Index index, int offset,
-                                char* key, char* val, char* limit, Datum* values,
-                                bool* nulls);
+extern void SerializeNullAttribute(TupleDesc tupleDescriptor, Index index,
+                                   StringInfo buffer);
+extern void SerializeAttribute(TupleDesc tupleDescriptor, Index index,
+                               Datum datum, StringInfo buffer);
+extern int  DeserializeAttribute(TupleDesc tupleDescriptor, Index index,
+                                 int offset, char* key, char* val, char* limit,
+                                 Datum* values, bool* nulls);
 extern void SetRelationComparatorOpts(Relation relation, ComparatorOpts* opts);
 
 #endif  /* KV_FDW_H_ */

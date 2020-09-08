@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#include "../kv_api.h"
+#include "kv_api.h"
 
 
 #define READBATCHSIZE 4096*20

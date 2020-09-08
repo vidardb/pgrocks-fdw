@@ -14,8 +14,8 @@
  */
 
 #include <unordered_map>
-#include "../kv_api.h"
-#include "../server/kv_manager.h"
+#include "kv_api.h"
+#include "server/kv_manager.h"
 
 extern "C" {
 #include "postgres.h"

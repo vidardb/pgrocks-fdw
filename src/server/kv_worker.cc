@@ -15,7 +15,7 @@
 
 #include "kv_worker.h"
 #include "kv_manager.h"
-#include "../ipc/kv_posix.h"
+#include "ipc/kv_posix.h"
 #include "kv_storage.h"
 #include "fcntl.h"
 

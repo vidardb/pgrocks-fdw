@@ -17,7 +17,7 @@
 #define KV_MANAGER_H_
 
 #include <unordered_map>
-#include "../ipc/kv_mq.h"
+#include "ipc/kv_mq.h"
 #include "kv_worker.h"
 
 

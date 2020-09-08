@@ -20,81 +20,81 @@ extern "C" {
 }
 
 
-int ShmOpen(const char* name, int oflag, mode_t mode, const char* fun) {
-    int fd = shm_open(name, oflag, mode);
+int ShmOpen(const char* name, int flag, mode_t mode, const char* func) {
+    int fd = shm_open(name, flag, mode);
     if (fd == -1) {
-        ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
+        ereport(ERROR, (errmsg("%s %s failed", func, __func__)));
     }
     return fd;
 }
 
-void ShmUnlink(const char* name, const char* fun) {
+void ShmUnlink(const char* name, const char* func) {
     if (shm_unlink(name) == -1) {
-        ereport(WARNING, (errmsg("%s %s failed", fun, __func__),
+        ereport(WARNING, (errmsg("%s %s failed", func, __func__),
                           errhint("maybe no shared memory to unlink")));
     }
 }
 
-void* Mmap(void* addr, size_t len, int prot, int flags, int fd, off_t offset,
-           const char* fun) {
-    void* memptr = mmap(addr, len, prot, flags, fd, offset);
-    if (memptr == MAP_FAILED) {
-        ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
+void* Mmap(void* addr, size_t len, int prot, int flag, int fd, off_t offset,
+           const char* func) {
+    void* ptr = mmap(addr, len, prot, flag, fd, offset);
+    if (ptr == MAP_FAILED) {
+        ereport(ERROR, (errmsg("%s %s failed", func, __func__)));
     }
-    return memptr;
+    return ptr;
 }
 
-void Munmap(void* addr, size_t len, const char* fun) {
+void Munmap(void* addr, size_t len, const char* func) {
     if (munmap(addr, len) == -1) {
-        ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
+        ereport(ERROR, (errmsg("%s %s failed", func, __func__)));
     }
 }
 
-void Ftruncate(int fd, off_t length, const char* fun) {
+void Ftruncate(int fd, off_t length, const char* func) {
     if (ftruncate(fd, length) == -1) {
-        ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
+        ereport(ERROR, (errmsg("%s %s failed", func, __func__)));
     }
 }
 
-void Fclose(int fd, const char* fun) {
+void Fclose(int fd, const char* func) {
     if (close(fd) == -1) {
-        ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
+        ereport(ERROR, (errmsg("%s %s failed", func, __func__)));
     }
 }
 
 void SemInit(volatile sem_t* sem, int pshared, unsigned int value,
-             const char* fun) {
+             const char* func) {
     if (sem_init((sem_t*) sem, pshared, value) == -1) {
-        ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
+        ereport(ERROR, (errmsg("%s %s failed", func, __func__)));
     }
 }
 
-void SemDestroy(volatile sem_t* sem, const char* fun) {
+void SemDestroy(volatile sem_t* sem, const char* func) {
     if (sem_destroy((sem_t*) sem) == -1) {
-        ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
+        ereport(ERROR, (errmsg("%s %s failed", func, __func__)));
     }
 }
 
-void SemPost(volatile sem_t* sem, const char* fun) {
+void SemPost(volatile sem_t* sem, const char* func) {
     if (sem_post((sem_t*) sem) == -1) {
-        ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
+        ereport(ERROR, (errmsg("%s %s failed", func, __func__)));
     }
 }
 
-int SemWait(volatile sem_t* sem, const char* fun) {
+int SemWait(volatile sem_t* sem, const char* func) {
     if (sem_wait((sem_t*) sem) == -1) {
         if (errno == EINTR) {
             return -1;
         }
-        ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
+        ereport(ERROR, (errmsg("%s %s failed", func, __func__)));
     }
     return 0;
 }
 
-int SemTryWait(volatile sem_t* sem, const char* fun) {
+int SemTryWait(volatile sem_t* sem, const char* func) {
     int ret = sem_trywait((sem_t*) sem);
     if (ret == -1 && errno != EAGAIN) {
-        ereport(ERROR, (errmsg("%s %s failed", fun, __func__)));
+        ereport(ERROR, (errmsg("%s %s failed", func, __func__)));
     }
     return ret;
 }

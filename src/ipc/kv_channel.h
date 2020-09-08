@@ -20,10 +20,10 @@
 #include "kv_posix.h"
 
 
+#define MAXPATHLENGTH 64
 #define MSGHEADER     01
 #define MSGENTITY     02
 #define MSGDISCARD    04
-#define MAXPATHLENGTH 64
 #define MSGBUFSIZE    65536
 #define MSGPATHPREFIX "/KV"
 

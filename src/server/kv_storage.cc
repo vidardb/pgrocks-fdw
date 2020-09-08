@@ -34,7 +34,6 @@ using namespace std;
 
 #include "kv_storage.h"
 
-
 extern "C" {
 #include "fmgr.h"
 #include "access/xact.h"

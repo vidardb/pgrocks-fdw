@@ -17,7 +17,7 @@
 #define KV_WORKER_H_
 
 #include <unordered_map>
-#include "../ipc/kv_mq.h"
+#include "ipc/kv_mq.h"
 
 
 extern void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId);

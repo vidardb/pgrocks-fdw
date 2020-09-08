@@ -21,6 +21,8 @@ PG_CPPFLAGS += -Wno-deprecated-declarations
 SHLIB_LINK  += -lstdc++
 endif
 
+PG_CPPFLAGS += -Isrc
+
 OBJS         = src/kv_fdw.o src/kv_utility.o src/server/kv_storage.o src/ipc/kv_posix.o \
 			   src/ipc/kv_message.o src/ipc/kv_channel.o src/ipc/kv_mq.o \
 			   src/client/kv_client.o src/server/kv_worker.o src/server/kv_manager.o

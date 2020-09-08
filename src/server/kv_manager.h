@@ -21,6 +21,8 @@
 #include "kv_worker.h"
 
 
+extern void LaunchKVManager(void);
+
 /*
  * A kv manager which is responsible for managing all the kv workers' lifecycle.
  */

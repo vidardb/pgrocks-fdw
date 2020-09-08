@@ -23,6 +23,9 @@ extern "C" {
 #include "../kv_api.h"
 
 
+#define READBATCHSIZE 4096*20
+
+
 /**
  * C wrapper of storage engine API
  */

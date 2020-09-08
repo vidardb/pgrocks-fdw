@@ -13,9 +13,9 @@
  * limitations under the License.
  */
 
+
 #include "kv_fdw.h"
-#include "../server/kv_storage.h"
-#include "../kv_api.h"
+#include "server/kv_storage.h"
 
 #include <sys/stat.h>
 
@@ -38,8 +38,11 @@
 #include "utils/typcache.h"
 #include "commands/dbcommands.h"
 #include "access/table.h"
-#include "storage/latch.h"
-#include "postmaster/bgworker.h"
+
+
+/* Forward Declaration */
+void _PG_init(void);
+void _PG_fini(void);
 
 
 /* saved dropped object info */
@@ -56,13 +59,6 @@ typedef struct DroppedObject {
                               destReceiver, completionTag) \
         PREVIOUS_UTILITY(plannedStmt, queryString, context, paramListInfo, \
                          queryEnvironment, destReceiver, completionTag)
-
-
-/* Forward Declaration */
-void  KVManagerMain(Datum arg);
-void  LaunchKVManager(void);
-void  KVWorkerMain(Datum arg);
-void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId);
 
 
 /*
@@ -186,6 +182,70 @@ static bool KVTable(Oid relationId) {
 }
 
 /*
+ * Constructs the default file path to use for a kv_fdw table.
+ * The path is of the form $PGDATA/kv_fdw/{databaseOid}/{relfilenode}.
+ */
+static char* KVDefaultFilePath(Oid foreignTableId) {
+    StringInfo filePath = makeStringInfo();
+    appendStringInfo(filePath, "%s/%s/%u/%u", DataDir, KVFDWNAME, MyDatabaseId,
+                     foreignTableId);
+
+    return filePath->data;
+}
+
+/*
+ * Walks over foreign table and foreign server options, and
+ * looks for the option with the given name. If found, the function returns the
+ * option's value. This function is unchanged from mongo_fdw.
+ */
+static char* KVGetOptionValue(Oid foreignTableId, const char *optionName) {
+    ForeignTable *foreignTable = GetForeignTable(foreignTableId);
+    ForeignServer *foreignServer = GetForeignServer(foreignTable->serverid);
+
+    List *optionList = NIL;
+    optionList = list_concat(optionList, foreignTable->options);
+    optionList = list_concat(optionList, foreignServer->options);
+
+    ListCell *optionCell = NULL;
+    foreach(optionCell, optionList) {
+        DefElem *optionDef = (DefElem *) lfirst(optionCell);
+        char *optionDefName = optionDef->defname;
+
+        if (strncmp(optionDefName, optionName, NAMEDATALEN) == 0) {
+            return defGetString(optionDef);
+        }
+    }
+
+    return NULL;
+}
+
+/*
+ * Returns the option values to be used when reading and writing
+ * the files. To resolve these values, the function checks options for the
+ * foreign table, and if not present, falls back to default values.
+ * This function errors out if given option values are considered invalid.
+ */
+KVFdwOptions* KVGetOptions(Oid foreignTableId) {
+    KVFdwOptions *options = palloc0(sizeof(KVFdwOptions));
+
+    char *filename = KVGetOptionValue(foreignTableId, OPTION_FILENAME);
+    /* set default filename if it is not provided */
+    options->filename = filename ? filename : KVDefaultFilePath(foreignTableId);
+
+    #ifdef VIDARDB
+    char *storage = KVGetOptionValue(foreignTableId, OPTION_STORAGE_FORMAT);
+    options->useColumn = storage ?
+        (0 == strncmp(storage, COLUMNSTORE, sizeof(COLUMNSTORE))) : false;
+
+    char *capacity = KVGetOptionValue(foreignTableId, OPTION_BATCH_CAPACITY);
+    options->batchCapacity = capacity ?
+        pg_atoi(capacity, sizeof(int32), 0) : BATCHCAPACITY;
+    #endif
+
+    return options;
+}
+
+/*
  * kv_ddl_event_end_trigger is the event trigger function which is called on
  * ddl_command_end event. This function creates required directories after the
  * CREATE SERVER statement and after the CREATE FOREIGN TABLE statement.
@@ -265,70 +325,6 @@ static void KVRemoveDatabaseDirectory(Oid databaseOid) {
 }
 
 /*
- * Constructs the default file path to use for a kv_fdw table.
- * The path is of the form $PGDATA/kv_fdw/{databaseOid}/{relfilenode}.
- */
-static char* KVDefaultFilePath(Oid foreignTableId) {
-    StringInfo filePath = makeStringInfo();
-    appendStringInfo(filePath, "%s/%s/%u/%u", DataDir, KVFDWNAME, MyDatabaseId,
-                     foreignTableId);
-
-    return filePath->data;
-}
-
-/*
- * Walks over foreign table and foreign server options, and
- * looks for the option with the given name. If found, the function returns the
- * option's value. This function is unchanged from mongo_fdw.
- */
-char* KVGetOptionValue(Oid foreignTableId, const char *optionName) {
-    ForeignTable *foreignTable = GetForeignTable(foreignTableId);
-    ForeignServer *foreignServer = GetForeignServer(foreignTable->serverid);
-
-    List *optionList = NIL;
-    optionList = list_concat(optionList, foreignTable->options);
-    optionList = list_concat(optionList, foreignServer->options);
-
-    ListCell *optionCell = NULL;
-    foreach(optionCell, optionList) {
-        DefElem *optionDef = (DefElem *) lfirst(optionCell);
-        char *optionDefName = optionDef->defname;
-
-        if (strncmp(optionDefName, optionName, NAMEDATALEN) == 0) {
-            return defGetString(optionDef);
-        }
-    }
-
-    return NULL;
-}
-
-/*
- * Returns the option values to be used when reading and writing
- * the files. To resolve these values, the function checks options for the
- * foreign table, and if not present, falls back to default values.
- * This function errors out if given option values are considered invalid.
- */
-KVFdwOptions* KVGetOptions(Oid foreignTableId) {
-    KVFdwOptions *options = palloc0(sizeof(KVFdwOptions));
-
-    char *filename = KVGetOptionValue(foreignTableId, OPTION_FILENAME);
-    /* set default filename if it is not provided */
-    options->filename = filename ? filename : KVDefaultFilePath(foreignTableId);
-
-    #ifdef VIDARDB
-    char *storage = KVGetOptionValue(foreignTableId, OPTION_STORAGE_FORMAT);
-    options->useColumn = storage ?
-        (0 == strncmp(storage, COLUMNSTORE, sizeof(COLUMNSTORE))) : false;
-
-    char *capacity = KVGetOptionValue(foreignTableId, OPTION_BATCH_CAPACITY);
-    options->batchCapacity = capacity ?
-        pg_atoi(capacity, sizeof(int32), 0) : BATCHCAPACITY;
-    #endif
-
-    return options;
-}
-
-/*
  * Extracts and returns the list of kv file (directory) names from DROP table
  * statement.
  */
@@ -392,7 +388,7 @@ static void KVCheckSuperuserPrivilegesForCopy(const CopyStmt* copyStmt) {
     }
 }
 
-Datum ShortVarlena(Datum datum, int typeLength, char storage) {
+static Datum ShortVarlena(Datum datum, int typeLength, char storage) {
     /* Make sure item to be inserted is not toasted */
     if (typeLength == -1) {
         datum = PointerGetDatum(PG_DETOAST_DATUM_PACKED(datum));
@@ -409,6 +405,47 @@ Datum ShortVarlena(Datum datum, int typeLength, char storage) {
     }
 
     PG_RETURN_DATUM(datum);
+}
+
+/* copied from the storage engine */
+static inline char* EncodeVarint64(char* dst, uint64 v) {
+    static const unsigned int B = 128;
+    unsigned char* ptr = (unsigned char*) dst;
+    while (v >= B) {
+        *(ptr++) = (v & (B - 1)) | B;
+        v >>= 7;
+    }
+    *(ptr++) = (unsigned char) v;
+    return (char*) ptr;
+}
+
+static uint8 EncodeVarintLength(uint64 len, char* buf) {
+    char* ptr = EncodeVarint64(buf, len);
+    return (ptr - buf);
+}
+
+/* copied from the storage engine */
+static inline const char* GetVarint64Ptr(const char* p, const char* limit,
+                                         uint64* value) {
+    uint64 result = 0;
+    for (uint32 shift = 0; shift <= 63 && p < limit; shift += 7) {
+        uint64 byte = *((const unsigned char*) p);
+        p++;
+        if (byte & 128) {
+            // More bytes are present
+            result |= ((byte & 127) << shift);
+        } else {
+            result |= (byte << shift);
+            *value = result;
+            return (const char*) p;
+        }
+    }
+    return NULL;
+}
+
+static uint8 DecodeVarintLength(char* start, char* limit, uint64* len) {
+    const char* ret = GetVarint64Ptr(start, limit, len);
+    return ret ? (ret - start) : 0;
 }
 
 void SerializeNullAttribute(TupleDesc tupleDescriptor, Index index,
@@ -458,6 +495,43 @@ void SerializeAttribute(TupleDesc tupleDescriptor, Index index, Datum datum,
     }
 
     buffer->len = datumLength + headerLen;
+}
+
+/*
+ * Return the next start offset.
+ * After processing the first attribute, it should return 0 since the key and
+ * the value are separated.
+ */
+int DeserializeAttribute(TupleDesc tupleDescriptor, Index index, int offset,
+                         char* key, char* val, char* limit, Datum* values,
+                         bool* nulls) {
+    char* current = (index == 0) ? key : val;
+    current += offset; /* let the current point to the offset pos */
+
+    if (index > 0) {
+        uint64 dataLen = 0;
+        uint8 headerLen = DecodeVarintLength(current, limit, &dataLen);
+        offset += headerLen;
+        current += headerLen;
+        nulls[index] = (dataLen == 0) ? true : false;
+        if (dataLen == 0) {
+            return offset;
+        }
+    }
+
+    Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
+    bool byValue = attributeForm->attbyval;
+    int typeLength = attributeForm->attlen;
+
+    values[index] = fetch_att(current, byValue, typeLength);
+    offset = att_addlength_datum(offset, typeLength, current);
+
+    if (index == 0) {
+        offset = 0;
+        nulls[index] = false;
+    }
+
+    return offset;
 }
 
 void SetRelationComparatorOpts(Relation relation, ComparatorOpts *opts) {
@@ -788,120 +862,3 @@ static void KVProcessUtility(PlannedStmt *plannedStmt, const char *queryString,
     }
 }
 
-/*
- * Signal handler for SIGTERM
- * 
- * Set a flag to let the main loop to terminate, and set our latch to 
- * wake it up.
- */
-static void KVManagerSigHandler(SIGNAL_ARGS) {
-    int save_errno = errno;
-
-    TerminateKVManager();
-    SetLatch(MyLatch);
-
-    errno = save_errno;
-}
-
-/*
- * Entrypoint for kv manager
- */
-void KVManagerMain(Datum arg) {
-    /* Establish signal handlers before unblocking signals. */
-    /* pqsignal(SIGTERM, KVManagerSigHandler); */
-
-    /*
-     * We on purpose do not use pqsignal due to its setting at flags = restart.
-     * With the setting, the process cannot exit on sem_wait.
-     */
-    struct sigaction act;
-    act.sa_handler = KVManagerSigHandler;
-    act.sa_flags = 0;
-    sigaction(SIGTERM, &act, NULL);
-
-    /* We're now ready to receive signals */
-    BackgroundWorkerUnblockSignals();
-
-    /* Start kv manager */
-    StartKVManager();
-}
-
-/*
- * Launch kv manager process
- */
-void LaunchKVManager(void) {
-    printf("\n~~~~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
-
-    if (!process_shared_preload_libraries_in_progress)
-    {
-        return;
-    }
-
-    BackgroundWorker worker;
-    memset(&worker, 0, sizeof(worker));
-    snprintf(worker.bgw_name, BGW_MAXLEN, "KV Manager");
-    snprintf(worker.bgw_type, BGW_MAXLEN, "KV Manager");
-    worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
-    worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
-    worker.bgw_restart_time = 1;
-    sprintf(worker.bgw_library_name, "kv_fdw");
-    sprintf(worker.bgw_function_name, "KVManagerMain");
-    worker.bgw_notify_pid = 0;
-
-    RegisterBackgroundWorker(&worker);
-}
-
-/*
- * Entrypoint for kv worker
- */
-void KVWorkerMain(Datum arg) {
-    KVDatabaseId dbId = (KVDatabaseId) DatumGetObjectId(arg);
-    KVWorkerId workerId = *((KVWorkerId*) (MyBgworkerEntry->bgw_extra));
-
-    /* Connect to our database */
-    BackgroundWorkerInitializeConnectionByOid(dbId, InvalidOid, 0);
-
-    /* Start kv worker */
-    StartKVWorker(workerId, dbId);
-}
-
-/*
- * Launch kv worker process
- */
-void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId) {
-    BackgroundWorker worker;
-    memset(&worker, 0, sizeof(worker));
-    worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
-    worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
-    worker.bgw_restart_time = BGW_NEVER_RESTART;
-    sprintf(worker.bgw_library_name, "kv_fdw");
-    sprintf(worker.bgw_function_name, "KVWorkerMain");
-    snprintf(worker.bgw_name, BGW_MAXLEN, "KV Worker");
-    snprintf(worker.bgw_type, BGW_MAXLEN, "KV Worker");
-    worker.bgw_main_arg = ObjectIdGetDatum(dbId);
-    memcpy(worker.bgw_extra, &workerId, sizeof(workerId));
-    /* set bgw_notify_pid so that we can use WaitForBackgroundWorkerStartup */
-    worker.bgw_notify_pid = MyProcPid;
-
-    BackgroundWorkerHandle* handle;
-    if (!RegisterDynamicBackgroundWorker(&worker, &handle)) {
-        return NULL;
-    }
-
-    pid_t pid;
-    BgwHandleStatus status = WaitForBackgroundWorkerStartup(handle, &pid);
-    if (status == BGWH_STOPPED) {
-        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
-                errmsg("could not start background process"),
-                errhint("More details may be available in the server log.")));
-    }
-    if (status == BGWH_POSTMASTER_DIED) {
-        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
-                errmsg("cannot start background processes without postmaster"),
-                errhint("Kill all remaining database processes and restart "
-                        "the database.")));
-    }
-    Assert(status == BGWH_STARTED);
-
-    return handle;
-}

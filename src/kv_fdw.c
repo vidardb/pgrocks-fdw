@@ -14,7 +14,7 @@
  */
 
 #include "kv_fdw.h"
-#include "../kv_api.h"
+#include "kv_api.h"
 
 #include "access/reloptions.h"
 #include "foreign/fdwapi.h"
@@ -45,6 +45,51 @@
 PG_MODULE_MAGIC;
 PG_FUNCTION_INFO_V1(kv_fdw_handler);
 PG_FUNCTION_INFO_V1(kv_fdw_validator);
+
+#ifdef VIDARDB
+typedef struct TablePlanState {
+    KVFdwOptions *fdwOptions;
+    int attrCount;        /* total attributes in a table */
+    List *targetAttrs;    /* attributes in select, where, groupby */
+    bool toUpdateDelete;  /* any update or delete? indicate when to delete */
+} TablePlanState;
+#endif
+
+/*
+ * The scan state is for maintaining state for a scan, either for a
+ * SELECT or UPDATE or DELETE.
+ *
+ * It is set up in BeginForeignScan and stashed in node->fdw_state and
+ * subsequently used in IterateForeignScan, EndForeignScan and ReScanForeignScan.
+ */
+typedef struct TableReadState {
+    bool isKeyBased;
+    uint64 operationId;
+    bool done;
+    StringInfo key;
+    char *buf;     /* shared mem for data returned by RangeQuery or ReadBatch */
+    size_t bufLen; /* shared mem length, no next batch if it is 0 */
+    char *next;    /* pointer to the next data entry for IterateForeignScan */
+    bool hasNext;  /* whether a next batch from RangeQuery or ReadBatch*/
+
+    #ifdef VIDARDB
+    bool useColumn;
+    List *targetAttrs;    /* attributes in select, where, group */
+    #endif
+
+    bool execExplainOnly;
+} TableReadState;
+
+/*
+ * The modify state is for maintaining state of modify operations.
+ *
+ * It is set up in BeginForeignModify and stashed in
+ * rinfo->ri_FdwState and subsequently used in ExecForeignInsert,
+ * ExecForeignUpdate, ExecForeignDelete and EndForeignModify.
+ */
+typedef struct TableWriteState {
+    CmdType operation;
+} TableWriteState;
 
 /*
  * in backend process scope
@@ -463,44 +508,11 @@ static void DeserializeColumnTuple(char *key, size_t kLen, char *val,
 //    }
 //    printf("\n");
 
-    /* If the key is in the query list, it must be the first attribute */
-    if (*attrs == 1) {
-        /* The index of tuple descriptors starts from 0 */
-        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 0);
-        bool byValue = attributeForm->attbyval;
-        int typeLength = attributeForm->attlen;
-        values[0] = fetch_att(key, byValue, typeLength);
-        nulls[0] = false;
-    }
-
-    int offset = 0;
-    char *current = val;
-
-    /* deserialize the remaining attributes */
-    for (int index = 0; index < targetAttrsLen; index++) {
+    for (int index = 0, offset = 0; index < targetAttrsLen; index++) {
         AttrNumber attr = *(attrs + index);
         attr--;
-        /* skip the key */
-        if (attr == 0) {
-            continue;
-        }
-
-        uint64 dataLen = 0;
-        uint8 headerLen = DecodeVarintLength(current, val + vLen, &dataLen);
-        offset += headerLen;
-        current = val + offset;
-        if (dataLen == 0) {
-            continue;
-        }
-
-        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, attr);
-        bool byValue = attributeForm->attbyval;
-        int typeLength = attributeForm->attlen;
-
-        values[attr] = fetch_att(current, byValue, typeLength);
-        offset = att_addlength_datum(offset, typeLength, current);
-        nulls[attr] = false;
-        current = val + offset;
+        offset = DeserializeAttribute(tupleDescriptor, attr, offset, key, val,
+                                      val + vLen, values, nulls);
     }
 
     pfree(attrs);
@@ -519,33 +531,9 @@ static void DeserializeTuple(char *key, size_t kLen, char *val, size_t vLen,
     memset(values, 0, count * sizeof(Datum));
     memset(nulls, false, count * sizeof(bool));
 
-    int offset = 0;
-    char *current = key;
-    for (int index = 0; index < count; index++) {
-
-        if (index > 0) {
-            uint64 dataLen = 0;
-            uint8 headerLen = DecodeVarintLength(current, val + vLen, &dataLen);
-            offset += headerLen;
-            current = val + offset;
-            if (dataLen == 0) {
-                nulls[index] = true;
-                continue;
-            }
-        }
-
-        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
-        bool byValue = attributeForm->attbyval;
-        int typeLength = attributeForm->attlen;
-
-        values[index] = fetch_att(current, byValue, typeLength);
-        offset = att_addlength_datum(offset, typeLength, current);
-
-        if (index == 0) {
-            offset = 0;
-        }
-
-        current = val + offset;
+    for (int index = 0, offset = 0; index < count; index++) {
+        offset = DeserializeAttribute(tupleDescriptor, index, offset, key, val,
+                                      val + vLen, values, nulls);
     }
 }
 

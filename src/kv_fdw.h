@@ -19,6 +19,8 @@
 #include <stdbool.h>
 #include <semaphore.h>
 
+#include "kv_api.h"
+
 #include "postgres.h"
 #include "lib/stringinfo.h"
 #include "nodes/nodes.h"
@@ -51,62 +53,15 @@ typedef struct KVFdwOptions {
     #endif
 } KVFdwOptions;
 
-#ifdef VIDARDB
-typedef struct TablePlanState {
-    KVFdwOptions *fdwOptions;
-    int attrCount;        /* total attributes in a table */
-    List *targetAttrs;    /* attributes in select, where, groupby */
-    bool toUpdateDelete;  /* any update or delete? indicate when to delete */
-} TablePlanState;
-#endif
-
-/*
- * The scan state is for maintaining state for a scan, either for a
- * SELECT or UPDATE or DELETE.
- *
- * It is set up in BeginForeignScan and stashed in node->fdw_state and
- * subsequently used in IterateForeignScan, EndForeignScan and ReScanForeignScan.
- */
-typedef struct TableReadState {
-    bool isKeyBased;
-    uint64 operationId;
-    bool done;
-    StringInfo key;
-    char *buf;     /* shared mem for data returned by RangeQuery or ReadBatch */
-    size_t bufLen; /* shared mem length, no next batch if it is 0 */
-    char *next;    /* pointer to the next data entry for IterateForeignScan */
-    bool hasNext;  /* whether a next batch from RangeQuery or ReadBatch*/
-
-    #ifdef VIDARDB
-    bool useColumn;
-    List *targetAttrs;    /* attributes in select, where, group */
-    #endif
-
-    bool execExplainOnly;
-} TableReadState;
-
-/*
- * The modify state is for maintaining state of modify operations.
- *
- * It is set up in BeginForeignModify and stashed in
- * rinfo->ri_FdwState and subsequently used in ExecForeignInsert,
- * ExecForeignUpdate, ExecForeignDelete and EndForeignModify.
- */
-typedef struct TableWriteState {
-    CmdType operation;
-} TableWriteState;
-
-/* Function declarations for extension loading and unloading */
-extern void _PG_init(void);
-extern void _PG_fini(void);
-
 /* Functions used across files in kv_fdw */
 extern KVFdwOptions* KVGetOptions(Oid foreignTableId);
 extern void  SerializeNullAttribute(TupleDesc tupleDescriptor, Index index,
                                     StringInfo buffer);
 extern void  SerializeAttribute(TupleDesc tupleDescriptor, Index index,
                                 Datum datum, StringInfo buffer);
-extern char* KVGetOptionValue(Oid foreignTableId, const char* optionName);
-extern Datum ShortVarlena(Datum datum, int typeLength, char storage);
+extern int DeserializeAttribute(TupleDesc tupleDescriptor, Index index, int offset,
+                                char* key, char* val, char* limit, Datum* values,
+                                bool* nulls);
+extern void SetRelationComparatorOpts(Relation relation, ComparatorOpts* opts);
 
 #endif  /* KV_FDW_H_ */

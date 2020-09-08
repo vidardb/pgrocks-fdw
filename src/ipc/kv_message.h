@@ -19,13 +19,24 @@
 #include "../kv_api.h"
 
 
-/*
- * A kv message contains both header and entity (optional), and it also
- * provides two entity operation hook functions which we can customize
- * the message entity read (receive) and write (send) method. Otherwise,
- * one can also use the default implemented <CommonWriteEntity> and
- * <CommonReadEntity> to satisfy your common scenario.
- */
+typedef enum {
+    KVOpDummy = 0, /* placeholder */
+    KVOpOpen,
+    KVOpClose,
+    KVOpCount,
+    KVOpPut,
+    KVOpGet,
+    KVOpDel,
+    KVOpLoad,
+    KVOpReadBatch,
+    KVOpDelCursor,
+    #ifdef VIDARDB
+    KVOpRangeQuery,
+    KVOpClearRangeQuery,
+    #endif
+    KVOpLaunch,
+    KVOpTerminate,
+} KVOperation;
 
 typedef enum {
     KVStatusDummy = 0, /* placeholder */
@@ -47,6 +58,14 @@ typedef void (*WriteEntityFunc) (void* channel, uint64* offset, void* entity,
                                  uint64 size);
 typedef void (*ReadEntityFunc)  (void* channel, uint64* offset, void* entity,
                                  uint64 size);
+
+/*
+ * A kv message contains both header and entity (optional), and it also
+ * provides two entity operation hook functions which we can customize
+ * the message entity read (receive) and write (send) method. Otherwise,
+ * one can also use the default implemented <CommonWriteEntity> and
+ * <CommonReadEntity> to satisfy your common scenario.
+ */
 
 struct KVMessage {
     KVMessageHeader  hdr;              /* message header */

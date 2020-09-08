@@ -32,24 +32,6 @@ typedef Oid    KVRelationId;
 typedef Oid    KVWorkerId;
 typedef uint64 KVCursorId;
 
-typedef enum {
-    KVOpDummy = 0, /* placeholder */
-    KVOpOpen,
-    KVOpClose,
-    KVOpCount,
-    KVOpPut,
-    KVOpGet,
-    KVOpDel,
-    KVOpLoad,
-    KVOpReadBatch,
-    KVOpDelCursor,
-    #ifdef VIDARDB
-    KVOpRangeQuery,
-    KVOpClearRangeQuery,
-    #endif
-    KVOpLaunch,
-    KVOpTerminate,
-} KVOperation;
 
 typedef struct ComparatorOpts {
     Oid   cmpFuncOid;
@@ -136,21 +118,11 @@ extern void   KVClearRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args);
 #endif
 
 /*
- * Utility API for kv manager and kv worker
+ * Utility API for kv manager
  */
 
-extern void  StartKVManager(void);
-extern void  TerminateKVManager(void);
-extern void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId);
-extern void  StartKVWorker(KVWorkerId workerId, KVDatabaseId dbId);
+extern void LaunchKVManager(void);
 
-/*
- * Utility API for comparator, encoding and decoding
- */
-
-extern void  SetRelationComparatorOpts(Relation relation, ComparatorOpts* opts);
-extern uint8 EncodeVarintLength(uint64 len, char* buf);
-extern uint8 DecodeVarintLength(char* start, char* limit, uint64* len);
 
 #ifdef __cplusplus
 }

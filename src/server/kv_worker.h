@@ -20,7 +20,8 @@
 #include "../ipc/kv_mq.h"
 
 
-#define READBATCHSIZE 4096*20
+extern void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId);
+
 
 struct KVCursorKey {
     pid_t      pid;     /* backend process pid */

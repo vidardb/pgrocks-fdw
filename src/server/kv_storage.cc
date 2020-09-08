@@ -33,7 +33,7 @@ using namespace rocksdb;
 using namespace std;
 
 #include "kv_storage.h"
-#include "kv_worker.h"
+
 
 extern "C" {
 #include "fmgr.h"
@@ -171,47 +171,6 @@ bool PutRecord(void* conn, char* key, size_t keyLen, char* val, size_t valLen) {
 bool DelRecord(void* conn, char* key, size_t keyLen) {
     Status s = static_cast<DB*>(conn)->Delete(WriteOptions(), Slice(key, keyLen));
     return s.ok();
-}
-
-/* copied from the storage engine */
-inline char* EncodeVarint64(char* dst, uint64 v) {
-    static const unsigned int B = 128;
-    unsigned char* ptr = reinterpret_cast<unsigned char*>(dst);
-    while (v >= B) {
-        *(ptr++) = (v & (B - 1)) | B;
-        v >>= 7;
-    }
-    *(ptr++) = static_cast<unsigned char>(v);
-    return reinterpret_cast<char*>(ptr);
-}
-
-uint8 EncodeVarintLength(uint64 len, char* buf) {
-    char* ptr = EncodeVarint64(buf, len);
-    return (ptr - buf);
-}
-
-/* copied from the storage engine */
-inline const char* GetVarint64Ptr(const char* p, const char* limit,
-                                  uint64* value) {
-    uint64 result = 0;
-    for (uint32 shift = 0; shift <= 63 && p < limit; shift += 7) {
-        uint64 byte = *(reinterpret_cast<const unsigned char*>(p));
-        p++;
-        if (byte & 128) {
-            // More bytes are present
-            result |= ((byte & 127) << shift);
-        } else {
-            result |= (byte << shift);
-            *value = result;
-            return reinterpret_cast<const char*>(p);
-        }
-    }
-    return nullptr;
-}
-
-uint8 DecodeVarintLength(char* start, char* limit, uint64* len) {
-    const char* ret = GetVarint64Ptr(start, limit, len);
-    return ret ? (ret - start) : 0;
 }
 
 #ifdef VIDARDB

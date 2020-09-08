@@ -22,6 +22,7 @@
 extern "C" {
 #include "postgres.h"
 #include "miscadmin.h"
+#include "postmaster/bgworker.h"
 }
 
 
@@ -757,7 +758,7 @@ void KVWorker::ClearRangeQuery(KVWorkerId workerId, KVMessage& msg) {
 }
 #endif
 
-void StartKVWorker(KVWorkerId workerId, KVDatabaseId dbId) {
+static void StartKVWorker(KVWorkerId workerId, KVDatabaseId dbId) {
     KVWorker* worker = new KVWorker(workerId, dbId);
     KVManagerClient* manager = new KVManagerClient();
 
@@ -772,4 +773,59 @@ void StartKVWorker(KVWorkerId workerId, KVDatabaseId dbId) {
 
     delete worker;
     delete manager;
+}
+
+/*
+ * Entrypoint for kv worker
+ */
+extern "C" void KVWorkerMain(Datum arg) {
+    KVDatabaseId dbId = (KVDatabaseId) DatumGetObjectId(arg);
+    KVWorkerId workerId = *((KVWorkerId*) (MyBgworkerEntry->bgw_extra));
+
+    /* Connect to our database */
+    BackgroundWorkerInitializeConnectionByOid(dbId, InvalidOid, 0);
+
+    /* Start kv worker */
+    StartKVWorker(workerId, dbId);
+}
+
+/*
+ * Launch kv worker process
+ */
+void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId) {
+    BackgroundWorker worker;
+    memset(&worker, 0, sizeof(worker));
+    worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
+    worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
+    worker.bgw_restart_time = BGW_NEVER_RESTART;
+    sprintf(worker.bgw_library_name, "kv_fdw");
+    sprintf(worker.bgw_function_name, "KVWorkerMain");
+    snprintf(worker.bgw_name, BGW_MAXLEN, "KV Worker");
+    snprintf(worker.bgw_type, BGW_MAXLEN, "KV Worker");
+    worker.bgw_main_arg = ObjectIdGetDatum(dbId);
+    memcpy(worker.bgw_extra, &workerId, sizeof(workerId));
+    /* set bgw_notify_pid so that we can use WaitForBackgroundWorkerStartup */
+    worker.bgw_notify_pid = MyProcPid;
+
+    BackgroundWorkerHandle* handle;
+    if (!RegisterDynamicBackgroundWorker(&worker, &handle)) {
+        return NULL;
+    }
+
+    pid_t pid;
+    BgwHandleStatus status = WaitForBackgroundWorkerStartup(handle, &pid);
+    if (status == BGWH_STOPPED) {
+        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+                errmsg("could not start background process"),
+                errhint("More details may be available in the server log.")));
+    }
+    if (status == BGWH_POSTMASTER_DIED) {
+        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+                errmsg("cannot start background processes without postmaster"),
+                errhint("Kill all remaining database processes and restart "
+                        "the database.")));
+    }
+    Assert(status == BGWH_STARTED);
+
+    return handle;
 }

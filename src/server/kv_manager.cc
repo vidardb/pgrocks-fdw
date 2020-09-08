@@ -19,6 +19,7 @@ extern "C" {
 #include "postgres.h"
 #include "miscadmin.h"
 #include "postmaster/bgworker.h"
+#include "storage/latch.h"
 }
 
 
@@ -206,7 +207,7 @@ void KVManagerClient::Notify(KVCtrlType type) {
 /*
  * Start kv manager
  */
-void StartKVManager(void) {
+static void StartKVManager(void) {
     manager = new KVManager();
     manager->Start();
     manager->Run();
@@ -216,6 +217,68 @@ void StartKVManager(void) {
 /*
  * Terminate kv manager
  */
-void TerminateKVManager(void) {
+static void TerminateKVManager(void) {
     manager->Stop();
+}
+
+/*
+ * Signal handler for SIGTERM
+ *
+ * Set a flag to let the main loop to terminate, and set our latch to
+ * wake it up.
+ */
+static void KVManagerSigHandler(SIGNAL_ARGS) {
+    int save_errno = errno;
+
+    TerminateKVManager();
+    SetLatch(MyLatch);
+
+    errno = save_errno;
+}
+
+/*
+ * Entrypoint for kv manager
+ */
+extern "C" void KVManagerMain(Datum arg) {
+    /* Establish signal handlers before unblocking signals. */
+    /* pqsignal(SIGTERM, KVManagerSigHandler); */
+
+    /*
+     * We on purpose do not use pqsignal due to its setting at flags = restart.
+     * With the setting, the process cannot exit on sem_wait.
+     */
+    struct sigaction act;
+    act.sa_handler = KVManagerSigHandler;
+    act.sa_flags = 0;
+    sigaction(SIGTERM, &act, NULL);
+
+    /* We're now ready to receive signals */
+    BackgroundWorkerUnblockSignals();
+
+    /* Start kv manager */
+    StartKVManager();
+}
+
+/*
+ * Launch kv manager process
+ */
+void LaunchKVManager(void) {
+    printf("\n~~~~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
+
+    if (!process_shared_preload_libraries_in_progress) {
+        return;
+    }
+
+    BackgroundWorker worker;
+    memset(&worker, 0, sizeof(worker));
+    snprintf(worker.bgw_name, BGW_MAXLEN, "KV Manager");
+    snprintf(worker.bgw_type, BGW_MAXLEN, "KV Manager");
+    worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
+    worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
+    worker.bgw_restart_time = 1;
+    sprintf(worker.bgw_library_name, "kv_fdw");
+    sprintf(worker.bgw_function_name, "KVManagerMain");
+    worker.bgw_notify_pid = 0;
+
+    RegisterBackgroundWorker(&worker);
 }

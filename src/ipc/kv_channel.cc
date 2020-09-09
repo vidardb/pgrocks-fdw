@@ -22,6 +22,8 @@ extern "C" {
 
 
 #define MSGCRLCHANNELNAME "Ctrl"
+#define MSGPATHPREFIX "/KV"
+
 
 /*
  * Implementation for kv circular channel

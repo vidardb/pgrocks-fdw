@@ -103,7 +103,7 @@ void KVManager::Launch(KVWorkerId workerId, const KVMessage& msg) {
         workers_.find(workerId);
     if (it != workers_.end()) {
         if (CheckKVWorkerAlive(it->second->handle)) {
-            channel_->Send(SuccessMessage(msg.hdr.resChan));
+            channel_->Send(SuccessMessage(msg.hdr.rpsId));
             return;
         } else {
             delete it->second;
@@ -113,7 +113,7 @@ void KVManager::Launch(KVWorkerId workerId, const KVMessage& msg) {
 
     void* handle = LaunchKVWorker(workerId, msg.hdr.dbId);
     if (!handle) {
-        channel_->Send(FailureMessage(msg.hdr.resChan));
+        channel_->Send(FailureMessage(msg.hdr.rpsId));
         return;
     }
 
@@ -124,7 +124,7 @@ void KVManager::Launch(KVWorkerId workerId, const KVMessage& msg) {
     KVWorkerClient* client = new KVWorkerClient(workerId);
     KVWorkerHandle* worker = new KVWorkerHandle(workerId, dbId, client, handle);
     workers_.insert({workerId, worker});
-    channel_->Send(SuccessMessage(msg.hdr.resChan));
+    channel_->Send(SuccessMessage(msg.hdr.rpsId));
 }
 
 void KVManager::Terminate(KVWorkerId workerId, const KVMessage& msg) {
@@ -148,14 +148,14 @@ void KVManager::Terminate(KVWorkerId workerId, const KVMessage& msg) {
             delete handle;
         }
 
-        channel_->Send(SuccessMessage(msg.hdr.resChan));
+        channel_->Send(SuccessMessage(msg.hdr.rpsId));
         return;
     }
 
     std::unordered_map<KVWorkerId, KVWorkerHandle*>::iterator it =
         workers_.find(workerId);
     if (it == workers_.end()) {
-        channel_->Send(SuccessMessage(msg.hdr.resChan));
+        channel_->Send(SuccessMessage(msg.hdr.rpsId));
         return;
     }
 
@@ -170,7 +170,7 @@ void KVManager::Terminate(KVWorkerId workerId, const KVMessage& msg) {
     workers_.erase(it);
     delete handle;
 
-    channel_->Send(SuccessMessage(msg.hdr.resChan));
+    channel_->Send(SuccessMessage(msg.hdr.rpsId));
 }
 
 

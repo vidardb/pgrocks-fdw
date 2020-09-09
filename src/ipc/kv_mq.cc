@@ -51,12 +51,12 @@ void KVMessageQueue::Send(const KVMessage& msg) {
     KVChannel* channel = NULL;
 
     if (isServer_) {
-        if (msg.hdr.resChan == 0) {
+        if (msg.hdr.rpsId == 0) {
             ereport(WARNING, (errmsg("invalid response channel")));
             return;
         }
 
-        channel = response_[msg.hdr.resChan - 1];
+        channel = response_[msg.hdr.rpsId - 1];
     } else {
         channel = request_;
     }
@@ -67,8 +67,8 @@ void KVMessageQueue::Send(const KVMessage& msg) {
 void KVMessageQueue::SendWithResponse(KVMessage& sendmsg, KVMessage& recvmsg) {
     uint32 chan = LeaseResponseQueue();
 
-    sendmsg.hdr.resChan = chan;
-    recvmsg.hdr.resChan = chan;
+    sendmsg.hdr.rpsId = chan;
+    recvmsg.hdr.rpsId = chan;
 
     Send(sendmsg);
     Recv(recvmsg);
@@ -82,12 +82,12 @@ void KVMessageQueue::Recv(KVMessage& msg, int flag) {
     if (isServer_) {
         channel = request_;
     } else {
-        if (msg.hdr.resChan == 0) {
+        if (msg.hdr.rpsId == 0) {
             ereport(WARNING, (errmsg("invalid response channel")));
             return;
         }
 
-        channel = response_[msg.hdr.resChan - 1];
+        channel = response_[msg.hdr.rpsId - 1];
     }
 
     channel->Recv(msg, flag);

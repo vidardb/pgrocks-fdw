@@ -286,11 +286,12 @@ class PGDataTypeComparator : public Comparator {
             return;
         }
         fmgr_info(options_.cmpFuncOid, &funcManager_);
-        mutex_ = new std::mutex;
+        mutex_ = new mutex;
         firstCall_ = new bool;
         *firstCall_ = true;
         resourceOwner_ = ResourceOwnerCreate(NULL, "ComparatorResourceOwner");
-        funcCallInfo_ = (FunctionCallInfoBaseData*) palloc0(sizeof(*funcCallInfo_));
+        funcCallInfo_ =  static_cast<FunctionCallInfoBaseData*>
+                         (palloc0(sizeof(*funcCallInfo_)));
         InitFunctionCallInfoData(*funcCallInfo_, &funcManager_, 2,
                                  options_.attrCollOid, NULL, NULL);
         funcCallInfo_->args[0].isnull = false;
@@ -393,24 +394,24 @@ class PGDataTypeComparator : public Comparator {
      * Simple comparator implementations may return with *start unchanged,
      * i.e., an implementation of this method that does nothing is correct.
      */
-    virtual void FindShortestSeparator(std::string* start,
+    virtual void FindShortestSeparator(string* start,
                                        const Slice& limit) const override {
         /* do nothing */
     }
 
     /*
-     * Changes *key to a short string >= *key.
+     * Changes *key to a short string >= *key
      * Simple comparator implementations may return with *key unchanged,
      * i.e., an implementation of this method that does nothing is correct.
      */
-    virtual void FindShortSuccessor(std::string* key) const override {
+    virtual void FindShortSuccessor(string* key) const override {
         /* do nothing */
     }
 
   private:
     ComparatorOpts options_;
     FmgrInfo funcManager_;
-    std::mutex* mutex_;
+    mutex* mutex_;
     bool* firstCall_;
     ResourceOwner resourceOwner_;
     FunctionCallInfoBaseData* funcCallInfo_;

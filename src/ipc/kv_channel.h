@@ -16,6 +16,7 @@
 #ifndef KV_CHANNEL_H_
 #define KV_CHANNEL_H_
 
+
 #include "kv_message.h"
 #include "kv_posix.h"
 
@@ -25,7 +26,7 @@
 #define MSGENTITY     02
 #define MSGDISCARD    04
 #define MSGBUFSIZE    65536
-#define MSGPATHPREFIX "/KV"
+
 
 /*
  * A kv channel abstract class which defines some kv message process
@@ -35,9 +36,9 @@
 
 class KVChannel {
   public:
-    virtual ~KVChannel() {};
+    virtual ~KVChannel() {}
     virtual void Send(const KVMessage& msg) = 0;
-    virtual void Recv(KVMessage& msg) { Recv(msg, MSGHEADER | MSGENTITY); };
+    virtual void Recv(KVMessage& msg) { Recv(msg, MSGHEADER | MSGENTITY); }
     virtual void Recv(KVMessage& msg, int flag) = 0;
     virtual void Read(uint64* offset, char* str, uint64 size) = 0;
     virtual void Write(uint64* offset, char* str, uint64 size) = 0;
@@ -52,14 +53,14 @@ class KVChannel {
  * following <KVMessageQueue> definition.
  */
 
-struct KVCircularChannelData {
+typedef struct KVCircularChannelData {
     uint64 putPos;           /* the position producer can put data */
     uint64 getPos;           /* the position consumer can get data */
     sem_t  mutex;            /* mutual exclusion for position */
     sem_t  empty;            /* tell whether the data buf is empty */
     sem_t  full;             /* tell whether the data buf is full */
     char   data[MSGBUFSIZE]; /* assume ~64K for a tuple is enough */
-};
+} KVCircularChannelData;
 
 class KVCircularChannel : public KVChannel {
   public:
@@ -87,12 +88,12 @@ class KVCircularChannel : public KVChannel {
  * following <KVMessageQueue> definition.
  */
 
-struct KVSimpleChannelData {
+typedef struct KVSimpleChannelData {
     uint64 getPos;           /* the position consumer can get data */
     sem_t  mutex;            /* mutual exclusion for response */
     sem_t  ready;            /* tell whether response is ready */
     char   data[MSGBUFSIZE]; /* assume ~64K for a tuple is enough */
-};
+} KVSimpleChannelData;
 
 class KVSimpleChannel : public KVChannel {
   public:
@@ -126,10 +127,10 @@ typedef enum {
     WorkerDesty,
 } KVCtrlType;
 
-struct KVCtrlData {
-    sem_t workerReady; /* tell wether kv worker is ready */
-    sem_t workerDesty; /* tell wether kv worker is destroyed */
-};
+typedef struct KVCtrlData {
+    sem_t workerReady; /* tell whether kv worker is ready */
+    sem_t workerDesty; /* tell whether kv worker is destroyed */
+} KVCtrlData;
 
 class KVCtrlChannel {
   public:

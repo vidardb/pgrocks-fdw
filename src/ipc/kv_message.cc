@@ -20,14 +20,14 @@
 KVMessage SuccessMessage(uint32 channel) {
     KVMessage msg;
     msg.hdr.status = KVStatusSuccess;
-    msg.hdr.resChan = channel;
+    msg.hdr.rpsId = channel;
     return msg;
 }
 
 KVMessage FailureMessage(uint32 channel) {
     KVMessage msg;
     msg.hdr.status = KVStatusFailure;
-    msg.hdr.resChan = channel;
+    msg.hdr.rpsId = channel;
     return msg;
 }
 
@@ -39,10 +39,12 @@ KVMessage SimpleMessage(KVOperation op, KVRelationId rid, KVDatabaseId dbId) {
     return msg;
 }
 
-void CommonWriteEntity(void* channel, uint64* offset, void* entity, uint64 size) {
-    ((KVChannel*) channel)->Write(offset, (char*) entity, size);
+void CommonWriteEntity(KVChannel* channel, uint64* offset, void* entity,
+                       uint64 size) {
+    channel->Write(offset, (char*) entity, size);
 }
 
-void CommonReadEntity(void* channel, uint64* offset, void* entity, uint64 size) {
-    ((KVChannel*) channel)->Read(offset, (char*) entity, size);
+void CommonReadEntity(KVChannel* channel, uint64* offset, void* entity,
+                      uint64 size) {
+    channel->Read(offset, (char*) entity, size);
 }

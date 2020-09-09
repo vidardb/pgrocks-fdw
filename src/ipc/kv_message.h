@@ -16,6 +16,7 @@
 #ifndef KV_MESSAGE_H_
 #define KV_MESSAGE_H_
 
+
 #include "kv_api.h"
 
 
@@ -50,18 +51,21 @@ struct KVMessageHeader {
     KVDatabaseId    dbId    = InvalidOid;
     KVRelationId    relId   = InvalidOid;
     KVMessageStatus status  = KVStatusDummy;
-    uint32          resChan = 0; /* response channel id */
+    uint32          rpsId = 0;   /* response channel id */
     uint64          etySize = 0; /* message entity size */
 };
+
+
+class KVChannel;
 
 /*
  * Custom message entity read and write function definition
  */
 
-typedef void (*WriteEntityFunc) (void* channel, uint64* offset, void* entity,
-                                 uint64 size);
-typedef void (*ReadEntityFunc)  (void* channel, uint64* offset, void* entity,
-                                 uint64 size);
+typedef void (*WriteEntityFunc) (KVChannel* channel, uint64* offset,
+                                 void* entity, uint64 size);
+typedef void (*ReadEntityFunc)  (KVChannel* channel, uint64* offset,
+                                 void* entity, uint64 size);
 
 /*
  * A kv message contains both header and entity (optional), and it also
@@ -88,9 +92,9 @@ extern KVMessage SimpleMessage(KVOperation op, KVRelationId rid,
  * Common message entity read and write function
  */
 
-extern void CommonWriteEntity(void* channel, uint64* offset, void* entity,
+extern void CommonWriteEntity(KVChannel* channel, uint64* offset, void* entity,
                               uint64 size);
-extern void CommonReadEntity(void* channel, uint64* offset, void* entity,
+extern void CommonReadEntity(KVChannel* channel, uint64* offset, void* entity,
                              uint64 size);
 
 #endif  /* KV_MESSAGE_H_ */

@@ -14,9 +14,11 @@
  */
 
 
+#include <sys/stat.h>
+
 #include "kv_fdw.h"
 #include "server/kv_storage.h"
-#include <sys/stat.h>
+
 #include "foreign/foreign.h"
 #include "miscadmin.h"
 #include "commands/event_trigger.h"
@@ -25,9 +27,7 @@
 #include "utils/lsyscache.h"
 #include "commands/defrem.h"
 #include "utils/rel.h"
-#include "storage/ipc.h"
 #include "commands/copy.h"
-#include "utils/memutils.h"
 #include "parser/parser.h"
 #include "utils/builtins.h"
 #include "parser/parse_coerce.h"
@@ -36,6 +36,18 @@
 #include "utils/typcache.h"
 #include "commands/dbcommands.h"
 #include "access/table.h"
+
+
+/* Defines */
+#define KVFDWNAME             "kv_fdw"
+#define HEADERBUFFSIZE        10
+#define OPTION_FILENAME       "filename"
+#ifdef VIDARDB
+#define COLUMNSTORE           "column"
+#define BATCHCAPACITY         8*1024*1024
+#define OPTION_STORAGE_FORMAT "storage"
+#define OPTION_BATCH_CAPACITY "batch"
+#endif
 
 
 /* Forward Declaration */

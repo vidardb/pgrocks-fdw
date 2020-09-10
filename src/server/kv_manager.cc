@@ -70,8 +70,7 @@ void KVManager::Run() {
     }
 }
 
-void KVManager::TerminateKVWorker(void* worker) {
-    BackgroundWorkerHandle* handle = static_cast<BackgroundWorkerHandle*>(worker);
+void KVManager::TerminateKVWorker(BackgroundWorkerHandle* handle) {
     TerminateBackgroundWorker(handle);
     WaitForBackgroundWorkerShutdown(handle);
     pfree(handle);
@@ -89,9 +88,8 @@ void KVManager::Stop() {
     queue_->Terminate();
 }
 
-bool KVManager::CheckKVWorkerAlive(void* worker) {
+bool KVManager::CheckKVWorkerAlive(BackgroundWorkerHandle* handle) {
     pid_t pid;
-    BackgroundWorkerHandle* handle = static_cast<BackgroundWorkerHandle*>(worker);
     BgwHandleStatus status = GetBackgroundWorkerPid(handle, &pid);
     return BGWH_STARTED == status;
 }
@@ -108,7 +106,8 @@ void KVManager::Launch(KVWorkerId workerId, const KVMessage& msg) {
         }
     }
 
-    void* handle = LaunchKVWorker(workerId, msg.hdr.dbId);
+    BackgroundWorkerHandle* handle =
+        (BackgroundWorkerHandle*) LaunchKVWorker(workerId, msg.hdr.dbId);
     if (!handle) {
         queue_->Send(FailureMessage(msg.hdr.rpsId));
         return;

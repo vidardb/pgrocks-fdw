@@ -13,6 +13,13 @@
  * limitations under the License.
  */
 
+/*
+ * This header file is to cover communication between client and server.
+ * Anything (functions, variables, defines) used across client and server should
+ * be exposed here.
+ */
+
+
 #ifndef KV_API_H_
 #define KV_API_H_
 
@@ -20,8 +27,8 @@
 extern "C" {
 #endif
 
+
 #include "postgres.h"
-#include "utils/relcache.h"
 #include "access/attnum.h"
 
 
@@ -98,31 +105,27 @@ typedef struct RangeQueryArgs {
 } RangeQueryArgs;
 #endif
 
-/*
- * Communication API between kv client and kv worker
- */
+
+/* Communication API between kv client and kv worker */
 
 extern void   KVOpenRequest(KVRelationId rid, OpenArgs* args);
 extern void   KVCloseRequest(KVRelationId rid);
 extern uint64 KVCountRequest(KVRelationId rid);
 extern bool   KVPutRequest(KVRelationId rid, PutArgs* args);
+extern bool   KVGetRequest(KVRelationId rid, GetArgs* args);
 extern bool   KVDeleteRequest(KVRelationId rid, DeleteArgs* args);
 extern void   KVLoadRequest(KVRelationId rid, PutArgs* args);
-extern bool   KVGetRequest(KVRelationId rid, GetArgs* args);
-extern void   KVTerminateRequest(KVRelationId rid, KVDatabaseId dbId);
 extern bool   KVReadBatchRequest(KVRelationId rid, ReadBatchArgs* args);
 extern void   KVCloseCursorRequest(KVRelationId rid, CloseCursorArgs* args);
 #ifdef VIDARDB
 extern bool   KVRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args);
 extern void   KVClearRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args);
 #endif
+extern void   KVTerminateRequest(KVRelationId rid, KVDatabaseId dbId);
 
-/*
- * Utility API for kv manager
- */
+/* Utility API for kv manager */
 
 extern void LaunchKVManager(void);
-
 
 #ifdef __cplusplus
 }

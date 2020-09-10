@@ -15,7 +15,7 @@
 
 #include "kv_fdw.h"
 #include "kv_api.h"
-#include "access/reloptions.h"
+
 #include "foreign/fdwapi.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/planmain.h"
@@ -26,23 +26,17 @@
 #include "access/tuptoaster.h"
 #include "catalog/pg_operator.h"
 #include "utils/syscache.h"
-#include "utils/typcache.h"
-#include "commands/defrem.h"
-#include "foreign/foreign.h"
-#include "utils/builtins.h"
-#include "miscadmin.h"
-#include "nodes/nodes.h"
 #include "access/table.h"
 #ifdef VIDARDB
 #include "parser/parsetree.h"
 #include "optimizer/optimizer.h"
-#include "access/sysattr.h"
 #endif
 
 
 PG_MODULE_MAGIC;
 PG_FUNCTION_INFO_V1(kv_fdw_handler);
 PG_FUNCTION_INFO_V1(kv_fdw_validator);
+
 
 #ifdef VIDARDB
 typedef struct TablePlanState {
@@ -94,6 +88,7 @@ typedef struct TableWriteState {
  */
 
 static uint64 operationId = 0;  /* a SQL might cause multiple scans */
+
 
 static void GetForeignRelSize(PlannerInfo* root, RelOptInfo* baserel,
                               Oid foreignTableId) {

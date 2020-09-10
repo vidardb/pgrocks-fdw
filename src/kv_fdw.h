@@ -13,31 +13,22 @@
  * limitations under the License.
  */
 
+/*
+ * This header file is to cover kv_fdw.c and kv_utility.c. Anything
+ * (functions, variables, defines) used across fdw and utility should be exposed
+ * here.
+ */
+
+
 #ifndef KV_FDW_H_
 #define KV_FDW_H_
 
-#include <stdbool.h>
-#include <semaphore.h>
+
 #include "kv_api.h"
-#include "postgres.h"
+
 #include "lib/stringinfo.h"
-#include "nodes/nodes.h"
-#include "access/attnum.h"
 #include "utils/relcache.h"
-#include "utils/hsearch.h"
 
-
-/* Defines */
-#define KVFDWNAME             "kv_fdw"
-#define OPTION_FILENAME       "filename"
-#define BUFSIZE               65536
-#define HEADERBUFFSIZE        10
-#ifdef VIDARDB
-#define OPTION_STORAGE_FORMAT "storage"
-#define OPTION_BATCH_CAPACITY "batch"
-#define COLUMNSTORE           "column"
-#define BATCHCAPACITY         8*1024*1024
-#endif
 
 /* Holds the option values to be used when reading or writing files.
  * To resolve these values, we first check foreign table's options,
@@ -50,6 +41,7 @@ typedef struct KVFdwOptions {
     int32 batchCapacity;
     #endif
 } KVFdwOptions;
+
 
 /* Functions used across files in kv_fdw */
 extern KVFdwOptions* KVGetOptions(Oid foreignTableId);

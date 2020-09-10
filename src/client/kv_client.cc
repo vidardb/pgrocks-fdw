@@ -14,6 +14,8 @@
  */
 
 #include <unordered_map>
+using namespace std;
+
 #include "kv_api.h"
 #include "server/kv_manager.h"
 
@@ -26,8 +28,8 @@ extern "C" {
  * In backend process scope
  */
 
-static KVManagerClient* manager = NULL;
-static std::unordered_map<KVWorkerId, KVWorkerClient*> workers;
+static KVManagerClient* manager = nullptr;
+static unordered_map<KVWorkerId, KVWorkerClient*> workers;
 
 /*
  * Implementation for kv client
@@ -38,8 +40,7 @@ static void InitKVManagerClient() {
 }
 
 static KVWorkerClient* GetKVWorkerClient(KVWorkerId workerId) {
-    std::unordered_map<KVWorkerId, KVWorkerClient*>::iterator it =
-        workers.find(workerId);
+    auto it = workers.find(workerId);
     if (it != workers.end()) {
         return it->second;
     }
@@ -61,7 +62,7 @@ static KVWorkerClient* GetKVWorkerClient(KVWorkerId workerId) {
                     " the current settings.", max_worker_processes),
             errhint("Consider increasing the configuration parameter "
                     "\"max_worker_processes\".")));
-    return NULL;
+    return nullptr;
 }
 
 void KVOpenRequest(KVRelationId rid, OpenArgs* args) {
@@ -84,6 +85,11 @@ bool KVPutRequest(KVRelationId rid, PutArgs* args) {
     return worker->Put(rid, args);
 }
 
+bool KVGetRequest(KVRelationId rid, GetArgs* args) {
+    KVWorkerClient* worker = GetKVWorkerClient(rid);
+    return worker->Get(rid, args);
+}
+
 bool KVDeleteRequest(KVRelationId rid, DeleteArgs* args) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     return worker->Delete(rid, args);
@@ -92,20 +98,6 @@ bool KVDeleteRequest(KVRelationId rid, DeleteArgs* args) {
 void KVLoadRequest(KVRelationId rid, PutArgs* args) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
     worker->Load(rid, args);
-}
-
-bool KVGetRequest(KVRelationId rid, GetArgs* args) {
-    KVWorkerClient* worker = GetKVWorkerClient(rid);
-    return worker->Get(rid, args);
-}
-
-void KVTerminateRequest(KVRelationId rid, KVDatabaseId dbId) {
-    if (!manager) {
-        InitKVManagerClient();
-    }
-
-    manager->Terminate(rid, dbId);
-    workers.erase(rid);
 }
 
 bool KVReadBatchRequest(KVRelationId rid, ReadBatchArgs* args) {
@@ -121,7 +113,7 @@ void KVCloseCursorRequest(KVRelationId rid, CloseCursorArgs* args) {
 #ifdef VIDARDB
 bool KVRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args) {
     KVWorkerClient* worker = GetKVWorkerClient(rid);
-    return worker->RangeQuery(rid, args);;
+    return worker->RangeQuery(rid, args);
 }
 
 void KVClearRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args) {
@@ -129,3 +121,12 @@ void KVClearRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args) {
     worker->ClearRangeQuery(rid, args);
 }
 #endif
+
+void KVTerminateRequest(KVRelationId rid, KVDatabaseId dbId) {
+    if (!manager) {
+        InitKVManagerClient();
+    }
+
+    manager->Terminate(rid, dbId);
+    workers.erase(rid);
+}

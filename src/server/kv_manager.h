@@ -42,8 +42,8 @@ class KVManager {
     void Terminate(KVWorkerId workerId, const KVMessage& msg);
 
   private:
-    void TerminateKVWorker(void* worker);
-    bool CheckKVWorkerAlive(void* worker);
+    void TerminateKVWorker(BackgroundWorkerHandle* worker);
+    bool CheckKVWorkerAlive(BackgroundWorkerHandle* handle);
 
     unordered_map<KVWorkerId, KVWorkerHandle*> workers_;
     KVMessageQueue* queue_;

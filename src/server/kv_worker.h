@@ -49,16 +49,15 @@ class KVWorker {
     void Load(KVWorkerId workerId, KVMessage& msg);
     void ReadBatch(KVWorkerId workerId, KVMessage& msg);
     void CloseCursor(KVWorkerId workerId, KVMessage& msg);
-    void Terminate(KVWorkerId workerId, KVMessage& msg);
     #ifdef VIDARDB
     void RangeQuery(KVWorkerId workerId, KVMessage& msg);
     void ClearRangeQuery(KVWorkerId workerId, KVMessage& msg);
     #endif
+    void Terminate(KVWorkerId workerId, KVMessage& msg);
 
   private:
     static void ReadOpenArgs(KVChannel* channel, uint64* offset, void* entity,
                              uint64 size);
-
     static void WriteReadBatchState(KVChannel* channel, uint64* offset,
                                     void* entity, uint64 size);
 
@@ -110,32 +109,47 @@ class KVWorkerClient {
     ~KVWorkerClient();
 
     void   Open(KVWorkerId workerId, OpenArgs* args);
+    void   Close(KVWorkerId workerId);
+    uint64 Count(KVWorkerId workerId);
     bool   Put(KVWorkerId workerId, PutArgs* args);
+    bool   Get(KVWorkerId workerId, GetArgs* args);
     bool   Delete(KVWorkerId workerId, DeleteArgs* args);
     void   Load(KVWorkerId workerId, PutArgs* args);
-    bool   Get(KVWorkerId workerId, GetArgs* args);
-    void   Close(KVWorkerId workerId);
-    void   Terminate(KVWorkerId workerId);
     bool   ReadBatch(KVWorkerId workerId, ReadBatchArgs* args);
     void   CloseCursor(KVWorkerId workerId, CloseCursorArgs* args);
     #ifdef VIDARDB
     bool   RangeQuery(KVWorkerId workerId, RangeQueryArgs* args);
     void   ClearRangeQuery(KVWorkerId workerId, RangeQueryArgs* args);
     #endif
-    uint64 Count(KVWorkerId workerId);
+    void   Terminate(KVWorkerId workerId);
 
   private:
+    static void WriteOpenArgs(KVChannel* channel, uint64* offset, void* entity,
+                              uint64 size);
+    static void WritePutArgs(KVChannel* channel, uint64* offset, void* entity,
+                             uint64 size);
+    static void WriteReadBatchArgs(KVChannel* channel, uint64* offset,
+                                   void* entity, uint64 size);
+    static void WriteDelCursorArgs(KVChannel* channel, uint64* offset,
+                                   void* entity, uint64 size);
+    #ifdef VIDARDB
+    static void WriteRangeQueryArgs(KVChannel* channel, uint64* offset,
+                                    void* entity, uint64 size);
+    #endif
+
     KVMessageQueue* queue_;
 };
 
+struct BackgroundWorkerHandle;
+
 struct KVWorkerHandle {
-    KVWorkerId      workerId;
-    KVDatabaseId    dbId;
-    KVWorkerClient* client;
-    void*           handle;
+    KVWorkerId              workerId;
+    KVDatabaseId            dbId;
+    KVWorkerClient*         client;
+    BackgroundWorkerHandle* handle;
 
     KVWorkerHandle(KVWorkerId workerId, KVDatabaseId dbId,
-                   KVWorkerClient* client, void* handle) :
+                   KVWorkerClient* client, BackgroundWorkerHandle* handle) :
         workerId(workerId), dbId(dbId), client(client), handle(handle) {};
     ~KVWorkerHandle() { delete client; }
 };

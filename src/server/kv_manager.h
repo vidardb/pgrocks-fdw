@@ -16,12 +16,15 @@
 #ifndef KV_MANAGER_H_
 #define KV_MANAGER_H_
 
+
 #include <unordered_map>
+using namespace std;
+
 #include "ipc/kv_mq.h"
 #include "kv_worker.h"
 
 
-extern void LaunchKVManager(void);
+extern void LaunchKVManager();
 
 /*
  * A kv manager which is responsible for managing all the kv workers' lifecycle.
@@ -39,8 +42,11 @@ class KVManager {
     void Terminate(KVWorkerId workerId, const KVMessage& msg);
 
   private:
-    std::unordered_map<KVWorkerId, KVWorkerHandle*> workers_;
-    KVMessageQueue* channel_;
+    void TerminateKVWorker(void* worker);
+    bool CheckKVWorkerAlive(void* worker);
+
+    unordered_map<KVWorkerId, KVWorkerHandle*> workers_;
+    KVMessageQueue* queue_;
     volatile bool running_;
 };
 
@@ -59,7 +65,7 @@ class KVManagerClient {
     void Notify(KVCtrlType type);
 
   private:
-    KVMessageQueue* channel_;
+    KVMessageQueue* queue_;
 };
 
 #endif  /* KV_MANAGER_H_ */

@@ -16,13 +16,15 @@
 #ifndef KV_MQ_H_
 #define KV_MQ_H_
 
+
 #include "kv_channel.h"
 
 
 #define MSGRESQUEUELENGTH 2
 
+
 /*
- * A message queue which exchanges messages between different processes as a
+ * A kv message queue which exchanges messages between different processes as a
  * media. Currently it contains four channels: a circular channel as a
  * message receiver, two simple channels as message senders, and a control
  * channel as a coordinator.
@@ -35,11 +37,11 @@ class KVMessageQueue {
     void   Send(const KVMessage& msg);
     void   Recv(KVMessage& msg) { Recv(msg, MSGHEADER | MSGENTITY); };
     void   Recv(KVMessage& msg, int flag);
+    uint32 LeaseResponseQueue();
+    void   UnleaseResponseQueue(uint32 index);
     void   SendWithResponse(KVMessage& sendmsg, KVMessage& recvmsg);
     void   Wait(KVCtrlType type);
     void   Notify(KVCtrlType type);
-    void   UnleaseResponseQueue(uint32 index);
-    uint32 LeaseResponseQueue();
     void   Terminate();
 
   private:

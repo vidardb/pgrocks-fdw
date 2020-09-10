@@ -23,32 +23,31 @@ extern "C" {
 #define MSGREQCHANNELNAME "Request"
 #define MSGRESCHANNELNAME "Response"
 
+
 KVMessageQueue::KVMessageQueue(KVRelationId rid, const char* name,
                                bool isServer) {
     isServer_ = isServer;
-    char temp[MAXPATHLENGTH];
-
     ctrl_ = new KVCtrlChannel(rid, name, isServer);
-    snprintf(temp, MAXPATHLENGTH, "%s%s", name, MSGREQCHANNELNAME);
-    request_ = new KVCircularChannel(rid, temp, isServer);
+
+    char tmp[MAXPATHLENGTH];
+    snprintf(tmp, MAXPATHLENGTH, "%s%s", name, MSGREQCHANNELNAME);
+    request_ = new KVCircularChannel(rid, tmp, isServer);
     for (uint32 i = 0; i < MSGRESQUEUELENGTH; i++) {
-        snprintf(temp, MAXPATHLENGTH, "%s%s%d", name, MSGRESCHANNELNAME, i);
-        response_[i] = new KVSimpleChannel(rid, temp, isServer);
+        snprintf(tmp, MAXPATHLENGTH, "%s%s%d", name, MSGRESCHANNELNAME, i);
+        response_[i] = new KVSimpleChannel(rid, tmp, isServer);
     }
 }
 
 KVMessageQueue::~KVMessageQueue() {
-    delete request_;
-
     for (uint32 i = 0; i < MSGRESQUEUELENGTH; i++) {
         delete response_[i];
     }
-
+    delete request_;
     delete ctrl_;
 }
 
 void KVMessageQueue::Send(const KVMessage& msg) {
-    KVChannel* channel = NULL;
+    KVChannel* channel = nullptr;
 
     if (isServer_) {
         if (msg.hdr.rpsId == 0) {
@@ -64,20 +63,8 @@ void KVMessageQueue::Send(const KVMessage& msg) {
     channel->Send(msg);
 }
 
-void KVMessageQueue::SendWithResponse(KVMessage& sendmsg, KVMessage& recvmsg) {
-    uint32 chan = LeaseResponseQueue();
-
-    sendmsg.hdr.rpsId = chan;
-    recvmsg.hdr.rpsId = chan;
-
-    Send(sendmsg);
-    Recv(recvmsg);
-
-    UnleaseResponseQueue(chan);
-}
-
 void KVMessageQueue::Recv(KVMessage& msg, int flag) {
-    KVChannel* channel = NULL;
+    KVChannel* channel = nullptr;
 
     if (isServer_) {
         channel = request_;
@@ -91,14 +78,6 @@ void KVMessageQueue::Recv(KVMessage& msg, int flag) {
     }
 
     channel->Recv(msg, flag);
-}
-
-void KVMessageQueue::Terminate() {
-    request_->Terminate();
-
-    for (uint32 i = 0; i < MSGRESQUEUELENGTH; i++) {
-        response_[i]->Terminate();
-    }
 }
 
 uint32 KVMessageQueue::LeaseResponseQueue() {
@@ -115,10 +94,30 @@ void KVMessageQueue::UnleaseResponseQueue(uint32 index) {
     response_[index-1]->Unlease();
 }
 
+void KVMessageQueue::SendWithResponse(KVMessage& sendmsg, KVMessage& recvmsg) {
+    uint32 channel = LeaseResponseQueue();
+
+    sendmsg.hdr.rpsId = channel;
+    recvmsg.hdr.rpsId = channel;
+
+    Send(sendmsg);
+    Recv(recvmsg);
+
+    UnleaseResponseQueue(channel);
+}
+
 void KVMessageQueue::Wait(KVCtrlType type) {
     ctrl_->Wait(type);
 }
 
 void KVMessageQueue::Notify(KVCtrlType type) {
     ctrl_->Notify(type);
+}
+
+void KVMessageQueue::Terminate() {
+    request_->Terminate();
+
+    for (uint32 i = 0; i < MSGRESQUEUELENGTH; i++) {
+        response_[i]->Terminate();
+    }
 }

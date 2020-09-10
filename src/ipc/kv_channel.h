@@ -40,8 +40,8 @@ class KVChannel {
     virtual void Send(const KVMessage& msg) = 0;
     virtual void Recv(KVMessage& msg) { Recv(msg, MSGHEADER | MSGENTITY); }
     virtual void Recv(KVMessage& msg, int flag) = 0;
-    virtual void Read(uint64* offset, char* str, uint64 size) = 0;
     virtual void Write(uint64* offset, char* str, uint64 size) = 0;
+    virtual void Read(uint64* offset, char* str, uint64 size) = 0;
     virtual void Terminate() = 0;
 };
 
@@ -53,14 +53,14 @@ class KVChannel {
  * following <KVMessageQueue> definition.
  */
 
-typedef struct KVCircularChannelData {
+struct KVCircularChannelData {
     uint64 putPos;           /* the position producer can put data */
     uint64 getPos;           /* the position consumer can get data */
     sem_t  mutex;            /* mutual exclusion for position */
     sem_t  empty;            /* tell whether the data buf is empty */
     sem_t  full;             /* tell whether the data buf is full */
-    char   data[MSGBUFSIZE]; /* assume ~64K for a tuple is enough */
-} KVCircularChannelData;
+    char   buf[MSGBUFSIZE];  /* assume ~64K for a tuple is enough */
+};
 
 class KVCircularChannel : public KVChannel {
   public:
@@ -69,15 +69,18 @@ class KVCircularChannel : public KVChannel {
 
     void Send(const KVMessage& msg);
     void Recv(KVMessage& msg, int flag);
-    void Read(uint64* offset, char* str, uint64 size);
     void Write(uint64* offset, char* str, uint64 size);
+    void Read(uint64* offset, char* str, uint64 size);
     void Terminate();
 
   private:
+    uint64 GetKVMessageSize(const KVMessage& msg);
+
+
     char name_[MAXPATHLENGTH];
     bool create_; /* instruct whether to create */
     volatile bool running_;
-    volatile KVCircularChannelData* channel_;
+    volatile KVCircularChannelData* data_;
 };
 
 /*
@@ -88,12 +91,12 @@ class KVCircularChannel : public KVChannel {
  * following <KVMessageQueue> definition.
  */
 
-typedef struct KVSimpleChannelData {
+struct KVSimpleChannelData {
     uint64 getPos;           /* the position consumer can get data */
     sem_t  mutex;            /* mutual exclusion for response */
     sem_t  ready;            /* tell whether response is ready */
-    char   data[MSGBUFSIZE]; /* assume ~64K for a tuple is enough */
-} KVSimpleChannelData;
+    char   buf[MSGBUFSIZE];  /* assume ~64K for a tuple is enough */
+};
 
 class KVSimpleChannel : public KVChannel {
   public:
@@ -102,8 +105,8 @@ class KVSimpleChannel : public KVChannel {
 
     void Send(const KVMessage& msg);
     void Recv(KVMessage& msg, int flag);
-    void Read(uint64* offset, char* str, uint64 size);
     void Write(uint64* offset, char* str, uint64 size);
+    void Read(uint64* offset, char* str, uint64 size);
     void Terminate() {};
     bool Lease();
     void Unlease();
@@ -111,7 +114,7 @@ class KVSimpleChannel : public KVChannel {
   private:
     char name_[MAXPATHLENGTH];
     bool create_;
-    volatile KVSimpleChannelData* channel_;
+    volatile KVSimpleChannelData* data_;
 };
 
 /*
@@ -122,15 +125,15 @@ class KVSimpleChannel : public KVChannel {
  * definition.
  */
 
-typedef enum {
+enum KVCtrlType {
     WorkerReady = 0,
     WorkerDesty,
-} KVCtrlType;
+};
 
-typedef struct KVCtrlData {
+struct KVCtrlData {
     sem_t workerReady; /* tell whether kv worker is ready */
     sem_t workerDesty; /* tell whether kv worker is destroyed */
-} KVCtrlData;
+};
 
 class KVCtrlChannel {
   public:
@@ -143,7 +146,7 @@ class KVCtrlChannel {
   private:
     char name_[MAXPATHLENGTH];
     bool create_;
-    volatile KVCtrlData* channel_;
+    volatile KVCtrlData* data_;
 };
 
 #endif  /* KV_CHANNEL_H_ */

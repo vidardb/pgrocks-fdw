@@ -28,23 +28,22 @@ extern "C" {
  */
 
 static const char* MANAGER = "Manager";
-static KVManager* manager = NULL;
+static KVManager* manager = nullptr;
 
 /*
  * Implementation for kv manager
  */
 
-KVManager::KVManager() : running_(false) {
-    channel_ = new KVMessageQueue(InvalidOid, MANAGER, true);
-    workers_.clear();
+KVManager::KVManager() {
+    running_ = false;
+    queue_ = new KVMessageQueue(InvalidOid, MANAGER, true);
 }
 
 KVManager::~KVManager() {
-    std::unordered_map<KVWorkerId, KVWorkerHandle*>::iterator it;
-    for (it = workers_.begin(); it != workers_.end(); it++) {
-        delete it->second;
+    for (auto& it : workers_) {
+        delete it.second;
     }
-    delete channel_;
+    delete queue_;
 }
 
 void KVManager::Start() {
@@ -54,7 +53,7 @@ void KVManager::Start() {
 void KVManager::Run() {
     while (running_) {
         KVMessage msg;
-        channel_->Recv(msg);
+        queue_->Recv(msg);
 
         switch (msg.hdr.op) {
             case KVOpDummy:
@@ -71,39 +70,37 @@ void KVManager::Run() {
     }
 }
 
-static void TerminateKVWorker(void* worker) {
-    BackgroundWorkerHandle* handle = (BackgroundWorkerHandle*) worker;
+void KVManager::TerminateKVWorker(void* worker) {
+    BackgroundWorkerHandle* handle = static_cast<BackgroundWorkerHandle*>(worker);
     TerminateBackgroundWorker(handle);
     WaitForBackgroundWorkerShutdown(handle);
     pfree(handle);
 }
 
 void KVManager::Stop() {
-    std::unordered_map<KVWorkerId, KVWorkerHandle*>::iterator it;
-    for (it = workers_.begin(); it != workers_.end(); it++) {
-        it->second->client->Terminate(it->first);
+    for (auto& it : workers_) {
+        it.second->client->Terminate(it.first);
         /* wait destroyed event */
-        channel_->Wait(WorkerDesty);
-        TerminateKVWorker(it->second->handle);
+        queue_->Wait(WorkerDesty);
+        TerminateKVWorker(it.second->handle);
     }
 
     running_ = false;
-    channel_->Terminate();
+    queue_->Terminate();
 }
 
-static bool CheckKVWorkerAlive(void* worker) {
+bool KVManager::CheckKVWorkerAlive(void* worker) {
     pid_t pid;
-    BackgroundWorkerHandle* handle = (BackgroundWorkerHandle*) worker;
+    BackgroundWorkerHandle* handle = static_cast<BackgroundWorkerHandle*>(worker);
     BgwHandleStatus status = GetBackgroundWorkerPid(handle, &pid);
     return BGWH_STARTED == status;
 }
 
 void KVManager::Launch(KVWorkerId workerId, const KVMessage& msg) {
-    std::unordered_map<KVWorkerId, KVWorkerHandle*>::iterator it =
-        workers_.find(workerId);
+    auto it = workers_.find(workerId);
     if (it != workers_.end()) {
         if (CheckKVWorkerAlive(it->second->handle)) {
-            channel_->Send(SuccessMessage(msg.hdr.rpsId));
+            queue_->Send(SuccessMessage(msg.hdr.rpsId));
             return;
         } else {
             delete it->second;
@@ -113,49 +110,46 @@ void KVManager::Launch(KVWorkerId workerId, const KVMessage& msg) {
 
     void* handle = LaunchKVWorker(workerId, msg.hdr.dbId);
     if (!handle) {
-        channel_->Send(FailureMessage(msg.hdr.rpsId));
+        queue_->Send(FailureMessage(msg.hdr.rpsId));
         return;
     }
 
     /* wait kv worker be ready */
-    channel_->Wait(WorkerReady);
+    queue_->Wait(WorkerReady);
 
     KVDatabaseId dbId = msg.hdr.dbId;
     KVWorkerClient* client = new KVWorkerClient(workerId);
     KVWorkerHandle* worker = new KVWorkerHandle(workerId, dbId, client, handle);
     workers_.insert({workerId, worker});
-    channel_->Send(SuccessMessage(msg.hdr.rpsId));
+    queue_->Send(SuccessMessage(msg.hdr.rpsId));
 }
 
 void KVManager::Terminate(KVWorkerId workerId, const KVMessage& msg) {
     if (workerId == KVAllRelationId) {
-        std::unordered_map<KVWorkerId, KVWorkerHandle*>::iterator it;
-        for (it = workers_.begin(); it != workers_.end();) {
-            if (it->second->dbId != msg.hdr.dbId) {
-                it++;
+        for (auto& it : workers_) {
+            if (it.second->dbId != msg.hdr.dbId) {
                 continue;
             }
 
-            KVWorkerHandle* handle = it->second;
+            KVWorkerHandle* handle = it.second;
             if (CheckKVWorkerAlive(handle->handle)) {
                 handle->client->Terminate(handle->workerId);
                 /* wait destroyed event */
-                channel_->Wait(WorkerDesty);
+                queue_->Wait(WorkerDesty);
             }
 
             TerminateKVWorker(handle->handle);
-            it = workers_.erase(it);
+            workers_.erase(it.first);
             delete handle;
         }
 
-        channel_->Send(SuccessMessage(msg.hdr.rpsId));
+        queue_->Send(SuccessMessage(msg.hdr.rpsId));
         return;
     }
 
-    std::unordered_map<KVWorkerId, KVWorkerHandle*>::iterator it =
-        workers_.find(workerId);
+    auto it = workers_.find(workerId);
     if (it == workers_.end()) {
-        channel_->Send(SuccessMessage(msg.hdr.rpsId));
+        queue_->Send(SuccessMessage(msg.hdr.rpsId));
         return;
     }
 
@@ -163,14 +157,14 @@ void KVManager::Terminate(KVWorkerId workerId, const KVMessage& msg) {
     if (CheckKVWorkerAlive(handle->handle)) {
         handle->client->Terminate(handle->workerId);
         /* wait destroyed event */
-        channel_->Wait(WorkerDesty);
+        queue_->Wait(WorkerDesty);
     }
 
     TerminateKVWorker(handle->handle);
     workers_.erase(it);
     delete handle;
 
-    channel_->Send(SuccessMessage(msg.hdr.rpsId));
+    queue_->Send(SuccessMessage(msg.hdr.rpsId));
 }
 
 
@@ -179,29 +173,29 @@ void KVManager::Terminate(KVWorkerId workerId, const KVMessage& msg) {
  */
 
 KVManagerClient::KVManagerClient() {
-    channel_ = new KVMessageQueue(InvalidOid, MANAGER, false);
+    queue_ = new KVMessageQueue(InvalidOid, MANAGER, false);
 }
 
 KVManagerClient::~KVManagerClient() {
-    delete channel_;
+    delete queue_;
 }
 
 bool KVManagerClient::Launch(KVWorkerId workerId) {
     KVMessage recvmsg;
     KVMessage sendmsg = SimpleMessage(KVOpLaunch, workerId, MyDatabaseId);
-    channel_->SendWithResponse(sendmsg, recvmsg);
+    queue_->SendWithResponse(sendmsg, recvmsg);
     return recvmsg.hdr.status == KVStatusSuccess;
 }
 
 bool KVManagerClient::Terminate(KVWorkerId workerId, KVDatabaseId dbId) {
     KVMessage recvmsg;
     KVMessage sendmsg = SimpleMessage(KVOpTerminate, workerId, dbId);
-    channel_->SendWithResponse(sendmsg, recvmsg);
+    queue_->SendWithResponse(sendmsg, recvmsg);
     return recvmsg.hdr.status == KVStatusSuccess;
 }
 
 void KVManagerClient::Notify(KVCtrlType type) {
-    channel_->Notify(type);
+    queue_->Notify(type);
 }
 
 /*
@@ -250,7 +244,7 @@ extern "C" void KVManagerMain(Datum arg) {
     struct sigaction act;
     act.sa_handler = KVManagerSigHandler;
     act.sa_flags = 0;
-    sigaction(SIGTERM, &act, NULL);
+    sigaction(SIGTERM, &act, nullptr);
 
     /* We're now ready to receive signals */
     BackgroundWorkerUnblockSignals();
@@ -262,7 +256,7 @@ extern "C" void KVManagerMain(Datum arg) {
 /*
  * Launch kv manager process
  */
-void LaunchKVManager(void) {
+void LaunchKVManager() {
     printf("\n~~~~~~~~~~~~~~~%s~~~~~~~~~~~~~~~\n", __func__);
 
     if (!process_shared_preload_libraries_in_progress) {

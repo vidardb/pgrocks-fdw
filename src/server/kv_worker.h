@@ -16,35 +16,15 @@
 #ifndef KV_WORKER_H_
 #define KV_WORKER_H_
 
+
 #include <unordered_map>
+using namespace std;
+
 #include "ipc/kv_mq.h"
 
 
 extern void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId);
 
-
-struct KVCursorKey {
-    pid_t      pid;     /* backend process pid */
-    KVCursorId cursor;
-
-    bool operator==(const KVCursorKey& key) const {
-        return pid == key.pid && cursor == key.cursor;
-    }
-};
-
-#ifdef VIDARDB
-struct KVRangeQueryEntry {
-    void* readOpts = NULL;
-    void* range    = NULL;
-};
-#endif
-
-struct KVCursorKeyHashFunc {
-    size_t operator()(const KVCursorKey& key) const {
-        return (std::hash<pid_t>()(key.pid)) ^
-               (std::hash<KVCursorId>()(key.cursor));
-    }
-};
 
 /*
  * A kv worker which is responsible for receiving kv messages from its
@@ -61,26 +41,58 @@ class KVWorker {
     void Run();
     void Stop();
     void Open(KVWorkerId workerId, KVMessage& msg);
-    void Put(KVWorkerId workerId, KVMessage& msg);
-    void Delete(KVWorkerId workerId, KVMessage& msg);
-    void Load(KVWorkerId workerId, KVMessage& msg);
-    void Get(KVWorkerId workerId, KVMessage& msg);
     void Close(KVWorkerId workerId, KVMessage& msg);
     void Count(KVWorkerId workerId, KVMessage& msg);
-    void Terminate(KVWorkerId workerId, KVMessage& msg);
+    void Put(KVWorkerId workerId, KVMessage& msg);
+    void Get(KVWorkerId workerId, KVMessage& msg);
+    void Delete(KVWorkerId workerId, KVMessage& msg);
+    void Load(KVWorkerId workerId, KVMessage& msg);
     void ReadBatch(KVWorkerId workerId, KVMessage& msg);
     void CloseCursor(KVWorkerId workerId, KVMessage& msg);
+    void Terminate(KVWorkerId workerId, KVMessage& msg);
     #ifdef VIDARDB
     void RangeQuery(KVWorkerId workerId, KVMessage& msg);
     void ClearRangeQuery(KVWorkerId workerId, KVMessage& msg);
     #endif
 
   private:
-    std::unordered_map<KVCursorKey, void*, KVCursorKeyHashFunc> cursors_;
+    static void ReadOpenArgs(KVChannel* channel, uint64* offset, void* entity,
+                             uint64 size);
+
+    static void WriteReadBatchState(KVChannel* channel, uint64* offset,
+                                    void* entity, uint64 size);
+
+    struct ReadBatchState {
+        bool   next;
+        uint64 size;
+    };
+
+    struct KVCursorKey {
+        pid_t      pid;     /* backend process pid */
+        KVCursorId cursor;
+
+        bool operator==(const KVCursorKey& key) const {
+            return pid == key.pid && cursor == key.cursor;
+        }
+    };
+
+    struct KVCursorKeyHashFunc {
+        size_t operator()(const KVCursorKey& key) const {
+            return (hash<pid_t>()(key.pid)) ^ (hash<KVCursorId>()(key.cursor));
+        }
+    };
+
+    unordered_map<KVCursorKey, void*, KVCursorKeyHashFunc> cursors_;
+
     #ifdef VIDARDB
-    std::unordered_map<KVCursorKey, KVRangeQueryEntry, KVCursorKeyHashFunc> ranges_;
+    struct KVRangeQueryEntry {
+        void* readOpts = nullptr;
+        void* range    = nullptr;
+    };
+    unordered_map<KVCursorKey, KVRangeQueryEntry, KVCursorKeyHashFunc> ranges_;
     #endif
-    KVMessageQueue* channel_;
+
+    KVMessageQueue* queue_;
     volatile bool running_;
     void* conn_;
     uint64 ref_;
@@ -113,7 +125,7 @@ class KVWorkerClient {
     uint64 Count(KVWorkerId workerId);
 
   private:
-    KVMessageQueue* channel_;
+    KVMessageQueue* queue_;
 };
 
 struct KVWorkerHandle {

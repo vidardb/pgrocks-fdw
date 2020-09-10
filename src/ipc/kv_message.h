@@ -20,7 +20,7 @@
 #include "kv_api.h"
 
 
-typedef enum {
+enum KVOperation {
     KVOpDummy = 0, /* placeholder */
     KVOpOpen,
     KVOpClose,
@@ -37,14 +37,14 @@ typedef enum {
     #endif
     KVOpLaunch,
     KVOpTerminate,
-} KVOperation;
+};
 
-typedef enum {
+enum KVMessageStatus {
     KVStatusDummy = 0, /* placeholder */
     KVStatusSuccess,
     KVStatusFailure,
     KVStatusException,
-} KVMessageStatus;
+};
 
 struct KVMessageHeader {
     KVOperation     op      = KVOpDummy;

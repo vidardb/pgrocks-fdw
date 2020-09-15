@@ -135,7 +135,7 @@ void KVWorker::Open(KVWorkerId workerId, KVMessage& msg) {
     msg.readFunc = ReadOpenArgs;
     queue_->Recv(msg, MSGENTITY);
 
-    if (conn_) {
+    if (!conn_) {
         #ifdef VIDARDB
         conn_ = OpenConn(args.path, args.useColumn, args.attrCount, &args.opts);
         #else

@@ -50,7 +50,8 @@ KVCircularChannel::KVCircularChannel(KVRelationId rid, const char* tag,
     Fclose(fd, __func__);
 
     data_->getPos = data_->putPos = 0;
-    SemInit(&data_->mutex, 1, 1, __func__);
+    SemInit(&data_->posMutex, 1, 1, __func__);
+    SemInit(&data_->putMutex, 1, 1, __func__);
     SemInit(&data_->empty, 1, 0, __func__);
     SemInit(&data_->full, 1, 0, __func__);
 }
@@ -61,7 +62,8 @@ KVCircularChannel::~KVCircularChannel() {
         return;
     }
 
-    SemDestroy(&data_->mutex, __func__);
+    SemDestroy(&data_->posMutex, __func__);
+    SemDestroy(&data_->putMutex, __func__);
     SemDestroy(&data_->empty, __func__);
     SemDestroy(&data_->full, __func__);
     Munmap((void*) data_, sizeof(*data_), __func__);
@@ -75,17 +77,18 @@ uint64 KVCircularChannel::GetKVMessageSize(const KVMessage& msg) {
 
 void KVCircularChannel::Input(const KVMessage& msg) {
     uint64 size = GetKVMessageSize(msg);
+    SemWait(&data_->putMutex, __func__);
 
     while (true) {
         uint64 empty = 0;
 
-        SemWait(&data_->mutex, __func__);
+        SemWait(&data_->posMutex, __func__);
         if (data_->getPos > data_->putPos) {
             empty = data_->getPos - data_->putPos;
         } else {
             empty = MSGBUFSIZE - (data_->putPos - data_->getPos);
         }
-        SemPost(&data_->mutex, __func__);
+        SemPost(&data_->posMutex, __func__);
 
         /*
          * reserve an empty slot to avoid that the putPos offset is equal to
@@ -109,10 +112,11 @@ void KVCircularChannel::Input(const KVMessage& msg) {
         (*msg.writeFunc) (this, &offset, msg.ety, msg.hdr.etySize);
     }
 
-    SemWait(&data_->mutex, __func__);
+    SemWait(&data_->posMutex, __func__);
     data_->putPos = offset;
-    SemPost(&data_->mutex, __func__);
+    SemPost(&data_->posMutex, __func__);
     SemPost(&data_->empty, __func__);
+    SemPost(&data_->putMutex, __func__);
 }
 
 void KVCircularChannel::Output(KVMessage& msg, int flag) {
@@ -122,15 +126,14 @@ void KVCircularChannel::Output(KVMessage& msg, int flag) {
     }
 
     while (true) {
-        if (!running_) {
-            return;
-        }
-
-        SemWait(&data_->mutex, __func__);
+        SemWait(&data_->posMutex, __func__);
         uint64 delta = data_->putPos - data_->getPos;
-        SemPost(&data_->mutex, __func__);
+        SemPost(&data_->posMutex, __func__);
 
         if (delta == 0) { /* empty */
+            if (!running_) {
+                return;
+            }
             SemWait(&data_->empty, __func__);
         } else {          /* at least one tuple */
             break;
@@ -145,9 +148,9 @@ void KVCircularChannel::Output(KVMessage& msg, int flag) {
         (*msg.readFunc) (this, &offset, msg.ety, msg.hdr.etySize);
     }
 
-    SemWait(&data_->mutex, __func__);
+    SemWait(&data_->posMutex, __func__);
     data_->getPos = offset;
-    SemPost(&data_->mutex, __func__);
+    SemPost(&data_->posMutex, __func__);
 
     if (flag & MSGENTITY) {
         SemPost(&data_->full, __func__);

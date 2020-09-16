@@ -77,7 +77,8 @@ class KVChannel {
 struct KVCircularChannelData {
     uint64 putPos;           /* the position producer can put data */
     uint64 getPos;           /* the position consumer can get data */
-    sem_t  mutex;            /* mutual exclusion for position */
+    sem_t  posMutex;         /* mutual exclusion for updating position */
+    sem_t  putMutex;         /* mutual exclusion for putting data */
     sem_t  empty;            /* tell whether the data buf is empty */
     sem_t  full;             /* tell whether the data buf is full */
     char   buf[MSGBUFSIZE];  /* assume ~64K for a tuple is enough */

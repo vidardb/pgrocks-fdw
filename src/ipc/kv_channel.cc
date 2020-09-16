@@ -21,7 +21,6 @@ extern "C" {
 }
 
 
-#define MSGCRLCHANNELNAME "Ctrl"
 #define MSGPATHPREFIX "/KV"
 
 
@@ -74,7 +73,7 @@ uint64 KVCircularChannel::GetKVMessageSize(const KVMessage& msg) {
     return hdrSize + msg.hdr.etySize;
 }
 
-void KVCircularChannel::Send(const KVMessage& msg) {
+void KVCircularChannel::Input(const KVMessage& msg) {
     uint64 size = GetKVMessageSize(msg);
 
     while (true) {
@@ -105,7 +104,7 @@ void KVCircularChannel::Send(const KVMessage& msg) {
     }
 
     uint64 offset = data_->putPos; /* current write position */
-    Write(&offset, (char*) &(msg.hdr), sizeof(msg.hdr));
+    Push(&offset, (char*) &(msg.hdr), sizeof(msg.hdr));
     if (msg.writeFunc) {
         (*msg.writeFunc) (this, &offset, msg.ety, msg.hdr.etySize);
     }
@@ -116,7 +115,7 @@ void KVCircularChannel::Send(const KVMessage& msg) {
     SemPost(&data_->empty, __func__);
 }
 
-void KVCircularChannel::Recv(KVMessage& msg, int flag) {
+void KVCircularChannel::Output(KVMessage& msg, int flag) {
     if (flag & MSGDISCARD) {
         SemPost(&data_->full, __func__);
         return;
@@ -140,7 +139,7 @@ void KVCircularChannel::Recv(KVMessage& msg, int flag) {
 
     uint64 offset = data_->getPos; /* current read position */
     if (flag & MSGHEADER) {
-        Read(&offset, (char*) &(msg.hdr), sizeof(msg.hdr));
+        Pop(&offset, (char*) &(msg.hdr), sizeof(msg.hdr));
     }
     if ((flag & MSGENTITY) && msg.readFunc) {
         (*msg.readFunc) (this, &offset, msg.ety, msg.hdr.etySize);
@@ -155,7 +154,7 @@ void KVCircularChannel::Recv(KVMessage& msg, int flag) {
     }
 }
 
-void KVCircularChannel::Write(uint64* offset, char* str, uint64 size) {
+void KVCircularChannel::Push(uint64* offset, char* str, uint64 size) {
     if (size == 0) {
         return;
     }
@@ -181,7 +180,7 @@ void KVCircularChannel::Write(uint64* offset, char* str, uint64 size) {
     }
 }
 
-void KVCircularChannel::Read(uint64* offset, char* str, uint64 size) {
+void KVCircularChannel::Pop(uint64* offset, char* str, uint64 size) {
     if (size == 0) {
         return;
     }
@@ -252,10 +251,10 @@ KVSimpleChannel::~KVSimpleChannel() {
     ShmUnlink(name_, __func__);
 }
 
-void KVSimpleChannel::Send(const KVMessage& msg) {
+void KVSimpleChannel::Input(const KVMessage& msg) {
     uint64 offset = 0; /* from start position */
 
-    Write(&offset, (char*) &(msg.hdr), sizeof(msg.hdr));
+    Push(&offset, (char*) &(msg.hdr), sizeof(msg.hdr));
     if (msg.writeFunc) {
         (*msg.writeFunc) (this, &offset, msg.ety, msg.hdr.etySize);
     }
@@ -263,12 +262,12 @@ void KVSimpleChannel::Send(const KVMessage& msg) {
     SemPost(&data_->ready, __func__);
 }
 
-void KVSimpleChannel::Recv(KVMessage& msg, int flag) {
+void KVSimpleChannel::Output(KVMessage& msg, int flag) {
     uint64 offset = 0; /* from start position */
 
     if (flag & MSGHEADER) {
         SemWait(&data_->ready, __func__);
-        Read(&offset, (char*) &(msg.hdr), sizeof(msg.hdr));
+        Pop(&offset, (char*) &(msg.hdr), sizeof(msg.hdr));
         data_->getPos = offset;
     }
 
@@ -278,7 +277,7 @@ void KVSimpleChannel::Recv(KVMessage& msg, int flag) {
     }
 }
 
-void KVSimpleChannel::Write(uint64* offset, char* str, uint64 size) {
+void KVSimpleChannel::Push(uint64* offset, char* str, uint64 size) {
     if (size == 0) {
         return;
     }
@@ -288,7 +287,7 @@ void KVSimpleChannel::Write(uint64* offset, char* str, uint64 size) {
     *offset += size;
 }
 
-void KVSimpleChannel::Read(uint64* offset, char* str, uint64 size) {
+void KVSimpleChannel::Pop(uint64* offset, char* str, uint64 size) {
     if (size == 0) {
         return;
     }
@@ -313,8 +312,7 @@ void KVSimpleChannel::Unlease() {
 
 KVCtrlChannel::KVCtrlChannel(KVRelationId rid, const char* tag, bool create) {
     create_ = create;
-    snprintf(name_, MAXPATHLENGTH, "%s%s%s%u", MSGPATHPREFIX, tag,
-             MSGCRLCHANNELNAME, rid);
+    snprintf(name_, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
 
     if (!create) {
         int fd = ShmOpen(name_, O_RDWR, 0777, __func__);

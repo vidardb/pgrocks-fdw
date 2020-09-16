@@ -22,16 +22,20 @@ extern "C" {
 
 #define MSGREQCHANNELNAME "Request"
 #define MSGRESCHANNELNAME "Response"
+#define MSGCRLCHANNELNAME "Ctrl"
 
 
 KVMessageQueue::KVMessageQueue(KVRelationId rid, const char* name,
                                bool isServer) {
     isServer_ = isServer;
-    ctrl_ = new KVCtrlChannel(rid, name, isServer);
 
     char tmp[MAXPATHLENGTH];
+    snprintf(tmp, MAXPATHLENGTH, "%s%s", name, MSGCRLCHANNELNAME);
+    ctrl_ = new KVCtrlChannel(rid, tmp, isServer);
+
     snprintf(tmp, MAXPATHLENGTH, "%s%s", name, MSGREQCHANNELNAME);
     request_ = new KVCircularChannel(rid, tmp, isServer);
+
     for (uint32 i = 0; i < MSGRESQUEUELENGTH; i++) {
         snprintf(tmp, MAXPATHLENGTH, "%s%s%d", name, MSGRESCHANNELNAME, i);
         response_[i] = new KVSimpleChannel(rid, tmp, isServer);
@@ -60,7 +64,7 @@ void KVMessageQueue::Send(const KVMessage& msg) {
         channel = request_;
     }
 
-    channel->Send(msg);
+    channel->Input(msg);
 }
 
 void KVMessageQueue::Recv(KVMessage& msg, int flag) {
@@ -77,7 +81,7 @@ void KVMessageQueue::Recv(KVMessage& msg, int flag) {
         channel = response_[msg.hdr.rpsId - 1];
     }
 
-    channel->Recv(msg, flag);
+    channel->Output(msg, flag);
 }
 
 uint32 KVMessageQueue::LeaseResponseQueue() {

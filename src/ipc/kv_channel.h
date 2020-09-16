@@ -37,11 +37,32 @@
 class KVChannel {
   public:
     virtual ~KVChannel() {}
-    virtual void Send(const KVMessage& msg) = 0;
-    virtual void Recv(KVMessage& msg) { Recv(msg, MSGHEADER | MSGENTITY); }
-    virtual void Recv(KVMessage& msg, int flag) = 0;
-    virtual void Write(uint64* offset, char* str, uint64 size) = 0;
-    virtual void Read(uint64* offset, char* str, uint64 size) = 0;
+
+    /*
+     * Insert a kv message into the channel
+     */
+    virtual void Input(const KVMessage& msg) = 0;
+
+    /*
+     * Fetch a kv message from the channel
+     */
+    virtual void Output(KVMessage& msg) { Output(msg, MSGHEADER | MSGENTITY); }
+
+    /*
+     * Fetch a portion of kv message from the channel
+     */
+    virtual void Output(KVMessage& msg, int flag) = 0;
+
+    /*
+     * Push a string into the specified channel offset
+     */
+    virtual void Push(uint64* offset, char* str, uint64 size) = 0;
+
+    /*
+     * Pop a string from the specified channel offset
+     */
+    virtual void Pop(uint64* offset, char* str, uint64 size) = 0;
+
     virtual void Terminate() = 0;
 };
 
@@ -67,15 +88,14 @@ class KVCircularChannel : public KVChannel {
     KVCircularChannel(KVRelationId rid, const char* tag, bool create);
     ~KVCircularChannel();
 
-    void Send(const KVMessage& msg);
-    void Recv(KVMessage& msg, int flag);
-    void Write(uint64* offset, char* str, uint64 size);
-    void Read(uint64* offset, char* str, uint64 size);
+    void Input(const KVMessage& msg);
+    void Output(KVMessage& msg, int flag);
+    void Push(uint64* offset, char* str, uint64 size);
+    void Pop(uint64* offset, char* str, uint64 size);
     void Terminate();
 
   private:
     uint64 GetKVMessageSize(const KVMessage& msg);
-
 
     char name_[MAXPATHLENGTH];
     bool create_; /* instruct whether to create */
@@ -103,10 +123,10 @@ class KVSimpleChannel : public KVChannel {
     KVSimpleChannel(KVRelationId rid, const char* tag, bool create);
     ~KVSimpleChannel();
 
-    void Send(const KVMessage& msg);
-    void Recv(KVMessage& msg, int flag);
-    void Write(uint64* offset, char* str, uint64 size);
-    void Read(uint64* offset, char* str, uint64 size);
+    void Input(const KVMessage& msg);
+    void Output(KVMessage& msg, int flag);
+    void Push(uint64* offset, char* str, uint64 size);
+    void Pop(uint64* offset, char* str, uint64 size);
     void Terminate() {};
     bool Lease();
     void Unlease();

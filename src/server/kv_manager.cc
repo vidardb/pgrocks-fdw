@@ -124,13 +124,14 @@ void KVManager::Launch(KVWorkerId workerId, const KVMessage& msg) {
 }
 
 void KVManager::Terminate(KVWorkerId workerId, const KVMessage& msg) {
-    if (workerId == KVAllRelationId) {
-        for (auto& it : workers_) {
-            if (it.second->dbId != msg.hdr.dbId) {
+    if (workerId == KVAllRelationId) { /* for dropping database */
+        for (auto it = workers_.begin(); it != workers_.end();) {
+            if (it->second->dbId != msg.hdr.dbId) {
+                it++;
                 continue;
             }
 
-            KVWorkerHandle* handle = it.second;
+            KVWorkerHandle* handle = it->second;
             if (CheckKVWorkerAlive(handle->handle)) {
                 handle->client->Terminate(handle->workerId);
                 /* wait destroyed event */
@@ -138,7 +139,7 @@ void KVManager::Terminate(KVWorkerId workerId, const KVMessage& msg) {
             }
 
             TerminateKVWorker(handle->handle);
-            workers_.erase(it.first);
+            it = workers_.erase(it);
             delete handle;
         }
 

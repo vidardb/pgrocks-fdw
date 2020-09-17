@@ -108,11 +108,6 @@ void KVWorker::Run() {
     }
 }
 
-void KVWorker::Stop() {
-    running_ = false;
-    queue_->Terminate();
-}
-
 void KVWorker::ReadOpenArgs(KVChannel* channel, uint64* offset, void* entity,
                             uint64 size) {
     OpenArgs* args = (OpenArgs*) entity;
@@ -424,7 +419,8 @@ void KVWorker::ClearRangeQuery(KVWorkerId workerId, KVMessage& msg) {
 
 void KVWorker::Terminate(KVWorkerId workerId, KVMessage& msg) {
     queue_->Recv(msg, MSGDISCARD);
-    Stop();
+    running_ = false;
+    queue_->Terminate();
 }
 
 

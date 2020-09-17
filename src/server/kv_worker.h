@@ -39,7 +39,8 @@ class KVWorker {
 
     void Start();
     void Run();
-    void Stop();
+
+  private:
     void Open(KVWorkerId workerId, KVMessage& msg);
     void Close(KVWorkerId workerId, KVMessage& msg);
     void Count(KVWorkerId workerId, KVMessage& msg);
@@ -55,7 +56,6 @@ class KVWorker {
     #endif
     void Terminate(KVWorkerId workerId, KVMessage& msg);
 
-  private:
     static void ReadOpenArgs(KVChannel* channel, uint64* offset, void* entity,
                              uint64 size);
     static void WriteReadBatchState(KVChannel* channel, uint64* offset,
@@ -150,7 +150,7 @@ struct KVWorkerHandle {
 
     KVWorkerHandle(KVWorkerId workerId, KVDatabaseId dbId,
                    KVWorkerClient* client, BackgroundWorkerHandle* handle) :
-        workerId(workerId), dbId(dbId), client(client), handle(handle) {};
+        workerId(workerId), dbId(dbId), client(client), handle(handle) {}
     ~KVWorkerHandle() { delete client; }
 };
 

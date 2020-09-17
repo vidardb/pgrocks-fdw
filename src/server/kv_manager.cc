@@ -50,46 +50,6 @@ void KVManager::Start() {
     running_ = true;
 }
 
-void KVManager::Run() {
-    while (running_) {
-        KVMessage msg;
-        queue_->Recv(msg);
-
-        switch (msg.hdr.op) {
-            case KVOpDummy:
-                break;
-            case KVOpLaunch:
-                Launch(msg.hdr.relId, msg);
-                break;
-            case KVOpTerminate:
-                Terminate(msg.hdr.relId, msg);
-                break;
-            default:
-                ereport(WARNING, (errmsg("invalid operation: %d", msg.hdr.op)));
-        }
-    }
-}
-
-void KVManager::TerminateKVWorker(BackgroundWorkerHandle* handle) {
-    TerminateBackgroundWorker(handle);
-    WaitForBackgroundWorkerShutdown(handle);
-    pfree(handle);
-}
-
-void KVManager::Stop() {
-    for (auto& it : workers_) {
-        if (CheckKVWorkerAlive(it.second->handle)) {
-            it.second->client->Terminate(it.first);
-            /* wait destroyed event */
-            queue_->Wait(WorkerDesty);
-        }
-        TerminateKVWorker(it.second->handle);
-    }
-
-    running_ = false;
-    queue_->Terminate();
-}
-
 bool KVManager::CheckKVWorkerAlive(BackgroundWorkerHandle* handle) {
     pid_t pid;
     BgwHandleStatus status = GetBackgroundWorkerPid(handle, &pid);
@@ -123,6 +83,12 @@ void KVManager::Launch(KVWorkerId workerId, const KVMessage& msg) {
     KVWorkerHandle* worker = new KVWorkerHandle(workerId, dbId, client, handle);
     workers_.insert({workerId, worker});
     queue_->Send(SuccessMessage(msg.hdr.rpsId));
+}
+
+void KVManager::TerminateKVWorker(BackgroundWorkerHandle* handle) {
+    TerminateBackgroundWorker(handle);
+    WaitForBackgroundWorkerShutdown(handle);
+    pfree(handle);
 }
 
 void KVManager::Terminate(KVWorkerId workerId, const KVMessage& msg) {
@@ -169,6 +135,40 @@ void KVManager::Terminate(KVWorkerId workerId, const KVMessage& msg) {
     queue_->Send(SuccessMessage(msg.hdr.rpsId));
 }
 
+void KVManager::Run() {
+    while (running_) {
+        KVMessage msg;
+        queue_->Recv(msg);
+
+        switch (msg.hdr.op) {
+            case KVOpDummy:
+                break;
+            case KVOpLaunch:
+                Launch(msg.hdr.relId, msg);
+                break;
+            case KVOpTerminate:
+                Terminate(msg.hdr.relId, msg);
+                break;
+            default:
+                ereport(WARNING, (errmsg("invalid operation: %d", msg.hdr.op)));
+        }
+    }
+}
+
+void KVManager::Stop() {
+    for (auto& it : workers_) {
+        if (CheckKVWorkerAlive(it.second->handle)) {
+            it.second->client->Terminate(it.first);
+            /* wait destroyed event */
+            queue_->Wait(WorkerDesty);
+        }
+        TerminateKVWorker(it.second->handle);
+    }
+
+    running_ = false;
+    queue_->Terminate();
+}
+
 
 /*
  * Implementation for kv manager client
@@ -203,7 +203,7 @@ void KVManagerClient::Notify(KVCtrlType type) {
 /*
  * Start kv manager
  */
-static void StartKVManager(void) {
+static void StartKVManager() {
     manager = new KVManager();
     manager->Start();
     manager->Run();
@@ -213,7 +213,7 @@ static void StartKVManager(void) {
 /*
  * Terminate kv manager
  */
-static void TerminateKVManager(void) {
+static void TerminateKVManager() {
     manager->Stop();
 }
 

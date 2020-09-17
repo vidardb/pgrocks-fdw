@@ -101,8 +101,7 @@ void KVMessageQueue::UnleaseResponseChannel(uint32 index) {
 void KVMessageQueue::SendWithResponse(KVMessage& sendmsg, KVMessage& recvmsg) {
     uint32 channel = LeaseResponseChannel();
 
-    sendmsg.hdr.rpsId = channel;
-    recvmsg.hdr.rpsId = channel;
+    sendmsg.hdr.rpsId = recvmsg.hdr.rpsId = channel;
 
     Send(sendmsg);
     Recv(recvmsg);

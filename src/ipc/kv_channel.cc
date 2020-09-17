@@ -34,7 +34,7 @@ KVCircularChannel::KVCircularChannel(KVRelationId rid, const char* tag,
     running_ = true;
     snprintf(name_, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
 
-    if (!create_) {
+    if (!create_) { /* connect to the channel */
         int fd = ShmOpen(name_, O_RDWR, 0777, __func__);
         data_ = (volatile KVCircularChannelData*) Mmap(NULL, sizeof(*data_),
             PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0, __func__);
@@ -42,6 +42,7 @@ KVCircularChannel::KVCircularChannel(KVRelationId rid, const char* tag,
         return;
     }
 
+    /* create the channel */
     ShmUnlink(name_, __func__);
     int fd = ShmOpen(name_, O_CREAT | O_RDWR, 0777, __func__);
     Ftruncate(fd, sizeof(*data_), __func__);
@@ -165,14 +166,14 @@ void KVCircularChannel::Push(uint64* offset, char* str, uint64 size) {
     volatile char* putPos = data_->buf + *offset;
     uint64 delta = MSGBUFSIZE - *offset;
 
-    if (size > delta) { /* circular write */
+    if (size > delta) { /* circular write into the channel */
         memcpy((char*) putPos, str, delta);
         putPos = data_->buf;
         *offset = 0;
         str += delta;
 
         memcpy((char*) putPos, str, size - delta);
-        *offset += size - delta;
+        *offset = size - delta;
     } else {
         memcpy((char*) putPos, str, size);
         *offset += size;
@@ -191,14 +192,14 @@ void KVCircularChannel::Pop(uint64* offset, char* str, uint64 size) {
     volatile char* getPos = data_->buf + *offset;
     uint64 delta = MSGBUFSIZE - *offset;
 
-    if (delta < size) { /* circular read */
+    if (delta < size) { /* circular read out from the channel */
         memcpy(str, (char*) getPos, delta);
         getPos = data_->buf;
         *offset = 0;
         str += delta;
 
         memcpy(str, (char*) getPos, size - delta);
-        *offset += size - delta;
+        *offset = size - delta;
     } else {
         memcpy(str, (char*) getPos, size);
         *offset += size;
@@ -222,7 +223,7 @@ KVSimpleChannel::KVSimpleChannel(KVRelationId rid, const char* tag, bool create)
     create_ = create;
     snprintf(name_, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
 
-    if (!create) {
+    if (!create) { /* connect to the channel */
         int fd = ShmOpen(name_, O_RDWR, 0777, __func__);
         data_ = (volatile KVSimpleChannelData*) Mmap(NULL, sizeof(*data_),
             PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0, __func__);
@@ -230,6 +231,7 @@ KVSimpleChannel::KVSimpleChannel(KVRelationId rid, const char* tag, bool create)
         return;
     }
 
+    /* create the channel */
     ShmUnlink(name_, __func__);
     int fd = ShmOpen(name_, O_CREAT | O_RDWR, 0777, __func__);
     Ftruncate(fd, sizeof(KVSimpleChannelData), __func__);
@@ -317,7 +319,7 @@ KVCtrlChannel::KVCtrlChannel(KVRelationId rid, const char* tag, bool create) {
     create_ = create;
     snprintf(name_, MAXPATHLENGTH, "%s%s%u", MSGPATHPREFIX, tag, rid);
 
-    if (!create) {
+    if (!create) { /* connect to the channel */
         int fd = ShmOpen(name_, O_RDWR, 0777, __func__);
         data_ = (volatile KVCtrlData*) Mmap(NULL, sizeof(*data_),
             PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0, __func__);
@@ -325,6 +327,7 @@ KVCtrlChannel::KVCtrlChannel(KVRelationId rid, const char* tag, bool create) {
         return;
     }
 
+    /* create the channel */
     ShmUnlink(name_, __func__);
     int fd = ShmOpen(name_, O_CREAT | O_RDWR, 0777, __func__);
     Ftruncate(fd, sizeof(*data_), __func__);

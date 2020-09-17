@@ -41,7 +41,7 @@ KVManager::KVManager() {
 
 KVManager::~KVManager() {
     for (auto& it : workers_) {
-        delete it.second;
+        delete it.second; /* new in Launch() */
     }
     delete queue_;
 }

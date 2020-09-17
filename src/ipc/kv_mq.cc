@@ -84,7 +84,7 @@ void KVMessageQueue::Recv(KVMessage& msg, int flag) {
     channel->Output(msg, flag);
 }
 
-uint32 KVMessageQueue::LeaseResponseQueue() {
+uint32 KVMessageQueue::LeaseResponseChannel() {
     while (true) {
         for (uint32 i = 0; i < MSGRESQUEUELENGTH; i++) {
             if (response_[i]->Lease()) {
@@ -94,12 +94,12 @@ uint32 KVMessageQueue::LeaseResponseQueue() {
     }
 }
 
-void KVMessageQueue::UnleaseResponseQueue(uint32 index) {
+void KVMessageQueue::UnleaseResponseChannel(uint32 index) {
     response_[index-1]->Unlease();
 }
 
 void KVMessageQueue::SendWithResponse(KVMessage& sendmsg, KVMessage& recvmsg) {
-    uint32 channel = LeaseResponseQueue();
+    uint32 channel = LeaseResponseChannel();
 
     sendmsg.hdr.rpsId = channel;
     recvmsg.hdr.rpsId = channel;
@@ -107,7 +107,7 @@ void KVMessageQueue::SendWithResponse(KVMessage& sendmsg, KVMessage& recvmsg) {
     Send(sendmsg);
     Recv(recvmsg);
 
-    UnleaseResponseQueue(channel);
+    UnleaseResponseChannel(channel);
 }
 
 void KVMessageQueue::Wait(KVCtrlType type) {

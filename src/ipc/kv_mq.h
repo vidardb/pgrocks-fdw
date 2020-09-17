@@ -25,9 +25,11 @@
 
 /*
  * A kv message queue which exchanges messages between different processes as a
- * media. Currently it contains four channels: a circular channel as a
- * message receiver, two simple channels as message senders, and a control
+ * media. Currently it contains four channels: a circular channel (from client
+ * to server), two simple channels (from server to client), and a control
  * channel as a coordinator.
+ * Both client and server will use this message queue, so meaning of send and
+ * recv will depend on who calls it.
  */
 class KVMessageQueue {
   public:
@@ -37,8 +39,8 @@ class KVMessageQueue {
     void   Send(const KVMessage& msg);
     void   Recv(KVMessage& msg) { Recv(msg, MSGHEADER | MSGENTITY); };
     void   Recv(KVMessage& msg, int flag);
-    uint32 LeaseResponseQueue();
-    void   UnleaseResponseQueue(uint32 index);
+    uint32 LeaseResponseChannel();
+    void   UnleaseResponseChannel(uint32 index);
     void   SendWithResponse(KVMessage& sendmsg, KVMessage& recvmsg);
     void   Wait(KVCtrlType type);
     void   Notify(KVCtrlType type);

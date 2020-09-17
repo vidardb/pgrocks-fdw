@@ -41,10 +41,10 @@ KVMessage SimpleMessage(KVOperation op, KVRelationId rid, KVDatabaseId dbId) {
 
 void CommonWriteEntity(KVChannel* channel, uint64* offset, void* entity,
                        uint64 size) {
-    channel->Push(offset, (char*) entity, size);
+    channel->Push(offset, static_cast<char*>(entity), size);
 }
 
 void CommonReadEntity(KVChannel* channel, uint64* offset, void* entity,
                       uint64 size) {
-    channel->Pop(offset, (char*) entity, size);
+    channel->Pop(offset, static_cast<char*>(entity), size);
 }

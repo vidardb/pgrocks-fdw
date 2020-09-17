@@ -29,38 +29,27 @@
 
 
 /*
- * A kv channel abstract class which defines some kv message process
- * functions, and all the kv channel subclass implementation should
- * inherit the definition.
+ * A kv channel abstract class which defines some kv message process functions,
+ * and all the kv channel subclass implementation should inherit the definition.
  */
 
 class KVChannel {
   public:
     virtual ~KVChannel() {}
 
-    /*
-     * Insert a kv message into the channel
-     */
+    /* Insert a kv message into the channel */
     virtual void Input(const KVMessage& msg) = 0;
 
-    /*
-     * Fetch a kv message from the channel
-     */
+    /* Fetch a kv message from the channel */
     virtual void Output(KVMessage& msg) { Output(msg, MSGHEADER | MSGENTITY); }
 
-    /*
-     * Fetch a portion of kv message from the channel
-     */
+    /* Fetch a portion of kv message from the channel */
     virtual void Output(KVMessage& msg, int flag) = 0;
 
-    /*
-     * Push a string into the specified channel offset
-     */
+    /* Push a string into the specified channel offset */
     virtual void Push(uint64* offset, char* str, uint64 size) = 0;
 
-    /*
-     * Pop a string from the specified channel offset
-     */
+    /* Pop a string from the specified channel offset */
     virtual void Pop(uint64* offset, char* str, uint64 size) = 0;
 
     virtual void Terminate() = 0;
@@ -68,7 +57,8 @@ class KVChannel {
 
 /*
  * A kv circular channel which utilizes the ring buffer algorithm to implement
- * the kv message's concurrent read and write mechanism.
+ * the concurrent read and write mechanism of kv messages.
+ * (multiple producers and a single consumer, namely, N clients and 1 server)
  *
  * It is primarily used as the request channel to receive kv messages in the
  * following <KVMessageQueue> definition.
@@ -77,8 +67,10 @@ class KVChannel {
 struct KVCircularChannelData {
     uint64 putPos;           /* the position producer can put data */
     uint64 getPos;           /* the position consumer can get data */
-    sem_t  posMutex;         /* mutual exclusion for updating position */
-    sem_t  putMutex;         /* mutual exclusion for putting data */
+    sem_t  posMutex;         /* mutual exclusion for updating position between
+                                the producer and the consumer */
+    sem_t  putMutex;         /* mutual exclusion for putting data across
+                                producers */
     sem_t  empty;            /* tell whether the data buf is empty */
     sem_t  full;             /* tell whether the data buf is full */
     char   buf[MSGBUFSIZE];  /* assume ~64K for a tuple is enough */
@@ -100,21 +92,19 @@ class KVCircularChannel : public KVChannel {
 
     char name_[MAXPATHLENGTH];
     bool create_; /* instruct whether to create */
-    volatile bool running_;
+    bool running_;
     volatile KVCircularChannelData* data_;
 };
 
 /*
- * A kv simple channel which implements the kv message's mutual exclusive
- * read and write mechanism.
- *
- * It is primarily used as the response channel to send kv messages in the
- * following <KVMessageQueue> definition.
+ * A kv simple channel is primarily used as the response channel to send kv
+ * messages in the following <KVMessageQueue> definition.
+ * (a single producer and a single customer, namely, 1 server and 1 client)
  */
 
 struct KVSimpleChannelData {
     uint64 getPos;           /* the position consumer can get data */
-    sem_t  mutex;            /* mutual exclusion for response */
+    sem_t  mutex;            /* whether the channel has been occupied */
     sem_t  ready;            /* tell whether response is ready */
     char   buf[MSGBUFSIZE];  /* assume ~64K for a tuple is enough */
 };

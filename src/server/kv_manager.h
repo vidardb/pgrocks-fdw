@@ -47,7 +47,7 @@ class KVManager {
 
     unordered_map<KVWorkerId, KVWorkerHandle*> workers_;
     KVMessageQueue* queue_;
-    volatile bool running_;
+    bool running_;
 };
 
 /*

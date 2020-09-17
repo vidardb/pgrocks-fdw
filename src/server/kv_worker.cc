@@ -514,7 +514,7 @@ bool KVWorkerClient::Get(KVWorkerId workerId, GetArgs* args) {
     sendmsg.writeFunc = CommonWriteEntity;
 
     KVMessage recvmsg;
-    uint32 chan = queue_->LeaseResponseQueue();
+    uint32 chan = queue_->LeaseResponseChannel();
     sendmsg.hdr.rpsId = chan;
     recvmsg.hdr.rpsId = chan;
     queue_->Send(sendmsg);
@@ -525,7 +525,7 @@ bool KVWorkerClient::Get(KVWorkerId workerId, GetArgs* args) {
     recvmsg.ety = *(args->val);
     recvmsg.readFunc = CommonReadEntity;
     queue_->Recv(recvmsg, MSGENTITY);
-    queue_->UnleaseResponseQueue(chan);
+    queue_->UnleaseResponseChannel(chan);
 
     return recvmsg.hdr.status == KVStatusSuccess;
 }

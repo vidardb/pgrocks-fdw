@@ -68,19 +68,19 @@ typedef void (*ReadEntityFunc)  (KVChannel* channel, uint64* offset,
                                  void* entity, uint64 size);
 
 /*
- * A kv message contains both header and entity (optional), and it also
- * provides two entity operation hook functions which we can customize
- * the message entity read (receive) and write (send) method. Otherwise,
- * one can also use the default implemented <CommonWriteEntity> and
- * <CommonReadEntity> to satisfy your common scenario.
+ * A kv message contains both header and entity (optional), and it also provides
+ * two entity operation hook functions which we can customize the message entity
+ * read (receive) and write (send) method. Otherwise, one can also use the
+ * default implemented <CommonWriteEntity> and <CommonReadEntity> to satisfy
+ * your common scenario.
  */
 
 struct KVMessage {
-    KVMessageHeader  hdr;              /* message header */
-    void*            ety       = NULL; /* message entity */
+    KVMessageHeader  hdr;                 /* message header */
+    void*            ety       = nullptr; /* message entity */
 
-    ReadEntityFunc   readFunc  = NULL; /* read function */
-    WriteEntityFunc  writeFunc = NULL; /* write function */
+    ReadEntityFunc   readFunc  = nullptr; /* read function */
+    WriteEntityFunc  writeFunc = nullptr; /* write function */
 };
 
 extern KVMessage SuccessMessage(uint32 channel);

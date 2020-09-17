@@ -92,7 +92,7 @@ class KVWorker {
     #endif
 
     KVMessageQueue* queue_;
-    volatile bool running_;
+    bool running_;
     void* conn_;
     uint64 ref_;
 };

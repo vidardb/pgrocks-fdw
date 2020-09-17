@@ -78,9 +78,11 @@ void KVManager::TerminateKVWorker(BackgroundWorkerHandle* handle) {
 
 void KVManager::Stop() {
     for (auto& it : workers_) {
-        it.second->client->Terminate(it.first);
-        /* wait destroyed event */
-        queue_->Wait(WorkerDesty);
+        if (CheckKVWorkerAlive(it.second->handle)) {
+            it.second->client->Terminate(it.first);
+            /* wait destroyed event */
+            queue_->Wait(WorkerDesty);
+        }
         TerminateKVWorker(it.second->handle);
     }
 

@@ -28,8 +28,7 @@ extern void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId);
 
 /*
  * A kv worker which is responsible for receiving kv messages from its
- * corresponding message queue and calling storage engine api to handle
- * the kv tuples.
+ * corresponding message queue and calling storage engine APIs.
  */
 
 class KVWorker {
@@ -41,20 +40,20 @@ class KVWorker {
     void Run();
 
   private:
-    void Open(KVWorkerId workerId, KVMessage& msg);
-    void Close(KVWorkerId workerId, KVMessage& msg);
-    void Count(KVWorkerId workerId, KVMessage& msg);
-    void Put(KVWorkerId workerId, KVMessage& msg);
-    void Get(KVWorkerId workerId, KVMessage& msg);
-    void Delete(KVWorkerId workerId, KVMessage& msg);
-    void Load(KVWorkerId workerId, KVMessage& msg);
-    void ReadBatch(KVWorkerId workerId, KVMessage& msg);
-    void CloseCursor(KVWorkerId workerId, KVMessage& msg);
+    void Open(KVMessage& msg);
+    void Close(KVMessage& msg);
+    void Count(KVMessage& msg);
+    void Put(KVMessage& msg);
+    void Get(KVMessage& msg);
+    void Delete(KVMessage& msg);
+    void Load(KVMessage& msg);
+    void ReadBatch(KVMessage& msg);
+    void CloseCursor(KVMessage& msg);
     #ifdef VIDARDB
-    void RangeQuery(KVWorkerId workerId, KVMessage& msg);
-    void ClearRangeQuery(KVWorkerId workerId, KVMessage& msg);
+    void RangeQuery(KVMessage& msg);
+    void ClearRangeQuery(KVMessage& msg);
     #endif
-    void Terminate(KVWorkerId workerId, KVMessage& msg);
+    void Terminate(KVMessage& msg);
 
     static void ReadOpenArgs(KVChannel* channel, uint64* offset, void* entity,
                              uint64 size);
@@ -62,22 +61,22 @@ class KVWorker {
                                     void* entity, uint64 size);
 
     struct ReadBatchState {
-        bool   next;
-        uint64 size;
+        bool   next;        /* have next batch? */
+        uint64 size;        /* current batch size */
     };
 
     struct KVCursorKey {
         pid_t      pid;     /* backend process pid */
-        KVCursorId cursor;
+        KVOpId     opid;
 
         bool operator==(const KVCursorKey& key) const {
-            return pid == key.pid && cursor == key.cursor;
+            return pid == key.pid && opid == key.opid;
         }
     };
 
     struct KVCursorKeyHashFunc {
         size_t operator()(const KVCursorKey& key) const {
-            return (hash<pid_t>()(key.pid)) ^ (hash<KVCursorId>()(key.cursor));
+            return (hash<pid_t>()(key.pid)) ^ (hash<KVOpId>()(key.opid));
         }
     };
 

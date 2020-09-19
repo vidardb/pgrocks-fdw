@@ -441,14 +441,14 @@ static void BeginForeignScan(ForeignScanState* scanState, int executorFlags) {
             ReadBatchArgs args;
             args.buf = &readState->buf;
             args.bufLen = &readState->bufLen;
-            args.cursor = ++operationId;
+            args.opid = ++operationId;
             readState->hasNext = KVReadBatchRequest(relationId, &args);
         }
         #else
         ReadBatchArgs args;
         args.buf = &readState->buf;
         args.bufLen = &readState->bufLen;
-        args.cursor = ++operationId;
+        args.opid = ++operationId;
         readState->hasNext = KVReadBatchRequest(relationId, &args);
         #endif
 
@@ -549,14 +549,14 @@ static bool GetNextFromBatch(Oid relationId, TableReadState* readState,
             ReadBatchArgs args;
             args.buf = &readState->buf;
             args.bufLen = &readState->bufLen;
-            args.cursor = readState->operationId;
+            args.opid = readState->operationId;
             readState->hasNext = KVReadBatchRequest(relationId, &args);
         }
         #else
         ReadBatchArgs args;
         args.buf = &readState->buf;
         args.bufLen = &readState->bufLen;
-        args.cursor = readState->operationId;
+        args.opid = readState->operationId;
         readState->hasNext = KVReadBatchRequest(relationId, &args);
         #endif
 
@@ -704,7 +704,7 @@ static void EndForeignScan(ForeignScanState* scanState) {
         }
         #else
         CloseCursorArgs args;
-        args.cursor = readState->operationId;
+        args.opid = readState->operationId;
         args.buf = readState->buf;
         KVCloseCursorRequest(relationId, &args);
         #endif

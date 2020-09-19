@@ -27,7 +27,7 @@ extern "C" {
 
 
 /**
- * C wrapper of storage engine API
+ * C wrapper of storage engine API, might be directly used in C part (utility)
  */
 
 #ifdef VIDARDB

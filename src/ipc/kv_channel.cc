@@ -122,6 +122,7 @@ void KVCircularChannel::Input(const KVMessage& msg) {
 
 void KVCircularChannel::Output(KVMessage& msg, int flag) {
     if (flag & MSGDISCARD) {
+        /* release the signal because no other parts of the message remained */
         SemPost(&data_->full, __func__);
         return;
     }
@@ -154,6 +155,7 @@ void KVCircularChannel::Output(KVMessage& msg, int flag) {
     SemPost(&data_->posMutex, __func__);
 
     if (flag & MSGENTITY) {
+        /* only release the signal after fetching a complete message */
         SemPost(&data_->full, __func__);
     }
 }

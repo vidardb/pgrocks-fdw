@@ -21,11 +21,11 @@
 #include "kv_posix.h"
 
 
-#define MAXPATHLENGTH 64
-#define MSGHEADER     01
-#define MSGENTITY     02
-#define MSGDISCARD    04
-#define MSGBUFSIZE    65536
+#define MAXPATHLENGTH 64     /* max path length */
+#define MSGHEADER     01     /* read msg header */
+#define MSGENTITY     02     /* read msg entity */
+#define MSGDISCARD    04     /* discard msg */
+#define MSGBUFSIZE    65536  /* msg buf size */
 
 
 /*
@@ -52,7 +52,8 @@ class KVChannel {
     /* Pop a string from the specified channel offset */
     virtual void Pop(uint64* offset, char* str, uint64 size) = 0;
 
-    virtual void Terminate() = 0;
+    /* Stop to output kv message */
+    virtual void Stop() = 0;
 };
 
 /*
@@ -85,14 +86,14 @@ class KVCircularChannel : public KVChannel {
     void Output(KVMessage& msg, int flag);
     void Push(uint64* offset, char* str, uint64 size);
     void Pop(uint64* offset, char* str, uint64 size);
-    void Terminate();
+    void Stop();
 
   private:
     uint64 GetKVMessageSize(const KVMessage& msg);
 
     char name_[MAXPATHLENGTH];
     bool create_; /* instruct whether to create */
-    bool running_;
+    bool running_; /* only used in output message */
     volatile KVCircularChannelData* data_;
 };
 
@@ -118,13 +119,13 @@ class KVSimpleChannel : public KVChannel {
     void Output(KVMessage& msg, int flag);
     void Push(uint64* offset, char* str, uint64 size);
     void Pop(uint64* offset, char* str, uint64 size);
-    void Terminate() {};
+    void Stop() {}
     bool Lease();
     void Unlease();
 
   private:
     char name_[MAXPATHLENGTH];
-    bool create_;
+    bool create_; /* instruct whether to create */
     volatile KVSimpleChannelData* data_;
 };
 
@@ -156,7 +157,7 @@ class KVCtrlChannel {
 
   private:
     char name_[MAXPATHLENGTH];
-    bool create_;
+    bool create_; /* instruct whether to create */
     volatile KVCtrlData* data_;
 };
 

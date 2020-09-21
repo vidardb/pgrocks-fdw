@@ -212,8 +212,9 @@ void KVCircularChannel::Pop(uint64* offset, char* str, uint64 size) {
     }
 }
 
-void KVCircularChannel::Terminate() {
+void KVCircularChannel::Stop() {
     running_ = false;
+    /* try to wakeup empty signal */
     SemPost(&data_->empty, __func__);
 }
 

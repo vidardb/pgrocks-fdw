@@ -38,6 +38,7 @@ class KVWorker {
 
     void Start();
     void Run();
+    void Stop();
 
   private:
     void Open(KVMessage& msg);

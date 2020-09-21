@@ -103,9 +103,15 @@ void KVWorker::Run() {
                 Terminate(msg);
                 break;
             default:
-                ereport(WARNING, (errmsg("invalid operation: %d", msg.hdr.op)));
+                ereport(WARNING, (errmsg("invalid operation: %d",
+                                  msg.hdr.op)));
         }
     }
+}
+
+void KVWorker::Stop() {
+    running_ = false;
+    queue_->Stop();
 }
 
 void KVWorker::ReadOpenArgs(KVChannel* channel, uint64* offset, void* entity,
@@ -429,8 +435,8 @@ void KVWorker::ClearRangeQuery(KVMessage& msg) {
 
 void KVWorker::Terminate(KVMessage& msg) {
     queue_->Recv(msg, MSGDISCARD);
-    running_ = false;
-    queue_->Terminate();
+
+    Stop();
 }
 
 
@@ -740,12 +746,18 @@ void KVWorkerClient::ClearRangeQuery(KVWorkerId workerId, RangeQueryArgs* args) 
 }
 #endif
 
+/* no need to get response, assuming terminate is always okay */
 void KVWorkerClient::Terminate(KVWorkerId workerId) {
     queue_->Send(SimpleMessage(KVOpTerminate, workerId, MyDatabaseId));
 }
 
 
-static void StartKVWorker(KVWorkerId workerId, KVDatabaseId dbId) {
+/*
+ * Start kv worker and begin to accept and handle requets.
+ * Also it will notify kv manager and clean the resources
+ * when run has finished.
+ */
+static void KVWorkerDo(KVWorkerId workerId, KVDatabaseId dbId) {
     KVWorker* worker = new KVWorker(workerId, dbId);
     KVManagerClient* manager = new KVManagerClient();
 
@@ -772,30 +784,30 @@ extern "C" void KVWorkerMain(Datum arg) {
     /* Connect to our database */
     BackgroundWorkerInitializeConnectionByOid(dbId, InvalidOid, 0);
 
-    /* Start kv worker */
-    StartKVWorker(workerId, dbId);
+    /* Start, run and clean of kv worker */
+    KVWorkerDo(workerId, dbId);
 }
 
 /*
  * Launch kv worker process
  */
 void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId) {
-    BackgroundWorker worker;
-    memset(&worker, 0, sizeof(worker));
-    worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
-    worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
-    worker.bgw_restart_time = BGW_NEVER_RESTART;
-    sprintf(worker.bgw_library_name, "kv_fdw");
-    sprintf(worker.bgw_function_name, "KVWorkerMain");
-    snprintf(worker.bgw_name, BGW_MAXLEN, "KV Worker");
-    snprintf(worker.bgw_type, BGW_MAXLEN, "KV Worker");
-    worker.bgw_main_arg = ObjectIdGetDatum(dbId);
-    memcpy(worker.bgw_extra, &workerId, sizeof(workerId));
+    BackgroundWorker bgw;
+    memset(&bgw, 0, sizeof(bgw));
+    bgw.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
+    bgw.bgw_start_time = BgWorkerStart_RecoveryFinished;
+    bgw.bgw_restart_time = BGW_NEVER_RESTART;
+    sprintf(bgw.bgw_library_name, "kv_fdw");
+    sprintf(bgw.bgw_function_name, "KVWorkerMain");
+    snprintf(bgw.bgw_name, BGW_MAXLEN, "KV Worker");
+    snprintf(bgw.bgw_type, BGW_MAXLEN, "KV Worker");
+    bgw.bgw_main_arg = ObjectIdGetDatum(dbId);
+    memcpy(bgw.bgw_extra, &workerId, sizeof(workerId));
     /* set bgw_notify_pid so that we can use WaitForBackgroundWorkerStartup */
-    worker.bgw_notify_pid = MyProcPid;
+    bgw.bgw_notify_pid = MyProcPid;
 
     BackgroundWorkerHandle* handle;
-    if (!RegisterDynamicBackgroundWorker(&worker, &handle)) {
+    if (!RegisterDynamicBackgroundWorker(&bgw, &handle)) {
         return nullptr;
     }
 

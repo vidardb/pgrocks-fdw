@@ -44,7 +44,7 @@ class KVMessageQueue {
     void   SendWithResponse(KVMessage& sendmsg, KVMessage& recvmsg);
     void   Wait(KVCtrlType type);
     void   Notify(KVCtrlType type);
-    void   Terminate();
+    void   Stop();  /* stop to recv kv msg */
 
   private:
     KVCtrlChannel* ctrl_;

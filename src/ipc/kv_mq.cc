@@ -117,10 +117,10 @@ void KVMessageQueue::Notify(KVCtrlType type) {
     ctrl_->Notify(type);
 }
 
-void KVMessageQueue::Terminate() {
-    request_->Terminate();
+void KVMessageQueue::Stop() {
+    request_->Stop();
 
     for (uint32 i = 0; i < MSGRESQUEUELENGTH; i++) {
-        response_[i]->Terminate();
+        response_[i]->Stop();
     }
 }

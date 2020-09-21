@@ -149,7 +149,8 @@ void KVManager::Run() {
                 Terminate(msg.hdr.relId, msg);
                 break;
             default:
-                ereport(WARNING, (errmsg("invalid operation: %d", msg.hdr.op)));
+                ereport(WARNING, (errmsg("invalid operation: %d",
+                                  msg.hdr.op)));
         }
     }
 }
@@ -163,7 +164,7 @@ void KVManager::Stop() {
     }
 
     running_ = false;
-    queue_->Terminate();
+    queue_->Stop();
 }
 
 
@@ -198,20 +199,14 @@ void KVManagerClient::Notify(KVCtrlType type) {
 }
 
 /*
- * Start kv manager
+ * Start kv manager and begin to accept and handle requets.
+ * Also it will clean the resources when run has finished.
  */
-static void StartKVManager() {
+static void KVManagerDo() {
     manager = new KVManager();
     manager->Start();
     manager->Run();
     delete manager;
-}
-
-/*
- * Terminate kv manager
- */
-static void TerminateKVManager() {
-    manager->Stop();
 }
 
 /*
@@ -222,10 +217,7 @@ static void TerminateKVManager() {
  */
 static void KVManagerSigHandler(SIGNAL_ARGS) {
     int save_errno = errno;
-
-    TerminateKVManager();
-    SetLatch(MyLatch);
-
+    manager->Stop();
     errno = save_errno;
 }
 
@@ -248,8 +240,8 @@ extern "C" void KVManagerMain(Datum arg) {
     /* We're now ready to receive signals */
     BackgroundWorkerUnblockSignals();
 
-    /* Start kv manager */
-    StartKVManager();
+    /* Start, run and clean of kv manager */
+    KVManagerDo();
 }
 
 /*
@@ -262,16 +254,16 @@ void LaunchKVManager() {
         return;
     }
 
-    BackgroundWorker worker;
-    memset(&worker, 0, sizeof(worker));
-    snprintf(worker.bgw_name, BGW_MAXLEN, "KV Manager");
-    snprintf(worker.bgw_type, BGW_MAXLEN, "KV Manager");
-    worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
-    worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
-    worker.bgw_restart_time = 1;
-    sprintf(worker.bgw_library_name, "kv_fdw");
-    sprintf(worker.bgw_function_name, "KVManagerMain");
-    worker.bgw_notify_pid = 0;
+    BackgroundWorker bgw;
+    memset(&bgw, 0, sizeof(bgw));
+    snprintf(bgw.bgw_name, BGW_MAXLEN, "KV Manager");
+    snprintf(bgw.bgw_type, BGW_MAXLEN, "KV Manager");
+    bgw.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
+    bgw.bgw_start_time = BgWorkerStart_RecoveryFinished;
+    bgw.bgw_restart_time = 1;
+    sprintf(bgw.bgw_library_name, "kv_fdw");
+    sprintf(bgw.bgw_function_name, "KVManagerMain");
+    bgw.bgw_notify_pid = 0;
 
-    RegisterBackgroundWorker(&worker);
+    RegisterBackgroundWorker(&bgw);
 }

@@ -887,7 +887,7 @@ static void BeginForeignModify(ModifyTableState* modifyTableState,
 
     Relation relation = resultRelInfo->ri_RelationDesc;
     Oid foreignTableId = RelationGetRelid(relation);
-    table_open(foreignTableId, ShareUpdateExclusiveLock);
+    table_open(foreignTableId, RowExclusiveLock);
 
     #ifdef VIDARDB
     TablePlanState* planState = (TablePlanState*) linitial(fdwPrivate);
@@ -1144,7 +1144,7 @@ static void EndForeignModify(EState* executorState, ResultRelInfo* resultRelInfo
         }
 
         /* CMD_UPDATE and CMD_DELETE close will be taken care of by endScan */
-        table_close(relation, ShareUpdateExclusiveLock);
+        table_close(relation, RowExclusiveLock);
 
         pfree(writeState);
     }

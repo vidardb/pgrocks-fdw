@@ -431,7 +431,7 @@ static void BeginForeignScan(ForeignScanState* scanState, int executorFlags) {
             printf("\n");
 
             RangeQueryArgs args;
-            args.cursor = ++operationId;
+            args.opid = ++operationId;
             args.opts = &options;
             args.buf = &readState->buf;
             args.bufLen = &readState->bufLen;
@@ -540,7 +540,7 @@ static bool GetNextFromBatch(Oid relationId, TableReadState* readState,
         #ifdef VIDARDB
         if (readState->useColumn) {
             RangeQueryArgs args;
-            args.cursor = readState->operationId;
+            args.opid = readState->operationId;
             args.opts = NULL;
             args.buf = &readState->buf;
             args.bufLen = &readState->bufLen;
@@ -692,13 +692,13 @@ static void EndForeignScan(ForeignScanState* scanState) {
              * IterateForeignScan. Now release resource of worker process.
              */
             RangeQueryArgs args;
-            args.cursor = readState->operationId;
+            args.opid = readState->operationId;
             args.buf = &readState->buf;
             args.bufLen = &readState->bufLen;
             KVClearRangeQueryRequest(relationId, &args);
         } else {
             CloseCursorArgs args;
-            args.cursor = readState->operationId;
+            args.opid = readState->operationId;
             args.buf = readState->buf;
             KVCloseCursorRequest(relationId, &args);
         }

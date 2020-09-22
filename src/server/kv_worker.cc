@@ -103,8 +103,7 @@ void KVWorker::Run() {
                 Terminate(msg);
                 break;
             default:
-                ereport(WARNING, (errmsg("invalid operation: %d",
-                                  msg.hdr.op)));
+                ereport(WARNING, (errmsg("invalid operation: %d", msg.hdr.op)));
         }
     }
 }
@@ -623,8 +622,8 @@ void KVWorkerClient::WriteDelCursorArgs(KVChannel* channel, uint64* offset,
 
     pid_t pid = getpid();
     channel->Push(offset, reinterpret_cast<char*>(&pid), sizeof(pid_t));
-    channel->Push(offset, reinterpret_cast<char*>(&args->cursor),
-                  sizeof(args->cursor));
+    channel->Push(offset, reinterpret_cast<char*>(&args->opid),
+                  sizeof(args->opid));
 }
 
 void KVWorkerClient::CloseCursor(KVWorkerId workerId, CloseCursorArgs* args) {
@@ -636,12 +635,12 @@ void KVWorkerClient::CloseCursor(KVWorkerId workerId, CloseCursorArgs* args) {
     pid_t pid = getpid();
 
     snprintf(name, MAXPATHLENGTH, "%s%d%d%lu", READBATCHPATH, pid, workerId,
-             args->cursor);
+             args->opid);
     ShmUnlink(name, __func__);
 
     KVMessage sendmsg = SimpleMessage(KVOpDelCursor, workerId, MyDatabaseId);
     sendmsg.ety = args;
-    sendmsg.hdr.etySize = sizeof(pid_t) + sizeof(args->cursor);
+    sendmsg.hdr.etySize = sizeof(pid_t) + sizeof(args->opid);
     sendmsg.writeFunc = WriteDelCursorArgs;
 
     queue_->Send(sendmsg);
@@ -655,8 +654,7 @@ void KVWorkerClient::WriteRangeQueryArgs(KVChannel* channel, uint64* offset,
 
     pid_t pid = getpid();
     channel->Push(offset, reinterpret_cast<char*>(&pid), sizeof(pid_t));
-    channel->Push(offset, reinterpret_cast<char*>(&args->cursor),
-                  sizeof(args->cursor));
+    channel->Push(offset, reinterpret_cast<char*>(&args->opid), sizeof(args->opid));
 
     if (opts) {
         channel->Push(offset, reinterpret_cast<char*>(&opts->startLen),
@@ -689,15 +687,14 @@ bool KVWorkerClient::RangeQuery(KVWorkerId workerId, RangeQueryArgs* args) {
 
     KVMessage sendmsg = SimpleMessage(KVOpRangeQuery, workerId, MyDatabaseId);
     sendmsg.ety = args;
-    sendmsg.hdr.etySize = sizeof(pid_t) + sizeof(args->cursor);
+    sendmsg.hdr.etySize = sizeof(pid_t) + sizeof(args->opid);
     if (args->opts) {
         sendmsg.hdr.etySize += sizeof(args->opts->startLen);
         sendmsg.hdr.etySize += args->opts->startLen;
         sendmsg.hdr.etySize += sizeof(args->opts->limitLen);
         sendmsg.hdr.etySize += args->opts->limitLen;
         sendmsg.hdr.etySize += sizeof(args->opts->attrCount);
-        sendmsg.hdr.etySize += args->opts->attrCount *
-                               sizeof(*(args->opts->attrs));
+        sendmsg.hdr.etySize += args->opts->attrCount * sizeof(*(args->opts->attrs));
         sendmsg.hdr.etySize += sizeof(args->opts->batchCapacity);
     }
     sendmsg.writeFunc = WriteRangeQueryArgs;
@@ -721,7 +718,7 @@ bool KVWorkerClient::RangeQuery(KVWorkerId workerId, RangeQueryArgs* args) {
         pid_t pid = getpid();
 
         snprintf(name, MAXPATHLENGTH, "%s%d%d%lu", RANGEQUERYPATH, pid,
-                 workerId, args->cursor);
+                 workerId, args->opid);
         int fd = ShmOpen(name, O_RDWR, 0777, __func__);
         *(args->buf) = static_cast<char*>(Mmap(nullptr, *(args->bufLen),
             PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0, __func__));
@@ -739,14 +736,13 @@ void KVWorkerClient::ClearRangeQuery(KVWorkerId workerId, RangeQueryArgs* args) 
     KVMessage sendmsg = SimpleMessage(KVOpClearRangeQuery, workerId, MyDatabaseId);
     args->opts = nullptr;
     sendmsg.ety = args;
-    sendmsg.hdr.etySize = sizeof(pid_t) + sizeof(args->cursor);
+    sendmsg.hdr.etySize = sizeof(pid_t) + sizeof(args->opid);
     sendmsg.writeFunc = WriteRangeQueryArgs;
 
     queue_->Send(sendmsg);
 }
 #endif
 
-/* no need to get response, assuming terminate is always okay */
 void KVWorkerClient::Terminate(KVWorkerId workerId) {
     queue_->Send(SimpleMessage(KVOpTerminate, workerId, MyDatabaseId));
 }

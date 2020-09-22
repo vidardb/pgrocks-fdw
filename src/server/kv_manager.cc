@@ -19,7 +19,6 @@ extern "C" {
 #include "postgres.h"
 #include "miscadmin.h"
 #include "postmaster/bgworker.h"
-#include "storage/latch.h"
 }
 
 
@@ -87,6 +86,7 @@ void KVManager::Launch(KVWorkerId workerId, const KVMessage& msg) {
 
 void KVManager::TerminateKVWorker(BackgroundWorkerHandle* handle) {
     TerminateBackgroundWorker(handle);
+    WaitForBackgroundWorkerShutdown(handle);
     pfree(handle);
 }
 
@@ -149,8 +149,7 @@ void KVManager::Run() {
                 Terminate(msg.hdr.relId, msg);
                 break;
             default:
-                ereport(WARNING, (errmsg("invalid operation: %d",
-                                  msg.hdr.op)));
+                ereport(WARNING, (errmsg("invalid operation: %d", msg.hdr.op)));
         }
     }
 }
@@ -159,6 +158,8 @@ void KVManager::Stop() {
     for (auto& it : workers_) {
         if (CheckKVWorkerAlive(it.second->handle)) {
             it.second->client->Terminate(it.first);
+            /* wait destroyed event */
+            queue_->Wait(WorkerDesty);
         }
         TerminateKVWorker(it.second->handle);
     }
@@ -226,16 +227,7 @@ static void KVManagerSigHandler(SIGNAL_ARGS) {
  */
 extern "C" void KVManagerMain(Datum arg) {
     /* Establish signal handlers before unblocking signals. */
-    /* pqsignal(SIGTERM, KVManagerSigHandler); */
-
-    /*
-     * We on purpose do not use pqsignal due to its setting at flags = restart.
-     * With the setting, the process cannot exit on sem_wait.
-     */
-    struct sigaction act;
-    act.sa_handler = KVManagerSigHandler;
-    act.sa_flags = 0;
-    sigaction(SIGTERM, &act, nullptr);
+    pqsignal(SIGTERM, KVManagerSigHandler);
 
     /* We're now ready to receive signals */
     BackgroundWorkerUnblockSignals();

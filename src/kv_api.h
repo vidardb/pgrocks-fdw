@@ -37,7 +37,7 @@ extern "C" {
 typedef Oid             KVDatabaseId;
 typedef Oid             KVRelationId;
 typedef KVRelationId    KVWorkerId;
-typedef uint64 KVOpId;
+typedef uint64          KVOpId;
 
 
 typedef struct ComparatorOpts {
@@ -82,7 +82,7 @@ typedef struct ReadBatchArgs {
 } ReadBatchArgs;
 
 typedef struct CloseCursorArgs {
-    KVOpId cursor;
+    KVOpId     opid;
     void*      buf;
 } CloseCursorArgs;
 
@@ -98,7 +98,7 @@ typedef struct RangeQueryOpts {
 } RangeQueryOpts;
 
 typedef struct RangeQueryArgs {
-    KVOpId      cursor;
+    KVOpId          opid;
     char**          buf;
     uint64*         bufLen;
     RangeQueryOpts* opts;

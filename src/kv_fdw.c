@@ -81,6 +81,10 @@ typedef struct TableReadState {
  */
 typedef struct TableWriteState {
     CmdType operation;
+    #ifdef VIDARDB
+    bool    useColumn;
+    List*   targetAttrs;    /* attributes in select, where, group */
+    #endif
 } TableWriteState;
 
 /*
@@ -891,6 +895,8 @@ static void BeginForeignModify(ModifyTableState* modifyTableState,
 
     #ifdef VIDARDB
     TablePlanState* planState = (TablePlanState*) linitial(fdwPrivate);
+    writeState->useColumn = planState->fdwOptions->useColumn;
+    writeState->targetAttrs = planState->targetAttrs;
     #endif
 
     if (operation == CMD_INSERT) {
@@ -1111,11 +1117,42 @@ static TupleTableSlot* ExecForeignDelete(EState* executorState,
 
     SerializeTuple(key, val, planSlot);
 
-    DeleteArgs args;
-    args.key = key->data;
-    args.keyLen = key->len;
-    KVDeleteRequest(foreignTableId, &args);
+    /* Get the previous value */
+    char* v;
+    uint64 vLen;
 
+    GetArgs getArgs;
+    getArgs.key = key->data;
+    getArgs.keyLen = key->len;
+    getArgs.val = &v;
+    getArgs.valLen = &vLen;
+    KVGetRequest(foreignTableId, &getArgs);
+
+    /* Delete the specified key */
+    DeleteArgs delArgs;
+    delArgs.key = key->data;
+    delArgs.keyLen = key->len;
+    KVDeleteRequest(foreignTableId, &delArgs);
+
+    /* Key not exists */
+    if (vLen == 0) {
+        return NULL;
+    }
+
+    /* Save the previous value into slot */
+    #ifdef VIDARDB
+    TableWriteState* writeState = (TableWriteState*) resultRelInfo->ri_FdwState;
+    if (writeState->useColumn) {
+        DeserializeColumnTuple(key->data, key->len, v, vLen, slot,
+                               writeState->targetAttrs, true);
+    } else {
+        DeserializeTuple(key->data, key->len, v, vLen, slot);
+    }
+    #else
+    DeserializeTuple(key->data, key->len, v, vLen, slot);
+    #endif
+
+    ExecStoreVirtualTuple(slot);
     return slot;
 }
 

@@ -802,25 +802,23 @@ void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId) {
     /* set bgw_notify_pid so that we can use WaitForBackgroundWorkerStartup */
     bgw.bgw_notify_pid = MyProcPid;
 
-    BackgroundWorkerHandle* handle;
+    BackgroundWorkerHandle* handle = nullptr;
     if (!RegisterDynamicBackgroundWorker(&bgw, &handle)) {
         return nullptr;
     }
 
     pid_t pid;
     BgwHandleStatus status = WaitForBackgroundWorkerStartup(handle, &pid);
-    if (status == BGWH_STOPPED) {
-        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
-                errmsg("could not start background process"),
-                errhint("More details may be available in the server log.")));
-    }
     if (status == BGWH_POSTMASTER_DIED) {
-        ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+        ereport(WARNING, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
                 errmsg("cannot start background processes without postmaster"),
                 errhint("Kill all remaining database processes and restart "
                         "the database.")));
+    } else if (status != BGWH_STARTED) {
+        ereport(WARNING, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+                errmsg("could not start background process"),
+                errhint("More details may be available in the server log.")));
     }
-    Assert(status == BGWH_STARTED);
 
     return handle;
 }

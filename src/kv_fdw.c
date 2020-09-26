@@ -1,7 +1,21 @@
+/* Copyright 2019-present VidarDB Inc. All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 #include "kv_fdw.h"
+#include "kv_api.h"
 
-#include "access/reloptions.h"
 #include "foreign/fdwapi.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/planmain.h"
@@ -12,52 +26,76 @@
 #include "access/tuptoaster.h"
 #include "catalog/pg_operator.h"
 #include "utils/syscache.h"
-#include "utils/typcache.h"
-#include "commands/defrem.h"
-#include "foreign/foreign.h"
-#include "utils/builtins.h"
-#include "miscadmin.h"
-#include "nodes/nodes.h"
 #include "access/table.h"
-
 #ifdef VIDARDB
 #include "parser/parsetree.h"
 #include "optimizer/optimizer.h"
-#include "access/sysattr.h"
 #endif
 
 
 PG_MODULE_MAGIC;
-
 PG_FUNCTION_INFO_V1(kv_fdw_handler);
 PG_FUNCTION_INFO_V1(kv_fdw_validator);
 
 
+#ifdef VIDARDB
+typedef struct TablePlanState {
+    KVFdwOptions* fdwOptions;
+    int attrCount;        /* total attributes in a table */
+    List* targetAttrs;    /* attributes in select, where, groupby */
+    bool toUpdateDelete;  /* any update or delete? indicate when to delete */
+} TablePlanState;
+#endif
+
 /*
- * in backend process
+ * The scan state is for maintaining state for a scan, either for a
+ * SELECT or UPDATE or DELETE.
+ *
+ * It is set up in BeginForeignScan and stashed in node->fdw_state and
+ * subsequently used in IterateForeignScan, EndForeignScan and ReScanForeignScan.
  */
-static ManagerShm *manager = NULL;
-static HTAB *workerShmHash = NULL;
+typedef struct TableReadState {
+    bool isKeyBased;
+    uint64 operationId;
+    bool done;
+    StringInfo key;
+    char* buf;     /* shared mem for data returned by RangeQuery or ReadBatch */
+    size_t bufLen; /* shared mem length, no next batch if it is 0 */
+    char* next;    /* pointer to the next data entry for IterateForeignScan */
+    bool hasNext;  /* whether a next batch from RangeQuery or ReadBatch*/
+
+    #ifdef VIDARDB
+    bool useColumn;
+    List* targetAttrs;    /* attributes in select, where, group */
+    #endif
+
+    bool execExplainOnly;
+} TableReadState;
+
+/*
+ * The modify state is for maintaining state of modify operations.
+ *
+ * It is set up in BeginForeignModify and stashed in
+ * rinfo->ri_FdwState and subsequently used in ExecForeignInsert,
+ * ExecForeignUpdate, ExecForeignDelete and EndForeignModify.
+ */
+typedef struct TableWriteState {
+    CmdType operation;
+    #ifdef VIDARDB
+    bool    useColumn;
+    List*   targetAttrs;    /* attributes in select, where, group */
+    #endif
+} TableWriteState;
+
+/*
+ * in backend process scope
+ */
+
 static uint64 operationId = 0;  /* a SQL might cause multiple scans */
 
 
-static inline WorkerShm *
-GetRelationWorker(Oid relationId) {
-    bool found = false;
-    WorkerProcKey workerKey;
-    workerKey.databaseId = MyDatabaseId;
-    workerKey.relationId = relationId;
-    WorkerProcShmEntry *entry = hash_search(workerShmHash, &workerKey,
-                                            HASH_FIND, &found);
-    if (found) {
-        return entry->shm;
-    }
-
-    ereport(ERROR, (errmsg("not found the relation background worker")));
-}
-
-static void
-GetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
+static void GetForeignRelSize(PlannerInfo* root, RelOptInfo* baserel,
+                              Oid foreignTableId) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Obtain relation size estimates for a foreign table. This is called at
@@ -82,14 +120,18 @@ GetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
      * min & max will call GetForeignRelSize & GetForeignPaths multiple times,
      * we should open & close db multiple times.
      */
+    OpenArgs args;
+
     Relation relation = table_open(foreignTableId, AccessShareLock);
-    ComparatorOptions opts;
-    SetRelationComparatorOptions(relation, &opts);
+    SetRelationComparatorOpts(relation, &args.opts);
     table_close(relation, AccessShareLock);
 
+    KVFdwOptions* fdwOptions = KVGetOptions(foreignTableId);
+    args.path = fdwOptions->filename;
+
     #ifdef VIDARDB
-    TablePlanState *planState = palloc0(sizeof(TablePlanState));
-    planState->fdwOptions = KVGetOptions(foreignTableId);
+    TablePlanState* planState = palloc0(sizeof(TablePlanState));
+    planState->fdwOptions = fdwOptions;
     planState->attrCount = baserel->max_attr;
     planState->toUpdateDelete = false;
 
@@ -98,19 +140,19 @@ GetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
      * These include all attrs needed for joins or final output, plus
      * all attrs used in the conds.
      */
-    Bitmapset *attrs = NULL;
-    pull_varattnos((Node *) baserel->reltarget->exprs, baserel->relid, &attrs);
+    Bitmapset* attrs = NULL;
+    pull_varattnos((Node*) baserel->reltarget->exprs, baserel->relid, &attrs);
 
     /* identify baserestrictinfo, such as where, groupby */
-    List *conds = NIL;
-    ListCell *lc = NULL;
+    List* conds = NIL;
+    ListCell* lc = NULL;
     foreach (lc, baserel->baserestrictinfo) {
-        RestrictInfo *restrictInfo = lfirst_node(RestrictInfo, lc);
+        RestrictInfo* restrictInfo = lfirst_node(RestrictInfo, lc);
         conds = lappend(conds, restrictInfo);
     }
     foreach (lc, conds) {
-        RestrictInfo *restrictInfo = lfirst_node(RestrictInfo, lc);
-        pull_varattnos((Node *) restrictInfo->clause, baserel->relid, &attrs);
+        RestrictInfo* restrictInfo = lfirst_node(RestrictInfo, lc);
+        pull_varattnos((Node*) restrictInfo->clause, baserel->relid, &attrs);
     }
 
     printf("\n");
@@ -133,22 +175,19 @@ GetForeignRelSize(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
     }
 
     baserel->fdw_private = planState;
-    WorkerShm *worker = OpenRequest(foreignTableId, &manager, &workerShmHash,
-                                    &opts, planState->fdwOptions->useColumn,
-                                    planState->attrCount);
-    #else
-    WorkerShm *worker = OpenRequest(foreignTableId, &manager, &workerShmHash,
-                                    &opts);
+
+    args.useColumn = planState->fdwOptions->useColumn;
+    args.attrCount = planState->attrCount;
     #endif
 
+    KVOpenRequest(foreignTableId, &args);
     /* TODO: better estimation */
-    baserel->rows = CountRequest(foreignTableId, worker);
-
-    CloseRequest(foreignTableId, worker);
+    baserel->rows = KVCountRequest(foreignTableId);
+    KVCloseRequest(foreignTableId);
 }
 
-static void
-GetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
+static void GetForeignPaths(PlannerInfo* root, RelOptInfo* baserel,
+                            Oid foreignTableId) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Create possible access paths for a scan on a foreign table. This is
@@ -182,10 +221,10 @@ GetForeignPaths(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId) {
                                               NIL)); /* no fdw_private data */
 }
 
-static ForeignScan *
-GetForeignPlan(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId,
-               ForeignPath *bestPath, List *targetList, List *scanClauses,
-               Plan *outerPlan) {
+static ForeignScan* GetForeignPlan(PlannerInfo* root, RelOptInfo* baserel,
+                                   Oid foreignTableId, ForeignPath* bestPath,
+                                   List* targetList, List* scanClauses,
+                                   Plan* outerPlan) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Create a ForeignScan plan node from the selected foreign access path.
@@ -211,19 +250,23 @@ GetForeignPlan(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId,
 
     scanClauses = extract_actual_clauses(scanClauses, false);
 
+    OpenArgs args;
+
     Relation relation = table_open(foreignTableId, AccessShareLock);
-    ComparatorOptions opts;
-    SetRelationComparatorOptions(relation, &opts);
+    SetRelationComparatorOpts(relation, &args.opts);
     table_close(relation, AccessShareLock);
+
+    KVFdwOptions* fdwOptions = KVGetOptions(foreignTableId);
+    args.path = fdwOptions->filename;
 
     /* To accommodate min & max, we open file here */
     #ifdef VIDARDB
-    TablePlanState *planState = baserel->fdw_private;
-    OpenRequest(foreignTableId, &manager, &workerShmHash, &opts,
-                planState->fdwOptions->useColumn, planState->attrCount);
-    #else
-    OpenRequest(foreignTableId, &manager, &workerShmHash, &opts);
+    TablePlanState* planState = baserel->fdw_private;
+    args.useColumn = planState->fdwOptions->useColumn;
+    args.attrCount = planState->attrCount;
     #endif
+
+    KVOpenRequest(foreignTableId, &args);
 
     /* Create the ForeignScan node */
     return make_foreignscan(targetList, scanClauses, baserel->relid,
@@ -237,29 +280,28 @@ GetForeignPlan(PlannerInfo *root, RelOptInfo *baserel, Oid foreignTableId,
                             NIL, /* no remote quals */ NULL);
 }
 
-static void
-GetKeyBasedQual(Node *node, ForeignScanState *scanState,
-                TableReadState *readState) {
+static void GetKeyBasedQual(Node* node, ForeignScanState* scanState,
+                            TableReadState* readState) {
     if (!node || !IsA(node, OpExpr)) {
         return;
     }
 
-    OpExpr *op = (OpExpr *) node;
+    OpExpr* op = (OpExpr*) node;
     if (list_length(op->args) != 2) {
         return;
     }
 
-    Node *left = list_nth(op->args, 0);
+    Node* left = list_nth(op->args, 0);
     if (!IsA(left, Var)) {
         return;
     }
 
-    Node *right = list_nth(op->args, 1);
+    Node* right = list_nth(op->args, 1);
     if (!IsA(right, Const) && !IsA(right, Param)) {
         return;
     }
 
-    Index varattno = ((Var *) left)->varattno;
+    Index varattno = ((Var*) left)->varattno;
     if (varattno != 1) {
         return;
     }
@@ -270,7 +312,7 @@ GetKeyBasedQual(Node *node, ForeignScanState *scanState,
         ereport(ERROR, (errmsg("cache lookup failed for operator %u", op->opno)));
     }
     Form_pg_operator operform = (Form_pg_operator) GETSTRUCT(opertup);
-    char *oprname = NameStr(operform->oprname);
+    char* oprname = NameStr(operform->oprname);
     /* TODO: support more operators */
     if (strncmp(oprname, "=", NAMEDATALEN)) {
         ReleaseSysCache(opertup);
@@ -281,10 +323,10 @@ GetKeyBasedQual(Node *node, ForeignScanState *scanState,
     Datum datum;
 
     if (IsA(right, Const)) {
-        Const *constNode = (Const *) right;
+        Const* constNode = (Const*) right;
         datum = constNode->constvalue;
     } else {
-        Param *paramNode = (Param *) right;
+        Param* paramNode = (Param*) right;
         ParamListInfo paramListInfo = scanState->ss.ps.state->es_param_list_info;
         datum = paramListInfo->params[paramNode->paramid-1].value;
     }
@@ -304,8 +346,7 @@ GetKeyBasedQual(Node *node, ForeignScanState *scanState,
     return;
 }
 
-static void
-BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
+static void BeginForeignScan(ForeignScanState* scanState, int executorFlags) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Begin executing a foreign scan. This is called during executor startup.
@@ -328,7 +369,7 @@ BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
-    TableReadState *readState = palloc0(sizeof(TableReadState));
+    TableReadState* readState = palloc0(sizeof(TableReadState));
     readState->execExplainOnly = false;
     readState->isKeyBased = false;
     readState->operationId = 0;
@@ -338,9 +379,9 @@ BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     readState->bufLen = 0;
 
     #ifdef VIDARDB
-    ForeignScan *foreignScan = (ForeignScan *) scanState->ss.ps.plan;
-    List *fdwPrivateList = (List *) foreignScan->fdw_private;
-    TablePlanState *planState = (TablePlanState *) linitial(fdwPrivateList);
+    ForeignScan* foreignScan = (ForeignScan*) scanState->ss.ps.plan;
+    List* fdwPrivateList = (List*) foreignScan->fdw_private;
+    TablePlanState* planState = (TablePlanState*) linitial(fdwPrivateList);
     readState->useColumn = planState->fdwOptions->useColumn;
     readState->targetAttrs = planState->targetAttrs;
 
@@ -351,7 +392,7 @@ BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     }
     #endif
 
-    scanState->fdw_state = (void *) readState;
+    scanState->fdw_state = (void*) readState;
 
     /* must after readState is recorded, otherwise explain won't close db */
     if (executorFlags & EXEC_FLAG_EXPLAIN_ONLY) {
@@ -359,10 +400,10 @@ BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
         return;
     }
 
-    ListCell *lc;
+    ListCell* lc;
     foreach (lc, scanState->ss.ps.plan->qual) {
-        Expr *state = lfirst(lc);
-        GetKeyBasedQual((Node *) state, scanState, readState);
+        Expr* state = lfirst(lc);
+        GetKeyBasedQual((Node*) state, scanState, readState);
         if (readState->isKeyBased) {
             printf("\nkey_based_qual\n");
             break;
@@ -370,13 +411,12 @@ BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
     }
 
     Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
-    readState->worker = GetRelationWorker(relationId);
 
     if (!readState->isKeyBased) {
         #ifdef VIDARDB
         if (readState->useColumn) {
 
-            RangeQueryOptions options;
+            RangeQueryOpts options;
             options.batchCapacity = batchCapacity;
             options.startLen = 0;
             options.limitLen = 0;
@@ -385,7 +425,7 @@ BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
 
             printf("\n");
             int i = 0;
-            ListCell *targetCell = NULL;
+            ListCell* targetCell = NULL;
             foreach (targetCell, readState->targetAttrs) {
                 AttrNumber attr = lfirst_int(targetCell);
                 *(options.attrs + i) = attr - 1;
@@ -394,21 +434,26 @@ BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
             }
             printf("\n");
 
-            readState->hasNext = RangeQueryRequest(relationId, ++operationId,
-                                                   readState->worker, &options,
-                                                   &readState->buf,
-                                                   &readState->bufLen);
+            RangeQueryArgs args;
+            args.opid = ++operationId;
+            args.opts = &options;
+            args.buf = &readState->buf;
+            args.bufLen = &readState->bufLen;
+            readState->hasNext = KVRangeQueryRequest(relationId, &args);
             pfree(options.attrs);
         } else {
-            readState->hasNext = ReadBatchRequest(relationId, ++operationId,
-                                                  readState->worker,
-                                                  &readState->buf,
-                                                  &readState->bufLen);
+            ReadBatchArgs args;
+            args.buf = &readState->buf;
+            args.bufLen = &readState->bufLen;
+            args.opid = ++operationId;
+            readState->hasNext = KVReadBatchRequest(relationId, &args);
         }
         #else
-        readState->hasNext = ReadBatchRequest(relationId, ++operationId,
-                                              readState->worker, &readState->buf,
-                                              &readState->bufLen);
+        ReadBatchArgs args;
+        args.buf = &readState->buf;
+        args.bufLen = &readState->bufLen;
+        args.opid = ++operationId;
+        readState->hasNext = KVReadBatchRequest(relationId, &args);
         #endif
 
         readState->next = readState->buf;
@@ -422,12 +467,11 @@ BeginForeignScan(ForeignScanState *scanState, int executorFlags) {
  * where we need to match the tuple when do deserialization.
  * Update and Delete also provide full tuple.
  */
-static void
-DeserializeColumnTuple(char *key, size_t kLen, char *val, size_t vLen,
-                       TupleTableSlot *tupleSlot, List *targetList,
-                       bool fullTuple) {
-    Datum *values = tupleSlot->tts_values;
-    bool *nulls = tupleSlot->tts_isnull;
+static void DeserializeColumnTuple(char* key, size_t kLen, char* val,
+                                   size_t vLen, TupleTableSlot* tupleSlot,
+                                   List* targetList, bool fullTuple) {
+    Datum* values = tupleSlot->tts_values;
+    bool* nulls = tupleSlot->tts_isnull;
 
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
     int count = tupleDescriptor->natts;
@@ -439,7 +483,7 @@ DeserializeColumnTuple(char *key, size_t kLen, char *val, size_t vLen,
 
     int targetListLen = list_length(targetList);
     int targetAttrsLen = fullTuple ? count : targetListLen;
-    AttrNumber *attrs = (AttrNumber *) palloc0(targetAttrsLen * sizeof(*attrs));
+    AttrNumber* attrs = (AttrNumber*) palloc0(targetAttrsLen * sizeof(*attrs));
 
     if (fullTuple) {
         for (int index = 0; index < targetAttrsLen; ++index) {
@@ -447,7 +491,7 @@ DeserializeColumnTuple(char *key, size_t kLen, char *val, size_t vLen,
         }
     } else {
         int i = 0;
-        ListCell *targetCell = NULL;
+        ListCell* targetCell = NULL;
         foreach (targetCell, targetList) {
             AttrNumber attr = lfirst_int(targetCell);
             *(attrs + i) = attr;
@@ -461,55 +505,21 @@ DeserializeColumnTuple(char *key, size_t kLen, char *val, size_t vLen,
 //    }
 //    printf("\n");
 
-    /* If the key is in the query list, it must be the first attribute */
-    if (*attrs == 1) {
-        /* The index of tuple descriptors starts from 0 */
-        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, 0);
-        bool byValue = attributeForm->attbyval;
-        int typeLength = attributeForm->attlen;
-        values[0] = fetch_att(key, byValue, typeLength);
-        nulls[0] = false;
-    }
-
-    int offset = 0;
-    char *current = val;
-
-    /* deserialize the remaining attributes */
-    for (int index = 0; index < targetAttrsLen; index++) {
+    for (int index = 0, offset = 0; index < targetAttrsLen; index++) {
         AttrNumber attr = *(attrs + index);
         attr--;
-        /* skip the key */
-        if (attr == 0) {
-            continue;
-        }
-
-        uint64 dataLen = 0;
-        uint8 headerLen = DecodeVarintLength(current, val + vLen, &dataLen);
-        offset += headerLen;
-        current = val + offset;
-        if (dataLen == 0) {
-            continue;
-        }
-
-        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, attr);
-        bool byValue = attributeForm->attbyval;
-        int typeLength = attributeForm->attlen;
-
-        values[attr] = fetch_att(current, byValue, typeLength);
-        offset = att_addlength_datum(offset, typeLength, current);
-        nulls[attr] = false;
-        current = val + offset;
+        offset = DeserializeAttribute(tupleDescriptor, attr, offset, key, val,
+                                      val + vLen, values, nulls);
     }
 
     pfree(attrs);
 }
 #endif
 
-static void
-DeserializeTuple(char *key, size_t kLen, char *val, size_t vLen,
-                 TupleTableSlot *tupleSlot) {
-    Datum *values = tupleSlot->tts_values;
-    bool *nulls = tupleSlot->tts_isnull;
+static void DeserializeTuple(char* key, size_t kLen, char* val, size_t vLen,
+                             TupleTableSlot* tupleSlot) {
+    Datum* values = tupleSlot->tts_values;
+    bool* nulls = tupleSlot->tts_isnull;
 
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
     int count = tupleDescriptor->natts;
@@ -518,59 +528,40 @@ DeserializeTuple(char *key, size_t kLen, char *val, size_t vLen,
     memset(values, 0, count * sizeof(Datum));
     memset(nulls, false, count * sizeof(bool));
 
-    int offset = 0;
-    char *current = key;
-    for (int index = 0; index < count; index++) {
-
-        if (index > 0) {
-            uint64 dataLen = 0;
-            uint8 headerLen = DecodeVarintLength(current, val + vLen, &dataLen);
-            offset += headerLen;
-            current = val + offset;
-            if (dataLen == 0) {
-                nulls[index] = true;
-                continue;
-            }
-        }
-
-        Form_pg_attribute attributeForm = TupleDescAttr(tupleDescriptor, index);
-        bool byValue = attributeForm->attbyval;
-        int typeLength = attributeForm->attlen;
-
-        values[index] = fetch_att(current, byValue, typeLength);
-        offset = att_addlength_datum(offset, typeLength, current);
-
-        if (index == 0) {
-            offset = 0;
-        }
-
-        current = val + offset;
+    for (int index = 0, offset = 0; index < count; index++) {
+        offset = DeserializeAttribute(tupleDescriptor, index, offset, key, val,
+                                      val + vLen, values, nulls);
     }
 }
 
-static bool
-GetNextFromBatch(Oid relationId, TableReadState *readState, WorkerShm *worker,
-                 char **key, size_t *keyLen, char **val, size_t *valLen) {
+static bool GetNextFromBatch(Oid relationId, TableReadState* readState,
+                             char** key, size_t* keyLen, char** val,
+                             size_t* valLen) {
     bool found = false;
     if (readState->next < readState->buf + readState->bufLen) {
         found = true;
     } else if (readState->hasNext) {
         #ifdef VIDARDB
         if (readState->useColumn) {
-            readState->hasNext = RangeQueryRequest(relationId,
-                                                   readState->operationId,
-                                                   worker, NULL, &readState->buf,
-                                                   &readState->bufLen);
+            RangeQueryArgs args;
+            args.opid = readState->operationId;
+            args.opts = NULL;
+            args.buf = &readState->buf;
+            args.bufLen = &readState->bufLen;
+            readState->hasNext = KVRangeQueryRequest(relationId, &args);
         } else {
-            readState->hasNext = ReadBatchRequest(relationId,
-                                                  readState->operationId,
-                                                  worker, &readState->buf,
-                                                  &readState->bufLen);
+            ReadBatchArgs args;
+            args.buf = &readState->buf;
+            args.bufLen = &readState->bufLen;
+            args.opid = readState->operationId;
+            readState->hasNext = KVReadBatchRequest(relationId, &args);
         }
         #else
-        readState->hasNext = ReadBatchRequest(relationId, readState->operationId,
-                                              worker, &readState->buf,
-                                              &readState->bufLen);
+        ReadBatchArgs args;
+        args.buf = &readState->buf;
+        args.bufLen = &readState->bufLen;
+        args.opid = readState->operationId;
+        readState->hasNext = KVReadBatchRequest(relationId, &args);
         #endif
 
         readState->next  = readState->buf;
@@ -590,11 +581,11 @@ GetNextFromBatch(Oid relationId, TableReadState *readState, WorkerShm *worker,
         *val = readState->next;
         readState->next += *valLen;
     }
+
     return found;
 }
 
-static TupleTableSlot *
-IterateForeignScan(ForeignScanState *scanState) {
+static TupleTableSlot* IterateForeignScan(ForeignScanState* scanState) {
 //    printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Fetch one row from the foreign source, returning it in a tuple table
@@ -622,11 +613,11 @@ IterateForeignScan(ForeignScanState *scanState) {
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
-    TupleTableSlot *tupleSlot = scanState->ss.ss_ScanTupleSlot;
+    TupleTableSlot* tupleSlot = scanState->ss.ss_ScanTupleSlot;
     ExecClearTuple(tupleSlot);
 
-    TableReadState *readState = (TableReadState *) scanState->fdw_state;
-    char *k = NULL, *v = NULL;
+    TableReadState* readState = (TableReadState*) scanState->fdw_state;
+    char* k = NULL, *v = NULL;
     size_t kLen = 0, vLen = 0;
     Oid relationId = RelationGetRelid(scanState->ss.ss_currentRelation);
     bool found = false;
@@ -634,12 +625,18 @@ IterateForeignScan(ForeignScanState *scanState) {
         if (!readState->done) {
             k = readState->key->data;
             kLen = readState->key->len;
-            found = GetRequest(relationId, readState->worker, k, kLen, &v, &vLen);
+
+            GetArgs args;
+            args.key = k;
+            args.keyLen = kLen;
+            args.val = &v;
+            args.valLen = &vLen;
+            found = KVGetRequest(relationId, &args);
+
             readState->done = true;
         }
     } else {
-        found = GetNextFromBatch(relationId, readState, readState->worker,
-                                 &k, &kLen, &v, &vLen);
+        found = GetNextFromBatch(relationId, readState, &k, &kLen, &v, &vLen);
     }
 
     if (found) {
@@ -661,8 +658,7 @@ IterateForeignScan(ForeignScanState *scanState) {
     return tupleSlot;
 }
 
-static void
-ReScanForeignScan(ForeignScanState *scanState) {
+static void ReScanForeignScan(ForeignScanState* scanState) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Restart the scan from the beginning. Note that any parameters the scan
@@ -673,8 +669,7 @@ ReScanForeignScan(ForeignScanState *scanState) {
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 }
 
-static void
-EndForeignScan(ForeignScanState *scanState) {
+static void EndForeignScan(ForeignScanState* scanState) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * End the scan and release resources. It is normally not important to
@@ -684,7 +679,7 @@ EndForeignScan(ForeignScanState *scanState) {
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
-    TableReadState *readState = (TableReadState *) scanState->fdw_state;
+    TableReadState* readState = (TableReadState*) scanState->fdw_state;
     Assert(readState);
 
     if (readState->execExplainOnly) {
@@ -700,25 +695,31 @@ EndForeignScan(ForeignScanState *scanState) {
              * unmap for this backend process should already be done in
              * IterateForeignScan. Now release resource of worker process.
              */
-            ClearRangeQueryMetaRequest(relationId, readState->operationId,
-                                       readState->worker, readState);
+            RangeQueryArgs args;
+            args.opid = readState->operationId;
+            args.buf = &readState->buf;
+            args.bufLen = &readState->bufLen;
+            KVClearRangeQueryRequest(relationId, &args);
         } else {
-            DelIterRequest(relationId, readState->operationId,
-                           readState->worker, readState);
+            CloseCursorArgs args;
+            args.opid = readState->operationId;
+            args.buf = readState->buf;
+            KVCloseCursorRequest(relationId, &args);
         }
         #else
-        DelIterRequest(relationId, readState->operationId, readState->worker,
-                       readState);
+        CloseCursorArgs args;
+        args.opid = readState->operationId;
+        args.buf = readState->buf;
+        KVCloseCursorRequest(relationId, &args);
         #endif
     }
 
-    CloseRequest(relationId, readState->worker);
+    KVCloseRequest(relationId);
     pfree(readState);
 }
 
-static void
-AddForeignUpdateTargets(Query *parsetree, RangeTblEntry *tableEntry,
-                        Relation targetRelation) {
+static void AddForeignUpdateTargets(Query* parsetree, RangeTblEntry* tableEntry,
+                                    Relation targetRelation) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * UPDATE and DELETE operations are performed against rows previously
@@ -755,12 +756,12 @@ AddForeignUpdateTargets(Query *parsetree, RangeTblEntry *tableEntry,
      */
     Form_pg_attribute attr = TupleDescAttr(RelationGetDescr(targetRelation), 0);
 
-    Var *var = makeVar(parsetree->resultRelation, 1, attr->atttypid,
+    Var* var = makeVar(parsetree->resultRelation, 1, attr->atttypid,
                        attr->atttypmod, InvalidOid, 0);
 
     /* Wrap it in a TLE with the right name ... */
-    const char *attrname = NameStr(attr->attname);
-    TargetEntry *entry = makeTargetEntry((Expr *) var,
+    const char* attrname = NameStr(attr->attname);
+    TargetEntry* entry = makeTargetEntry((Expr*) var,
                                          list_length(parsetree->targetList) + 1,
                                          pstrdup(attrname), true);
 
@@ -768,9 +769,8 @@ AddForeignUpdateTargets(Query *parsetree, RangeTblEntry *tableEntry,
     parsetree->targetList = lappend(parsetree->targetList, entry);
 }
 
-static List *
-PlanForeignModify(PlannerInfo *root, ModifyTable *plan, Index resultRelation,
-                  int subplanIndex) {
+static List* PlanForeignModify(PlannerInfo* root, ModifyTable* plan,
+                               Index resultRelation, int subplanIndex) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Perform any additional planning actions needed for an insert, update,
@@ -797,9 +797,9 @@ PlanForeignModify(PlannerInfo *root, ModifyTable *plan, Index resultRelation,
     #ifdef VIDARDB
     if (plan->operation == CMD_INSERT) {
         /* for insert, no upward info, we have to fetch from scratch */
-        TablePlanState *planState = palloc0(sizeof(TablePlanState));
+        TablePlanState* planState = palloc0(sizeof(TablePlanState));
 
-        RangeTblEntry *rangeTable = planner_rt_fetch(resultRelation, root);
+        RangeTblEntry* rangeTable = planner_rt_fetch(resultRelation, root);
         Oid foreignTableId = rangeTable->relid;
         planState->fdwOptions = KVGetOptions(foreignTableId);
 
@@ -817,14 +817,14 @@ PlanForeignModify(PlannerInfo *root, ModifyTable *plan, Index resultRelation,
         return list_make1(planState);
     } else {
         /* for delete and update, fdw_private comes from GetForeignRelSize */
-        RelOptInfo *baserel = root->simple_rel_array[resultRelation];
-        TablePlanState *planState = baserel->fdw_private;
+        RelOptInfo* baserel = root->simple_rel_array[resultRelation];
+        TablePlanState* planState = baserel->fdw_private;
         planState->toUpdateDelete = true;
 
         /* We disallow updates to the first column */
         if (plan->operation == CMD_UPDATE) {
-            RangeTblEntry *rangeTable = planner_rt_fetch(resultRelation, root);
-            Bitmapset *attrs = bms_copy(rangeTable->updatedCols);
+            RangeTblEntry* rangeTable = planner_rt_fetch(resultRelation, root);
+            Bitmapset* attrs = bms_copy(rangeTable->updatedCols);
             AttrNumber col = -1;
             while ((col = bms_first_member(attrs)) >= 0) {
                 col += FirstLowInvalidHeapAttributeNumber;
@@ -848,10 +848,9 @@ PlanForeignModify(PlannerInfo *root, ModifyTable *plan, Index resultRelation,
     #endif
 }
 
-static void
-BeginForeignModify(ModifyTableState *modifyTableState,
-                   ResultRelInfo *resultRelInfo, List *fdwPrivate,
-                   int subplanIndex, int executorFlags) {
+static void BeginForeignModify(ModifyTableState* modifyTableState,
+                               ResultRelInfo* resultRelInfo, List* fdwPrivate,
+                               int subplanIndex, int executorFlags) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Begin executing a foreign table modification operation. This routine is
@@ -885,35 +884,34 @@ BeginForeignModify(ModifyTableState *modifyTableState,
         return;
     }
 
-    TableWriteState *writeState = palloc0(sizeof(TableWriteState));
+    TableWriteState* writeState = palloc0(sizeof(TableWriteState));
 
     CmdType operation = modifyTableState->operation;
     writeState->operation = operation;
 
     Relation relation = resultRelInfo->ri_RelationDesc;
-
     Oid foreignTableId = RelationGetRelid(relation);
-    table_open(foreignTableId, ShareUpdateExclusiveLock);
+    table_open(foreignTableId, RowExclusiveLock);
 
     #ifdef VIDARDB
-    TablePlanState *planState = (TablePlanState *) linitial(fdwPrivate);
+    TablePlanState* planState = (TablePlanState*) linitial(fdwPrivate);
+    writeState->useColumn = planState->fdwOptions->useColumn;
+    writeState->targetAttrs = planState->targetAttrs;
     #endif
 
     if (operation == CMD_INSERT) {
-        ComparatorOptions opts;
-        SetRelationComparatorOptions(relation, &opts);
+        OpenArgs args;
+        SetRelationComparatorOpts(relation, &args.opts);
+        KVFdwOptions* fdwOptions = KVGetOptions(foreignTableId);
+        args.path = fdwOptions->filename;
         #ifdef VIDARDB
-        WorkerShm *worker = OpenRequest(foreignTableId, &manager, &workerShmHash,
-                                        &opts, planState->fdwOptions->useColumn,
-                                        planState->attrCount);
-        #else
-        WorkerShm *worker = OpenRequest(foreignTableId, &manager, &workerShmHash,
-                                        &opts);
+        args.useColumn = planState->fdwOptions->useColumn;
+        args.attrCount = planState->attrCount;
         #endif
-        writeState->worker = worker;
+        KVOpenRequest(foreignTableId, &args);
     }
 
-    resultRelInfo->ri_FdwState = (void *) writeState;
+    resultRelInfo->ri_FdwState = (void*) writeState;
 
     #ifdef VIDARDB
     /* we are sure it is no longer need, once it appears here */
@@ -921,8 +919,8 @@ BeginForeignModify(ModifyTableState *modifyTableState,
     #endif
 }
 
-static void
-SerializeTuple(StringInfo key, StringInfo val, TupleTableSlot *tupleSlot) {
+static void SerializeTuple(StringInfo key, StringInfo val,
+                           TupleTableSlot* tupleSlot) {
     TupleDesc tupleDescriptor = tupleSlot->tts_tupleDescriptor;
     int count = tupleDescriptor->natts;
 
@@ -942,9 +940,10 @@ SerializeTuple(StringInfo key, StringInfo val, TupleTableSlot *tupleSlot) {
     }
 }
 
-static TupleTableSlot *
-ExecForeignInsert(EState *executorState, ResultRelInfo *resultRelInfo,
-                  TupleTableSlot *slot, TupleTableSlot *planSlot) {
+static TupleTableSlot* ExecForeignInsert(EState* executorState,
+                                         ResultRelInfo* resultRelInfo,
+                                         TupleTableSlot* slot,
+                                         TupleTableSlot* planSlot) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Insert one tuple into the foreign table. executorState is global
@@ -995,13 +994,12 @@ ExecForeignInsert(EState *executorState, ResultRelInfo *resultRelInfo,
 
     SerializeTuple(key, val, slot);
 
-    TableWriteState *writeState = resultRelInfo->ri_FdwState;
-    if (!writeState->worker) {
-        writeState->worker = GetRelationWorker(foreignTableId);
-    }
-
-    PutRequest(foreignTableId, writeState->worker, key->data, key->len,
-               val->data, val->len);
+    PutArgs args;
+    args.keyLen = key->len;
+    args.valLen = val->len;
+    args.key = key->data;
+    args.val = val->data;
+    KVPutRequest(foreignTableId, &args);
 
     if (shouldFree) {
         pfree(heapTuple);
@@ -1010,9 +1008,10 @@ ExecForeignInsert(EState *executorState, ResultRelInfo *resultRelInfo,
     return slot;
 }
 
-static TupleTableSlot *
-ExecForeignUpdate(EState *executorState, ResultRelInfo *resultRelInfo,
-                  TupleTableSlot *slot, TupleTableSlot *planSlot) {
+static TupleTableSlot* ExecForeignUpdate(EState* executorState,
+                                         ResultRelInfo* resultRelInfo,
+                                         TupleTableSlot* slot,
+                                         TupleTableSlot* planSlot) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Update one tuple in the foreign table. executorState is global execution
@@ -1063,13 +1062,12 @@ ExecForeignUpdate(EState *executorState, ResultRelInfo *resultRelInfo,
 
     SerializeTuple(key, val, slot);
 
-    TableWriteState *writeState = resultRelInfo->ri_FdwState;
-    if (!writeState->worker) {
-        writeState->worker = GetRelationWorker(foreignTableId);
-    }
-
-    PutRequest(foreignTableId, writeState->worker, key->data, key->len,
-               val->data, val->len);
+    PutArgs args;
+    args.keyLen = key->len;
+    args.valLen = val->len;
+    args.key = key->data;
+    args.val = val->data;
+    KVPutRequest(foreignTableId, &args);
 
     if (shouldFree) {
         pfree(heapTuple);
@@ -1078,9 +1076,10 @@ ExecForeignUpdate(EState *executorState, ResultRelInfo *resultRelInfo,
     return slot;
 }
 
-static TupleTableSlot *
-ExecForeignDelete(EState *executorState, ResultRelInfo *resultRelInfo,
-                  TupleTableSlot *slot, TupleTableSlot *planSlot) {
+static TupleTableSlot* ExecForeignDelete(EState* executorState,
+                                         ResultRelInfo* resultRelInfo,
+                                         TupleTableSlot* slot,
+                                         TupleTableSlot* planSlot) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Delete one tuple from the foreign table. executorState is global
@@ -1118,18 +1117,46 @@ ExecForeignDelete(EState *executorState, ResultRelInfo *resultRelInfo,
 
     SerializeTuple(key, val, planSlot);
 
-    TableWriteState *writeState = resultRelInfo->ri_FdwState;
-    if (!writeState->worker) {
-        writeState->worker = GetRelationWorker(foreignTableId);
+    /* Get the previous value */
+    char* v;
+    uint64 vLen;
+
+    GetArgs getArgs;
+    getArgs.key = key->data;
+    getArgs.keyLen = key->len;
+    getArgs.val = &v;
+    getArgs.valLen = &vLen;
+    KVGetRequest(foreignTableId, &getArgs);
+
+    /* Delete the specified key */
+    DeleteArgs delArgs;
+    delArgs.key = key->data;
+    delArgs.keyLen = key->len;
+    KVDeleteRequest(foreignTableId, &delArgs);
+
+    /* Key not exists */
+    if (vLen == 0) {
+        return NULL;
     }
 
-    DeleteRequest(foreignTableId, writeState->worker, key->data, key->len);
+    /* Save the previous value into slot */
+    #ifdef VIDARDB
+    TableWriteState* writeState = (TableWriteState*) resultRelInfo->ri_FdwState;
+    if (writeState->useColumn) {
+        DeserializeColumnTuple(key->data, key->len, v, vLen, slot,
+                               writeState->targetAttrs, true);
+    } else {
+        DeserializeTuple(key->data, key->len, v, vLen, slot);
+    }
+    #else
+    DeserializeTuple(key->data, key->len, v, vLen, slot);
+    #endif
 
+    ExecStoreVirtualTuple(slot);
     return slot;
 }
 
-static void
-EndForeignModify(EState *executorState, ResultRelInfo *resultRelInfo) {
+static void EndForeignModify(EState* executorState, ResultRelInfo* resultRelInfo) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * End the table update and release resources. It is normally not important
@@ -1142,7 +1169,7 @@ EndForeignModify(EState *executorState, ResultRelInfo *resultRelInfo) {
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
-    TableWriteState *writeState = (TableWriteState *) resultRelInfo->ri_FdwState;
+    TableWriteState* writeState = (TableWriteState*) resultRelInfo->ri_FdwState;
 
     if (writeState) {
         Relation relation = resultRelInfo->ri_RelationDesc;
@@ -1150,19 +1177,18 @@ EndForeignModify(EState *executorState, ResultRelInfo *resultRelInfo) {
 
         CmdType operation = writeState->operation;
         if (operation == CMD_INSERT) {
-            CloseRequest(foreignTableId, writeState->worker);
+            KVCloseRequest(foreignTableId);
         }
 
         /* CMD_UPDATE and CMD_DELETE close will be taken care of by endScan */
-        table_close(relation, ShareUpdateExclusiveLock);
+        table_close(relation, RowExclusiveLock);
 
         pfree(writeState);
     }
 }
 
-static void
-ExplainForeignScan(ForeignScanState *scanState,
-                   struct ExplainState * explainState) {
+static void ExplainForeignScan(ForeignScanState* scanState,
+                               struct ExplainState*  explainState) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Print additional EXPLAIN output for a foreign table scan. This function
@@ -1178,10 +1204,10 @@ ExplainForeignScan(ForeignScanState *scanState,
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 }
 
-static void
-ExplainForeignModify(ModifyTableState *modifyTableState,
-                     ResultRelInfo *relationInfo, List *fdwPrivate,
-                     int subplanIndex, struct ExplainState *explainState) {
+static void ExplainForeignModify(ModifyTableState* modifyTableState,
+                                 ResultRelInfo* relationInfo, List* fdwPrivate,
+                                int subplanIndex,
+                                struct ExplainState* explainState) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
      * Print additional EXPLAIN output for a foreign table update. This
@@ -1198,10 +1224,9 @@ ExplainForeignModify(ModifyTableState *modifyTableState,
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 }
 
-static bool
-AnalyzeForeignTable(Relation relation,
-                    AcquireSampleRowsFunc *acquireSampleRowsFunc,
-                    BlockNumber *totalPageCount) {
+static bool AnalyzeForeignTable(Relation relation,
+                                AcquireSampleRowsFunc* acquireSampleRowsFunc,
+                                BlockNumber* totalPageCount) {
     printf("\n-----------------%s----------------------\n", __func__);
     /* ----
      * This function is called when ANALYZE is executed on a foreign table. If
@@ -1235,10 +1260,9 @@ AnalyzeForeignTable(Relation relation,
     return false;
 }
 
-Datum
-kv_fdw_handler(PG_FUNCTION_ARGS) {
+Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
     printf("\n-----------------%s----------------------\n", __func__);
-    FdwRoutine *routine = makeNode(FdwRoutine);
+    FdwRoutine* routine = makeNode(FdwRoutine);
 
     ereport(DEBUG1, (errmsg("entering function %s", __func__)));
 
@@ -1280,8 +1304,7 @@ kv_fdw_handler(PG_FUNCTION_ARGS) {
     PG_RETURN_POINTER(routine);
 }
 
-Datum
-kv_fdw_validator(PG_FUNCTION_ARGS) {
+Datum kv_fdw_validator(PG_FUNCTION_ARGS) {
     printf("\n-----------------%s----------------------\n", __func__);
     //List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
 

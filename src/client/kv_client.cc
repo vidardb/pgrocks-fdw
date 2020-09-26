@@ -56,12 +56,12 @@ static KVWorkerClient* GetKVWorkerClient(KVWorkerId workerId) {
         return worker;
     }
 
-    ereport(ERROR, (errcode(ERRCODE_CONFIGURATION_LIMIT_EXCEEDED),
+    ereport(ERROR, errcode(ERRCODE_CONFIGURATION_LIMIT_EXCEEDED),
             errmsg("too many background workers"),
             errhint("Up to %d background workers can be registered with"
                     " the current settings.", max_worker_processes),
             errhint("Consider increasing the configuration parameter "
-                    "\"max_worker_processes\".")));
+                    "\"max_worker_processes\"."));
     return nullptr;
 }
 

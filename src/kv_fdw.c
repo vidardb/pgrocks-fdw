@@ -114,7 +114,7 @@ static void GetForeignRelSize(PlannerInfo* root, RelOptInfo* baserel,
      * can compute a better estimate of the average result row width.
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     /*
      * min & max will call GetForeignRelSize & GetForeignPaths multiple times,
@@ -162,7 +162,7 @@ static void GetForeignRelSize(PlannerInfo* root, RelOptInfo* baserel,
         /* bit numbers are offset by FirstLowInvalidHeapAttributeNumber */
         AttrNumber attr = col + FirstLowInvalidHeapAttributeNumber;
         if (attr <= InvalidAttrNumber) {  /* shouldn't happen */
-            ereport(ERROR, (errmsg("InvalidAttrNumber in %s", __func__)));
+            ereport(ERROR, errmsg("InvalidAttrNumber in %s", __func__));
         }
         planState->targetAttrs = lappend_int(planState->targetAttrs, attr);
         printf(" %d ", attr);
@@ -204,7 +204,7 @@ static void GetForeignPaths(PlannerInfo* root, RelOptInfo* baserel,
      * that is needed to identify the specific scan method intended.
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     Cost startupCost = 0;
     Cost totalCost = startupCost + baserel->rows;
@@ -238,7 +238,7 @@ static ForeignScan* GetForeignPlan(PlannerInfo* root, RelOptInfo* baserel,
      *
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     /*
      * We have no native ability to evaluate restriction clauses, so we just
@@ -309,7 +309,7 @@ static void GetKeyBasedQual(Node* node, ForeignScanState* scanState,
     /* get the name of the operator according to PG_OPERATOR OID */
     HeapTuple opertup = SearchSysCache1(OPEROID, ObjectIdGetDatum(op->opno));
     if (!HeapTupleIsValid(opertup)) {
-        ereport(ERROR, (errmsg("cache lookup failed for operator %u", op->opno)));
+        ereport(ERROR, errmsg("cache lookup failed for operator %u", op->opno));
     }
     Form_pg_operator operform = (Form_pg_operator) GETSTRUCT(opertup);
     char* oprname = NameStr(operform->oprname);
@@ -367,7 +367,7 @@ static void BeginForeignScan(ForeignScanState* scanState, int executorFlags) {
      *
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     TableReadState* readState = palloc0(sizeof(TableReadState));
     readState->execExplainOnly = false;
@@ -611,7 +611,7 @@ static TupleTableSlot* IterateForeignScan(ForeignScanState* scanState) {
      * (just as you would need to do in the case of a data type mismatch).
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     TupleTableSlot* tupleSlot = scanState->ss.ss_ScanTupleSlot;
     ExecClearTuple(tupleSlot);
@@ -666,7 +666,7 @@ static void ReScanForeignScan(ForeignScanState* scanState) {
      * return exactly the same rows.
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 }
 
 static void EndForeignScan(ForeignScanState* scanState) {
@@ -677,7 +677,7 @@ static void EndForeignScan(ForeignScanState* scanState) {
      * remote servers should be cleaned up.
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     TableReadState* readState = (TableReadState*) scanState->fdw_state;
     Assert(readState);
@@ -748,7 +748,7 @@ static void AddForeignUpdateTargets(Query* parsetree, RangeTblEntry* tableEntry,
      * relies on an unchanging primary key to identify rows.)
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     /*
      * We are using first column as row identification column, so we are adding
@@ -792,7 +792,7 @@ static List* PlanForeignModify(PlannerInfo* root, ModifyTable* plan,
      * BeginForeignModify will be NIL.
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     #ifdef VIDARDB
     if (plan->operation == CMD_INSERT) {
@@ -829,11 +829,11 @@ static List* PlanForeignModify(PlannerInfo* root, ModifyTable* plan,
             while ((col = bms_first_member(attrs)) >= 0) {
                 col += FirstLowInvalidHeapAttributeNumber;
                 if (col <= InvalidAttrNumber) {  /* shouldn't happen */
-                    ereport(ERROR, (errmsg("InvalidAttrNumber in %s", __func__)));
+                    ereport(ERROR, errmsg("InvalidAttrNumber in %s", __func__));
                 }
                 if (col == 1) {
-                    ereport(ERROR, (errmsg("row identifier column update is "
-                                           "not supported.")));
+                    ereport(ERROR, errmsg("row identifier column update is "
+                                          "not supported."));
                 }
                 if (col > 1) {
                     break;
@@ -878,7 +878,7 @@ static void BeginForeignModify(ModifyTableState* modifyTableState,
      * during executor startup.
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     if (executorFlags & EXEC_FLAG_EXPLAIN_ONLY) {
         return;
@@ -929,7 +929,7 @@ static void SerializeTuple(StringInfo key, StringInfo val,
         Datum datum = tupleSlot->tts_values[index];
         if (tupleSlot->tts_isnull[index]) {
             if (index == 0) {
-                ereport(ERROR, (errmsg("first column cannot be null!")));
+                ereport(ERROR, errmsg("first column cannot be null!"));
             }
 
             SerializeNullAttribute(tupleDescriptor, index, val);
@@ -971,7 +971,7 @@ static TupleTableSlot* ExecForeignInsert(EState* executorState,
      * the foreign table will fail with an error message.
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     TupleDesc tupleDescriptor = slot->tts_tupleDescriptor;
 
@@ -1040,7 +1040,7 @@ static TupleTableSlot* ExecForeignUpdate(EState* executorState,
      *
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     TupleDesc tupleDescriptor = slot->tts_tupleDescriptor;
     bool shouldFree;
@@ -1105,7 +1105,7 @@ static TupleTableSlot* ExecForeignDelete(EState* executorState,
      * from the foreign table will fail with an error message.
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     slot_getallattrs(planSlot);
 
@@ -1167,7 +1167,7 @@ static void EndForeignModify(EState* executorState, ResultRelInfo* resultRelInfo
      * executor shutdown.
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     TableWriteState* writeState = (TableWriteState*) resultRelInfo->ri_FdwState;
 
@@ -1201,7 +1201,7 @@ static void ExplainForeignScan(ForeignScanState* scanState,
      * information is printed during EXPLAIN.
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 }
 
 static void ExplainForeignModify(ModifyTableState* modifyTableState,
@@ -1221,7 +1221,7 @@ static void ExplainForeignModify(ModifyTableState* modifyTableState,
      * information is printed during EXPLAIN.
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 }
 
 static bool AnalyzeForeignTable(Relation relation,
@@ -1255,7 +1255,7 @@ static bool AnalyzeForeignTable(Relation relation,
      * ----
      */
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     return false;
 }
@@ -1264,7 +1264,7 @@ Datum kv_fdw_handler(PG_FUNCTION_ARGS) {
     printf("\n-----------------%s----------------------\n", __func__);
     FdwRoutine* routine = makeNode(FdwRoutine);
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     /*
      * assign the handlers for the FDW
@@ -1308,16 +1308,16 @@ Datum kv_fdw_validator(PG_FUNCTION_ARGS) {
     printf("\n-----------------%s----------------------\n", __func__);
     //List *options_list = untransformRelOptions(PG_GETARG_DATUM(0));
 
-    ereport(DEBUG1, (errmsg("entering function %s", __func__)));
+    ereport(DEBUG1, errmsg("entering function %s", __func__));
 
     /* make sure the options are valid */
 
     /* no options are supported */
 
     /*if (list_length(options_list) > 0) {
-        ereport(ERROR, (errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
-                        errmsg("invalid options"),
-                        errhint("FDW does not support any options")));
+        ereport(ERROR, errcode(ERRCODE_FDW_INVALID_OPTION_NAME),
+                       errmsg("invalid options"),
+                       errhint("FDW does not support any options"));
     }*/
 
     PG_RETURN_VOID();

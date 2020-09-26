@@ -55,7 +55,7 @@ void KVMessageQueue::Send(const KVMessage& msg) {
 
     if (isServer_) {
         if (msg.hdr.rpsId == 0) {
-            ereport(WARNING, (errmsg("invalid response channel")));
+            ereport(WARNING, errmsg("invalid response channel"));
             return;
         }
 
@@ -74,7 +74,7 @@ void KVMessageQueue::Recv(KVMessage& msg, int flag) {
         channel = request_;
     } else {
         if (msg.hdr.rpsId == 0) {
-            ereport(WARNING, (errmsg("invalid response channel")));
+            ereport(WARNING, errmsg("invalid response channel"));
             return;
         }
 

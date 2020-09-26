@@ -114,18 +114,18 @@ static bool KVDirectoryExists(StringInfo directoryName) {
         /* file already exists; check that it is a directory */
         if (!S_ISDIR(directoryStat.st_mode)) {
             ereport(ERROR,
-                    (errmsg("\"%s\" is not a directory", directoryName->data),
-                     errhint("You need to remove or rename the file \"%s\".",
-                             directoryName->data)));
+                    errmsg("\"%s\" is not a directory", directoryName->data),
+                    errhint("You need to remove or rename the file \"%s\".",
+                            directoryName->data));
         }
     } else {
         if (errno == ENOENT) {
             directoryExists = false;
         } else {
             ereport(ERROR,
-                    (errcode_for_file_access(),
-                     errmsg("could not stat directory \"%s\": %m",
-                            directoryName->data)));
+                    errcode_for_file_access(),
+                    errmsg("could not stat directory \"%s\": %m",
+                           directoryName->data));
         }
     }
 
@@ -142,9 +142,9 @@ static void KVCreateDatabaseDirectory(Oid databaseOid) {
     appendStringInfo(directoryPath, "%s/%s", DataDir, KVFDWNAME);
     if (!KVDirectoryExists(directoryPath)) {
         if (mkdir(directoryPath->data, S_IRWXU) != 0) {
-            ereport(ERROR, (errcode_for_file_access(),
-                            errmsg("could not create directory \"%s\": %m",
-                                   directoryPath->data)));
+            ereport(ERROR, errcode_for_file_access(),
+                           errmsg("could not create directory \"%s\": %m",
+                                  directoryPath->data));
         }
     }
 
@@ -153,9 +153,9 @@ static void KVCreateDatabaseDirectory(Oid databaseOid) {
                      databaseOid);
     if (!KVDirectoryExists(databaseDirectoryPath)) {
         if (mkdir(databaseDirectoryPath->data, S_IRWXU) != 0) {
-            ereport(ERROR, (errcode_for_file_access(),
-                            errmsg("could not create directory \"%s\": %m",
-                                   databaseDirectoryPath->data)));
+            ereport(ERROR, errcode_for_file_access(),
+                           errmsg("could not create directory \"%s\": %m",
+                                  databaseDirectoryPath->data));
         }
     }
 }
@@ -263,7 +263,7 @@ KVFdwOptions* KVGetOptions(Oid foreignTableId) {
 Datum kv_ddl_event_end_trigger(PG_FUNCTION_ARGS) {
     /* error if event trigger manager did not call this function */
     if (!CALLED_AS_EVENT_TRIGGER(fcinfo)) {
-        ereport(ERROR, (errmsg("trigger not fired by event trigger manager")));
+        ereport(ERROR, errmsg("trigger not fired by event trigger manager"));
     }
 
     EventTriggerData* triggerData = (EventTriggerData*) fcinfo->context;
@@ -385,15 +385,15 @@ static void KVCheckSuperuserPrivilegesForCopy(const CopyStmt* copyStmt) {
      */
     if (copyStmt->filename != NULL && !superuser()) {
         if (copyStmt->is_program) {
-            ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-                     errmsg("must be superuser to COPY to or from a program"),
-                     errhint("Anyone can COPY to stdout or from stdin. "
-                             "psql's \\copy command also works for anyone.")));
+            ereport(ERROR, errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+                    errmsg("must be superuser to COPY to or from a program"),
+                    errhint("Anyone can COPY to stdout or from stdin. "
+                            "psql's \\copy command also works for anyone."));
         } else {
-            ereport(ERROR, (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-                     errmsg("must be superuser to COPY to or from a file"),
-                     errhint("Anyone can COPY to stdout or from stdin. "
-                             "psql's \\copy command also works for anyone.")));
+            ereport(ERROR, errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+                    errmsg("must be superuser to COPY to or from a file"),
+                    errhint("Anyone can COPY to stdout or from stdin. "
+                            "psql's \\copy command also works for anyone."));
         }
     }
 }
@@ -631,7 +631,7 @@ static uint64 KVCopyIntoTable(const CopyStmt* copyStmt, const char* queryString)
                 Datum datum = values[index];
                 if (nulls[index]) {
                     if (index == 0) {
-                        ereport(ERROR, (errmsg("first column cannot be null!")));
+                        ereport(ERROR, errmsg("first column cannot be null!"));
                     }
                     SerializeNullAttribute(tupleDescriptor, index, val);
                 } else {
@@ -674,10 +674,10 @@ static uint64 KVCopyIntoTable(const CopyStmt* copyStmt, const char* queryString)
  */
 static uint64 KVCopyOutTable(CopyStmt* copyStmt, const char* queryString) {
     if (copyStmt->attlist != NIL) {
-        ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                        errmsg("copy column list is not supported"),
-                        errhint("use 'copy (select <columns> from <table>) to "
-                                "...' instead")));
+        ereport(ERROR, errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                       errmsg("copy column list is not supported"),
+                       errhint("use 'copy (select <columns> from <table>) to "
+                                "...' instead"));
     }
 
     RangeVar* relation = copyStmt->relation;
@@ -758,14 +758,14 @@ static void KVCheckAlterTable(AlterTableStmt* alterStmt) {
             if (!can_coerce_type(1, &currentTypeId, &targetTypeId,
                                  COERCION_IMPLICIT)) {
                 char* typeName = TypeNameToString(columnDef->typeName);
-                ereport(ERROR, (errmsg("Column %s cannot be cast automatically "
-                                       "to type %s", columnName, typeName)));
+                ereport(ERROR, errmsg("Column %s cannot be cast automatically "
+                                      "to type %s", columnName, typeName));
             }
         }
 
         if (alterCmd->subtype == AT_AddColumn) {
-            ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-                            errmsg("No support for adding column currently")));
+            ereport(ERROR, errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+                           errmsg("No support for adding column currently"));
         }
     }
 }

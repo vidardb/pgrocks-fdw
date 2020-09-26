@@ -70,7 +70,7 @@ void* OpenConn(char* path, bool useColumn, int attrCount, ComparatorOpts* opts) 
 
     Status s = DB::Open(options, string(path), &conn);
     if (!s.ok()) {
-        ereport(ERROR, (errmsg("DB open status: %s", s.ToString().c_str())));
+        ereport(ERROR, errmsg("DB open status: %s", s.ToString().c_str()));
     }
     return conn;
 }
@@ -83,7 +83,7 @@ void* OpenConn(char* path, ComparatorOpts* opts) {
 
     Status s = DB::Open(options, string(path), &conn);
     if (!s.ok()) {
-        ereport(ERROR, (errmsg("DB open status: %s", s.ToString().c_str())));
+        ereport(ERROR, errmsg("DB open status: %s", s.ToString().c_str()));
     }
     return conn;
 }

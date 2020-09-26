@@ -103,7 +103,7 @@ void KVWorker::Run() {
                 Terminate(msg);
                 break;
             default:
-                ereport(WARNING, (errmsg("invalid operation: %d", msg.hdr.op)));
+                ereport(WARNING, errmsg("invalid operation: %d", msg.hdr.op));
         }
     }
 }
@@ -810,14 +810,14 @@ void* LaunchKVWorker(KVWorkerId workerId, KVDatabaseId dbId) {
     pid_t pid;
     BgwHandleStatus status = WaitForBackgroundWorkerStartup(handle, &pid);
     if (status == BGWH_POSTMASTER_DIED) {
-        ereport(WARNING, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+        ereport(WARNING, errcode(ERRCODE_INSUFFICIENT_RESOURCES),
                 errmsg("cannot start background processes without postmaster"),
                 errhint("Kill all remaining database processes and restart "
-                        "the database.")));
+                        "the database."));
     } else if (status != BGWH_STARTED) {
-        ereport(WARNING, (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+        ereport(WARNING, errcode(ERRCODE_INSUFFICIENT_RESOURCES),
                 errmsg("could not start background process"),
-                errhint("More details may be available in the server log.")));
+                errhint("More details may be available in the server log."));
     }
 
     return handle;

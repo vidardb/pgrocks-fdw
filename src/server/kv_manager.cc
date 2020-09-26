@@ -149,7 +149,7 @@ void KVManager::Run() {
                 Terminate(msg.hdr.relId, msg);
                 break;
             default:
-                ereport(WARNING, (errmsg("invalid operation: %d", msg.hdr.op)));
+                ereport(WARNING, errmsg("invalid operation: %d", msg.hdr.op));
         }
     }
 }

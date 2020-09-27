@@ -1,5 +1,5 @@
 # Mirror from https://hub.docker.com/_/postgres
-FROM vidardb/postgres:11.7
+FROM vidardb/postgres:12.4
 
 ARG apt_opts
 ARG env_exts

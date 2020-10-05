@@ -8,10 +8,9 @@ COMPILE.cxx.bc = $(CLANG) -xc++ -Wno-ignored-attributes $(BITCODE_CXXFLAGS) $(CP
 	$(LLVM_BINPATH)/opt -module-summary -f $@ -o $@
 
 ifdef VIDARDB
-PG_CPPFLAGS += -Wno-declaration-after-statement -Wno-unused-function -DVIDARDB
+PG_CPPFLAGS += -DVIDARDB
 SHLIB_LINK   = -lvidardb
 else
-PG_CPPFLAGS += -Wno-declaration-after-statement -Wno-unused-function
 SHLIB_LINK   = -lrocksdb
 endif
 
@@ -21,6 +20,7 @@ PG_CPPFLAGS += -Wno-deprecated-declarations
 SHLIB_LINK  += -lstdc++
 endif
 
+PG_CFLAGS += -Wno-declaration-after-statement
 PG_CPPFLAGS += -Isrc
 
 OBJS         = src/kv_fdw.o src/kv_utility.o src/server/kv_storage.o src/ipc/kv_posix.o \

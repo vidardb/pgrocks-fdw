@@ -4,18 +4,18 @@
 
 \c kvtest
 
-CREATE FOREIGN TABLE test(key TEXT, value TEXT) SERVER kv_server;  
+CREATE FOREIGN TABLE student(id INTEGER, name TEXT) SERVER kv_server;
 
-INSERT INTO test VALUES('YC', 'VidarDB');  
-SELECT * FROM test;  
+INSERT INTO student VALUES(20757123, 'Rafferty');
+SELECT * FROM student;
 
-INSERT INTO test VALUES('California', 'Waterloo');  
-SELECT * FROM test;  
+INSERT INTO student VALUES(20777345, 'Heisenberg');
+SELECT * FROM student;
 
-DELETE FROM test WHERE key='California';  
-SELECT * FROM test;  
+DELETE FROM student WHERE id=20777345;
+SELECT * FROM student;
 
-UPDATE test SET value='VidarSQL';  
-SELECT * FROM test;  
+UPDATE student SET name='Jones' WHERE id=20757123;
+SELECT * FROM student;
 
-DROP FOREIGN TABLE test;  
+DROP FOREIGN TABLE student;  

@@ -66,7 +66,7 @@ SELECT MAX(value) FROM test;
 -----------------IterateForeignScan----------------------
 -----------------EndForeignScan----------------------
 
-EXPLAIN INSERT INTO test VALUES('California', 'Waterloo');
+EXPLAIN INSERT INTO test VALUES('VidarDB', 'Database');
 -----------------kv_fdw_handler----------------------
 -----------------PlanForeignModify----------------------
 -----------------kv_fdw_handler----------------------
@@ -82,7 +82,7 @@ EXPLAIN SELECT * FROM test;
 -----------------ExplainForeignScan----------------------
 -----------------EndForeignScan----------------------
 
-EXPLAIN UPDATE test SET value='VidarSQL';  
+EXPLAIN UPDATE test SET value='Machine Learning Database';  
 -----------------AddForeignUpdateTargets----------------------
 -----------------GetForeignRelSize----------------------
 -----------------GetForeignPaths----------------------
@@ -95,7 +95,7 @@ EXPLAIN UPDATE test SET value='VidarSQL';
 -----------------EndForeignModify----------------------
 -----------------EndForeignScan----------------------
 
-EXPLAIN DELETE FROM test WHERE key='California';
+EXPLAIN DELETE FROM test WHERE key='VidarDB';
 -----------------AddForeignUpdateTargets----------------------
 -----------------GetForeignRelSize----------------------
 -----------------GetForeignPaths----------------------

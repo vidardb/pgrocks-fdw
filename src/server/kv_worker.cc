@@ -285,6 +285,8 @@ void KVWorker::ReadBatch(KVMessage& msg) {
     ReadBatchState state;
     state.next = BatchRead(conn_, cursor, shm, &state.size);
 
+    Munmap(shm, READBATCHSIZE, __func__); /* Is it safe to unmap here? */
+
     KVMessage sendmsg = SuccessMessage(msg.hdr.rpsId);
     sendmsg.hdr.etySize = sizeof(state);
     sendmsg.ety = &state;

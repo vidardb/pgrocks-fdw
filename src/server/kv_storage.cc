@@ -291,7 +291,7 @@ class PGDataTypeComparator : public Comparator {
         *firstCall_ = true;
         resourceOwner_ = ResourceOwnerCreate(NULL, "ComparatorResourceOwner");
         funcCallInfo_ =  static_cast<FunctionCallInfoBaseData*>
-                         (palloc0(sizeof(*funcCallInfo_)));
+                         (palloc0(SizeForFunctionCallInfo(2)));
         InitFunctionCallInfoData(*funcCallInfo_, &funcManager_, 2,
                                  options_.attrCollOid, NULL, NULL);
         funcCallInfo_->args[0].isnull = false;

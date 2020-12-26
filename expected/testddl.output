@@ -34,7 +34,7 @@ SELECT * FROM testddl;
 ALTER FOREIGN TABLE testddl RENAME TO item;
 ALTER FOREIGN TABLE
 \d testddl
-psql:test/sql/testddl.sql:19: Did not find any relation named "testddl".
+psql:sql/testddl.sql:19: Did not find any relation named "testddl".
 \d item
                                             Foreign table "public.item"
   Column   |            Type             | Collation | Nullable |               Default               | FDW options 

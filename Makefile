@@ -28,7 +28,7 @@ OBJS         = src/kv_fdw.o src/kv_utility.o src/server/kv_storage.o src/ipc/kv_
 			   src/client/kv_client.o src/server/kv_worker.o src/server/kv_manager.o
 
 EXTENSION    = kv_fdw
-DATA         = sql/kv_fdw--0.0.1.sql
+DATA         = kv_fdw--0.0.1.sql
 
 
 # Users need to specify their own path

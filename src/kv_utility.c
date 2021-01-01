@@ -865,6 +865,9 @@ static void KVProcessUtility(PlannedStmt* plannedStmt, const char* queryString,
         /* delete metadata */
         CALL_PREVIOUS_UTILITY(parseTree, queryString, context, paramListInfo,
                               destReceiver, completionTag);
+
+        /* delete database from kv_fdw directory */
+        KVRemoveDatabaseDirectory(dbId);
     } else {
         /* handle other utility statements */
         CALL_PREVIOUS_UTILITY(parseTree, queryString, context, paramListInfo,

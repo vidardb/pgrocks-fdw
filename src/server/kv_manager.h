@@ -27,7 +27,8 @@ using namespace std;
 extern void LaunchKVManager();
 
 /*
- * A kv manager which is responsible for managing all the kv workers' lifecycle.
+ * A kv manager is responsible for managing all the kv workers' lifecycle from
+ * multiple databases, so will only be terminated when PostgreSQL is stop.
  */
 
 class KVManager {

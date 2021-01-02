@@ -215,6 +215,9 @@ static void KVManagerDo() {
  *
  * Set a flag to let the main loop to terminate, and set our latch to
  * wake it up.
+ *
+ * A kv manager is responsible for managing all the kv workers' lifecycle from
+ * multiple databases, so will only be terminated when PostgreSQL is stop.
  */
 static void KVManagerSigHandler(SIGNAL_ARGS) {
     int save_errno = errno;

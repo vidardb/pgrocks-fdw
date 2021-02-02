@@ -135,7 +135,7 @@ A simple example is as follows (*you can run '`sudo -u postgres psql -U postgres
 
 # Testing
 
-We have tested certain typical SQL statements and will add more test cases later. The test scripts are in the test/sql folder which are recommended to be placed in a non-root directory. The corresponding results can be found in the test/expected folder. You can run the tests in the following way:
+We have tested certain typical SQL statements and will add more test cases later. The test scripts are in the sql folder which are recommended to be placed in a non-root directory. The corresponding results can be found in the expected folder. You can run the tests in the following way:
 
 
 ```sh
@@ -143,11 +143,11 @@ We have tested certain typical SQL statements and will add more test cases later
 
     cd pgrocks-fdw 
 
-    sudo -u postgres psql -U postgres -a -f test/sql/create.sql 
+    sudo -u postgres psql -U postgres -a -f sql/create.sql 
 
-    sudo -u postgres psql -U postgres -d kvtest -a -f test/sql/test.sql 
+    sudo -u postgres psql -U postgres -d kvtest -a -f sql/test.sql 
 
-    sudo -u postgres psql -U postgres -d kvtest -a -f test/sql/clear.sql  
+    sudo -u postgres psql -U postgres -d kvtest -a -f sql/clear.sql  
 ```
 
 # Debug 

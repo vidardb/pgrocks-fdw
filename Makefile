@@ -14,6 +14,10 @@ else
 SHLIB_LINK   = -lrocksdb
 endif
 
+ifeq ($(shell uname -s),Linux)
+    COMPILE.cc   = $(CXX) $(CXXFLAGS) -std=c++11 $(CPPFLAGS) -c
+endif
+
 ifeq ($(shell uname -s),Darwin)
 COMPILE.cc   = $(CXX) $(CXXFLAGS) -std=c++11 $(CPPFLAGS) -c
 PG_CPPFLAGS += -Wno-deprecated-declarations

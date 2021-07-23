@@ -23,7 +23,11 @@
 #include "funcapi.h"
 #include "utils/rel.h"
 #include "nodes/makefuncs.h"
-#include "access/tuptoaster.h"
+#if PG_VERSION_NUM < 130000
+#include "access/tuptoaster.h" /* For toast_raw_datum_size */
+#else
+#include "access/detoast.h" /* For toast_raw_datum_size */
+#endif
 #include "catalog/pg_operator.h"
 #include "utils/syscache.h"
 #include "access/table.h"

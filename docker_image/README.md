@@ -13,7 +13,7 @@ Docker is the only requirement. Install it at [https://docs.docker.com/get-docke
 To run a RocksDB's Docker container:
 
 ```sh
-docker run -d --name postgresql -p 5432:5432 vidardb/postgresql:rocksdb-6.2.4
+docker run -d --name postgresql -p 5432:5432 vidardb/postgresql:rocksdb-6.11.4
 ```
 
 After doing that, a `postgresql` container will start and the database will be initialized.
@@ -37,7 +37,7 @@ psql -h 127.0.0.1 -p 5432 -U postgres
 You may want to create your custom Docker image. Do it by '1-click' in the root directory of `PostgresForeignDataWrapper` repository:
 
 ```sh
-# Build a docker image with the default name 'vidardb/postgresql:rocksdb-6.2.4'
+# Build a docker image with the default name 'vidardb/postgresql:rocksdb-6.11.4'
 make docker-image
 ```
 

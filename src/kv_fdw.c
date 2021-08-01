@@ -23,7 +23,7 @@
 #include "funcapi.h"
 #include "utils/rel.h"
 #include "nodes/makefuncs.h"
-#include "access/tuptoaster.h"
+#include "access/heaptoast.h"
 #include "catalog/pg_operator.h"
 #include "utils/syscache.h"
 #include "access/table.h"

@@ -1,5 +1,5 @@
 # Mirror from https://hub.docker.com/_/postgres
-FROM vidardb/postgres:12.4
+FROM vidardb/postgres:13.2
 
 ARG apt_opts
 ARG env_exts
@@ -19,7 +19,7 @@ RUN set -xe && export $env_exts && apt-get $apt_opts update && apt-get $apt_opts
     rm -rf /var/lib/apt/lists/* /tmp/* rocksdb.tar.gz rocksdb-${ROCKSDB_VERSION}
 
 # Install PostgresForeignDataWrapper
-ENV POSTGRES_VERSION=12
+ENV POSTGRES_VERSION=13
 ENV FDW_VERSION=master
 RUN set -xe && export $env_exts && apt-get $apt_opts update && \
     apt-get $apt_opts install -y --no-install-recommends make wget ca-certificates postgresql-server-dev-${POSTGRES_VERSION} && \

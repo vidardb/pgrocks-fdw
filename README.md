@@ -14,7 +14,7 @@ This extension is developed and maintained by the VidarDB team. Feel free to rep
 
 # Building
 
-We test this foreign data wrapper on Ubuntu Server 20.04 using PostgreSQL-12 together with RocksDB-6.11.4 (built with GCC-9.3.0).
+We test this foreign data wrapper on Ubuntu Server 20.04 using PostgreSQL-13 together with RocksDB-6.11.4 (built with GCC-9.3.0).
 
 - Install PostgreSQL and the dev library which is required by extensions:
 
@@ -32,8 +32,8 @@ We test this foreign data wrapper on Ubuntu Server 20.04 using PostgreSQL-12 tog
   sudo apt-get update
 
   # install postgresql and the dev library
-  sudo apt-get install postgresql-12
-  sudo apt-get install postgresql-server-dev-12
+  sudo apt-get install postgresql-13
+  sudo apt-get install postgresql-server-dev-13
   ```
 
 - Install [RocksDB](https://github.com/facebook/rocksdb) from source code:
@@ -62,12 +62,12 @@ We test this foreign data wrapper on Ubuntu Server 20.04 using PostgreSQL-12 tog
   sudo make install
   ```
 
-  To build the foreign data wrapper for [VidarDB](https://github.com/vidardb/vidardb), add flag `VIDARDB=true` to the above `make` command.
+  To build the foreign data wrapper for [VidarDB](https://github.com/vidardb/vidardb) [ version <= 1.0.0 ], add flag `VIDARDB=true` to the above `make` command.
 
 - Before using this foreign data wrapper, we need to add it to `shared_preload_libraries` in the `postgresql.conf`:
 
   ```sh
-  sudo bash -c 'echo "shared_preload_libraries = 'kv_fdw'" >> /etc/postgresql/12/main/postgresql.conf'
+  sudo bash -c 'echo "shared_preload_libraries = 'kv_fdw'" >> /etc/postgresql/13/main/postgresql.conf'
   ```
 
   and restart PostgreSQL:
@@ -158,7 +158,7 @@ If you want to debug the source code, you may need to start PostgreSQL in the de
 ```sh
     sudo service postgresql stop  
 
-    sudo -u postgres /usr/lib/postgresql/12/bin/postgres -d 0 -D /var/lib/postgresql/12/main -c config_file=/etc/postgresql/12/main/postgresql.conf
+    sudo -u postgres /usr/lib/postgresql/13/bin/postgres -d 0 -D /var/lib/postgresql/13/main -c config_file=/etc/postgresql/13/main/postgresql.conf
 ```  
 
 # Docker

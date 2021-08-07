@@ -7,7 +7,7 @@ compiler:
 
 addons:
   apt:
-      packages: ['docker-ce', 'postgresql-server-dev-12']
+      packages: ['docker-ce', 'postgresql-server-dev-13']
 
 before_script:
   - docker version

@@ -66,9 +66,9 @@ typedef struct DroppedObject {
                           PreviousProcessUtilityHook : standard_ProcessUtility)
 
 #define CALL_PREVIOUS_UTILITY(parseTree, queryString, context, paramListInfo, \
-                              destReceiver, completionTag) \
+                              destReceiver, qc) \
         PREVIOUS_UTILITY(plannedStmt, queryString, context, paramListInfo, \
-                         queryEnvironment, destReceiver, completionTag)
+                         queryEnvironment, destReceiver, qc)
 
 
 /*
@@ -84,7 +84,7 @@ static void KVProcessUtility(PlannedStmt* plannedStmt, const char* queryString,
                              ProcessUtilityContext context,
                              ParamListInfo paramListInfo,
                              QueryEnvironment* queryEnvironment,
-                             DestReceiver* destReceiver, char* completionTag);
+                             DestReceiver* destReceiver, QueryCompletion* qc);
 
 /*
  * _PG_init is called when the module is loaded. In this function we save the
@@ -781,7 +781,7 @@ static void KVProcessUtility(PlannedStmt* plannedStmt, const char* queryString,
                              ParamListInfo paramListInfo,
                              QueryEnvironment* queryEnvironment,
                              DestReceiver* destReceiver,
-                             char* completionTag) {
+                             QueryCompletion* qc) {
     Node* parseTree = plannedStmt->utilityStmt;
     if (nodeTag(parseTree) == T_CopyStmt) {
 
@@ -795,13 +795,14 @@ static void KVProcessUtility(PlannedStmt* plannedStmt, const char* queryString,
                 rowCount = KVCopyOutTable(copyStmt, queryString);
             }
 
-            if (completionTag != NULL) {
-                snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
-                         "COPY " UINT64_FORMAT, rowCount);
+            if (qc != NULL) {
+                qc->commandTag = copyStmt->is_from ? CMDTAG_COPY_FROM :
+                                                     CMDTAG_COPY;
+                qc->nprocessed = rowCount;
             }
         } else {
             CALL_PREVIOUS_UTILITY(parseTree, queryString, context,
-                                  paramListInfo, destReceiver, completionTag);
+                                  paramListInfo, destReceiver, qc);
         }
     } else if (nodeTag(parseTree) == T_DropStmt) {
 
@@ -821,7 +822,7 @@ static void KVProcessUtility(PlannedStmt* plannedStmt, const char* queryString,
             }
 
             CALL_PREVIOUS_UTILITY(parseTree, queryString, context,
-                                  paramListInfo, destReceiver, completionTag);
+                                  paramListInfo, destReceiver, qc);
 
             if (removeDirectory) {
                 KVRemoveDatabaseDirectory(MyDatabaseId);
@@ -833,7 +834,7 @@ static void KVProcessUtility(PlannedStmt* plannedStmt, const char* queryString,
 
             /* delete metadata */
             CALL_PREVIOUS_UTILITY(parseTree, queryString, context,
-                                  paramListInfo, destReceiver, completionTag);
+                                  paramListInfo, destReceiver, qc);
 
             /* delete real data and worker */
             ListCell* fileCell = NULL;
@@ -852,7 +853,7 @@ static void KVProcessUtility(PlannedStmt* plannedStmt, const char* queryString,
         AlterTableStmt* alterStmt = (AlterTableStmt*) parseTree;
         KVCheckAlterTable(alterStmt);
         CALL_PREVIOUS_UTILITY(parseTree, queryString, context, paramListInfo,
-                              destReceiver, completionTag);
+                              destReceiver, qc);
     } else if (nodeTag(parseTree) == T_DropdbStmt) {
         DropdbStmt* dropdbStmt = (DropdbStmt*) parseTree;
         Oid dbId = get_database_oid(dropdbStmt->dbname, true);
@@ -869,7 +870,7 @@ static void KVProcessUtility(PlannedStmt* plannedStmt, const char* queryString,
 
         /* delete metadata */
         CALL_PREVIOUS_UTILITY(parseTree, queryString, context, paramListInfo,
-                              destReceiver, completionTag);
+                              destReceiver, qc);
 
         /* delete database from kv_fdw directory */
         if (OidIsValid(dbId)) {
@@ -878,6 +879,6 @@ static void KVProcessUtility(PlannedStmt* plannedStmt, const char* queryString,
     } else {
         /* handle other utility statements */
         CALL_PREVIOUS_UTILITY(parseTree, queryString, context, paramListInfo,
-                              destReceiver, completionTag);
+                              destReceiver, qc);
     }
 }

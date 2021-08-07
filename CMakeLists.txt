@@ -23,12 +23,11 @@ add_library(${PROJECT_NAME}   SHARED
     src/kv_fdw.c
     src/kv_utility.c
     src/ipc/kv_posix.cc
-	src/ipc/kv_message.cc
+    src/ipc/kv_message.cc
     src/ipc/kv_channel.cc
     src/ipc/kv_mq.cc
-	src/client/kv_client.cc
+    src/client/kv_client.cc
     )
-  
 
 target_link_directories(${PROJECT_NAME} PRIVATE ${PG_LIB_DIR})
 target_link_libraries(${PROJECT_NAME}  protobuf-c ecpg pthread rocksdb)
@@ -38,4 +37,3 @@ SET_TARGET_PROPERTIES(${PROJECT_NAME}  PROPERTIES PREFIX "")
 
 install(TARGETS ${PROJECT_NAME}  DESTINATION ${PG_LIB_DIR})
 install(FILES kv_fdw.control kv_fdw--0.0.1.sql DESTINATION  ${PG_SHARE_DIR}/extension)
-   

@@ -18,7 +18,7 @@ jobs:
           . ./scripts/install_dependencies.sh
           . ./scripts/postgres_build.sh
           . ./scripts/rocksdb_build.sh
-          . ./scripts/pgrocks_am_build.sh
+          . ./scripts/pgrocks_fdw_build.sh
   build_with_vidardb:
     runs-on: ubuntu-latest
     steps:
@@ -27,4 +27,4 @@ jobs:
           . ./scripts/install_dependencies.sh
           . ./scripts/postgres_build.sh
           . ./scripts/vidardb_build.sh
-          . ./scripts/pgrocks_am_build.sh true
+          . ./scripts/pgrocks_fdw_build.sh true

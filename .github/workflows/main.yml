@@ -24,6 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - run: |
+          export VIDARDB_VERSION=1.0.0
           . ./scripts/install_dependencies.sh
           . ./scripts/postgres_build.sh
           . ./scripts/vidardb_build.sh

@@ -14,6 +14,10 @@ else
 SHLIB_LINK   = -lrocksdb
 endif
 
+ifeq ($(shell uname -s),Linux)
+    COMPILE.cc   = $(CXX) $(CXXFLAGS) -std=c++11 $(CPPFLAGS) -c
+endif
+
 ifeq ($(shell uname -s),Darwin)
 COMPILE.cc   = $(CXX) $(CXXFLAGS) -std=c++11 $(CPPFLAGS) -c
 PG_CPPFLAGS += -Wno-deprecated-declarations
@@ -48,28 +52,28 @@ APT_OPTS ?=
 ENV_EXTS ?=
 
 src/server/kv_storage.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/server/kv_storage.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/server/kv_storage.cc
 
 src/ipc/kv_posix.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/ipc/kv_posix.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/ipc/kv_posix.cc
 
 src/ipc/kv_message.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/ipc/kv_message.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/ipc/kv_message.cc
 
 src/ipc/kv_channel.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/ipc/kv_channel.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/ipc/kv_channel.cc
 
 src/ipc/kv_mq.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/ipc/kv_mq.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/ipc/kv_mq.cc
 	
 src/client/kv_client.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/client/kv_client.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/client/kv_client.cc
 
 src/server/kv_worker.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/server/kv_worker.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/server/kv_worker.cc
 
 src/server/kv_manager.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -fPIC -c -o $@ src/server/kv_manager.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/server/kv_manager.cc
 
 .PHONY: docker-image
 docker-image:

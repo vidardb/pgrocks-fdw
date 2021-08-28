@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+  workflow_dispatch:
+
+jobs:
+  build_with_rocksdb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: |
+          export ROCKSDB_VERSION=6.11.4
+          . ./scripts/install_dependencies.sh
+          . ./scripts/postgres_build.sh
+          . ./scripts/rocksdb_build.sh
+          . ./scripts/pgrocks_fdw_build.sh
+  build_with_vidardb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: |
+          export VIDARDB_VERSION=1.0.0
+          . ./scripts/install_dependencies.sh
+          . ./scripts/postgres_build.sh
+          . ./scripts/vidardb_build.sh
+          . ./scripts/pgrocks_fdw_build.sh true
+  build_docker_image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: make docker-image

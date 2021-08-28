@@ -24,7 +24,7 @@
 #include "utils/rel.h"
 #include "nodes/makefuncs.h"
 
-#include "access/tuptoaster.h"
+#include "access/detoast.h"
 #include "access/heaptoast.h"
 #include "catalog/pg_operator.h"
 #include "utils/syscache.h"

@@ -36,4 +36,4 @@ target_link_libraries(${PROJECT_NAME}  protobuf-c ecpg pthread rocksdb)
 SET_TARGET_PROPERTIES(${PROJECT_NAME}  PROPERTIES PREFIX "") 
 
 install(TARGETS ${PROJECT_NAME}  DESTINATION ${PG_LIB_DIR})
-install(FILES kv_fdw.control kv_fdw--0.0.1.sql DESTINATION  ${PG_SHARE_DIR}/extension)
+install(FILES kv_fdw.control kv_fdw--0.0.1.sql DESTINATION ${PG_SHARE_DIR}/extension)

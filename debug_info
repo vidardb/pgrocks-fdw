@@ -46,7 +46,7 @@ DELETE FROM test WHERE key='a';
 -----------------EndForeignModify----------------------
 -----------------EndForeignScan----------------------
 
-EXPLAIN select * FROM test;
+EXPLAIN  * FROM test;
 -----------------GetForeignRelSize----------------------
 -----------------GetForeignPaths----------------------
 -----------------GetForeignPlan----------------------

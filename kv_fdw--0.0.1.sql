@@ -10,8 +10,8 @@ AS 'MODULE_PATHNAME'
 LANGUAGE C STRICT;
 
 CREATE FOREIGN DATA WRAPPER kv_fdw
-  HANDLER kv_fdw_handler
-  VALIDATOR kv_fdw_validator;
+HANDLER kv_fdw_handler
+VALIDATOR kv_fdw_validator;
 
 CREATE FUNCTION kv_ddl_event_end_trigger()
 RETURNS event_trigger

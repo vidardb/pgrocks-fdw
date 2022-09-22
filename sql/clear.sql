@@ -1,5 +1,5 @@
 --
--- Delete the extension and server 
+-- Delete the extension and the server 
 --
 
 \c kvtest

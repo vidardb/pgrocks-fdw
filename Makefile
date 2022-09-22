@@ -1,5 +1,5 @@
 
-MODULE_big   = kv_fdw
+MODULE_big     = kv_fdw
 
 COMPILE.cxx.bc = $(CLANG) -xc++ -Wno-ignored-attributes $(BITCODE_CXXFLAGS) $(CPPFLAGS) -emit-llvm -c
 
@@ -24,7 +24,7 @@ PG_CPPFLAGS += -Wno-deprecated-declarations
 SHLIB_LINK  += -lstdc++
 endif
 
-PG_CFLAGS += -Wno-declaration-after-statement
+PG_CFLAGS   += -Wno-declaration-after-statement
 PG_CPPFLAGS += -Isrc
 
 OBJS         = src/kv_fdw.o src/kv_utility.o src/server/kv_storage.o src/ipc/kv_posix.o \

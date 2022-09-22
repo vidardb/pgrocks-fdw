@@ -121,7 +121,7 @@ extern void   KVCloseCursorRequest(KVRelationId rid, CloseCursorArgs* args);
 extern bool   KVRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args);
 extern void   KVClearRangeQueryRequest(KVRelationId rid, RangeQueryArgs* args);
 #endif
-extern void   KVTerminateRequest(KVRelationId rid, KVDatabaseId dbId);
+extern void   KVTerminateRequest(KVRelationId rid, KVDatabaseId dbd);
 
 /* Utility API for kv manager */
 

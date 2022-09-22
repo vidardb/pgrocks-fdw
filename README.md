@@ -10,7 +10,7 @@ RocksDB is a high performance key-value store based on a log-structured merge-tr
 
 This extension can also be used for other systems that have RocksDB-like APIs, but please check the compatibility before you use this extension for other systems.
 
-This extension is developed and maintained by the VidarDB team. Feel free to report bugs or issues via Github.
+This extension is developed and maintained by the VidarDB team. Currently only works for PG13. Feel free to report bugs or issues via Github.
 
 # Building
 

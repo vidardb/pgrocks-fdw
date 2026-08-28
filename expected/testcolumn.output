@@ -224,9 +224,9 @@ INSERT 0 1
 SELECT * FROM product;
  name  |                        make                        |              product_id              
 -------+----------------------------------------------------+--------------------------------------
- Nm2   | ComB                                               | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
  Name1 | ComA                                               | 40e6215d-b5c6-4896-987c-f30f3678f608
  Name3 | ComC                                               | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
+ Nm2   | ComB                                               | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
 (3 rows)
 
 SELECT item.name,item.inventory,product.product_id FROM item INNER JOIN product ON item.name=product.name;
@@ -241,18 +241,18 @@ SELECT item.name,item.inventory,product.product_id FROM item INNER JOIN product 
 SELECT item.name,item.inventory,product.product_id FROM item CROSS JOIN product;
  name  | inventory |              product_id              
 -------+-----------+--------------------------------------
- Name1 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
  Name1 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
  Name1 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
- Nm2   |        25 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name1 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
  Nm2   |        25 | 40e6215d-b5c6-4896-987c-f30f3678f608
  Nm2   |        25 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
- Name3 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Nm2   |        25 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
  Name3 |        50 | 40e6215d-b5c6-4896-987c-f30f3678f608
  Name3 |        50 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
- Name1 |        10 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
+ Name3 |        50 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
  Name1 |        10 | 40e6215d-b5c6-4896-987c-f30f3678f608
  Name1 |        10 | b0eebc88-4501-4ef8-bb6d-6bb9bd380a22
+ Name1 |        10 | a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11
 (12 rows)
 
 INSERT INTO product VALUES ('Name4', 'ComD', 'b532bc88-4502-1ef8-bc6c-6cb9bd300a23');

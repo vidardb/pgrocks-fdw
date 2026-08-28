@@ -7,35 +7,35 @@ CREATE FOREIGN TABLE student(id INTEGER, name TEXT) SERVER kv_server;
 CREATE FOREIGN TABLE
 INSERT INTO student VALUES(20757123, 'Rafferty');
 INSERT 0 1
-SELECT * FROM student;  
- id        |  name  
------------+---------
- 20757123  | Rafferty
+SELECT * FROM student;
+    id    |   name   
+----------+----------
+ 20757123 | Rafferty
 (1 row)
 
 INSERT INTO student VALUES(20777345, 'Heisenberg');
 INSERT 0 1
-SELECT * FROM student;  
-    id      |  name   
-------------+----------
- 20757123   | Rafferty
- 20777345   | Heisenberg
+SELECT * FROM student;
+    id    |    name    
+----------+------------
+ 20757123 | Rafferty
+ 20777345 | Heisenberg
 (2 rows)
 
-DELETE FROM student WHERE id=20777345;  
+DELETE FROM student WHERE id=20777345;
 DELETE 1
-SELECT * FROM student;  
-    id      |  name   
-------------+----------
- 20757123   | Rafferty
+SELECT * FROM student;
+    id    |   name   
+----------+----------
+ 20757123 | Rafferty
 (1 row)
 
-UPDATE student SET name='Jones' WHERE id=20757123; 
+UPDATE student SET name='Jones' WHERE id=20757123;
 UPDATE 1
-SELECT * FROM student;  
-    id      |  name   
-------------+----------
- 20757123   | Jones
+SELECT * FROM student;
+    id    | name  
+----------+-------
+ 20757123 | Jones
 (1 row)
 
 DROP FOREIGN TABLE student;  

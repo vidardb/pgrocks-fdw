@@ -9,6 +9,88 @@ on:
   workflow_dispatch:
 
 jobs:
+  build_and_test:
+    name: build + happy path
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Pinned base rather than the runner image: the extension targets
+    # PostgreSQL 13, and bullseye is the newest Debian carrying both a PGDG
+    # postgresql-13 package and librocksdb-dev at 6.11.4, the RocksDB version
+    # this is developed against. Taking both from packages keeps it to a
+    # couple of minutes; build_with_rocksdb covers the from-source path.
+    container: debian:bullseye
+
+    env:
+      OUT_DIR: ${{ github.workspace }}/test-output
+      PGHOST: /tmp
+      PGUSER: postgres
+
+    steps:
+      - name: Install PostgreSQL 13 and RocksDB
+        run: |
+          set -eux
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y --no-install-recommends \
+            build-essential ca-certificates curl git gnupg librocksdb-dev locales
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+          echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt bullseye-pgdg main" \
+            > /etc/apt/sources.list.d/pgdg.list
+          apt-get update -qq
+          apt-get install -y --no-install-recommends postgresql-13 postgresql-server-dev-13
+          sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
+          locale-gen
+
+      - uses: actions/checkout@v5
+
+      - name: Report toolchain versions
+        run: |
+          pg_config --version
+          dpkg -s librocksdb-dev | grep '^Version:'
+          g++ --version | head -1
+
+      - name: Build
+        run: make
+
+      - name: Install
+        run: make install
+
+      # If kv_fdw.so were missing or unloadable, shared_preload_libraries would
+      # make the postmaster exit with FATAL, so a successful start is itself the
+      # check that what we built is loadable.
+      - name: Start PostgreSQL with kv_fdw preloaded
+        run: |
+          set -eux
+          install -d -o postgres -g postgres /tmp/pgdata
+          su postgres -c "/usr/lib/postgresql/13/bin/initdb -D /tmp/pgdata --auth trust -U postgres"
+          {
+            echo "shared_preload_libraries = 'kv_fdw'"
+            echo "unix_socket_directories = '/tmp'"
+          } >> /tmp/pgdata/postgresql.conf
+          su postgres -c "/usr/lib/postgresql/13/bin/pg_ctl -D /tmp/pgdata -l /tmp/pg.log -w start"
+          psql -c 'SELECT version()'
+
+      # Diffs the full psql transcript of each script against expected/, so a
+      # behaviour change fails the build rather than just a crash.
+      - name: Run the happy path
+        run: bash scripts/run_tests.sh
+
+      - name: Collect logs
+        if: failure()
+        run: |
+          mkdir -p "$OUT_DIR"
+          cp /tmp/pg.log "$OUT_DIR/postmaster.log" 2>/dev/null || true
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: pgrocks-fdw-logs
+          path: test-output/
+          if-no-files-found: ignore
+
   build_with_rocksdb:
     # Pinned rather than ubuntu-latest: RocksDB 6.11.4 does not compile with
     # gcc 13 on 24.04, where it fails on headers that no longer include

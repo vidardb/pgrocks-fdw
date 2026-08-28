@@ -135,8 +135,19 @@ A simple example is as follows (*you can run '`sudo -u postgres psql -U postgres
 
 # Testing
 
-We have tested certain typical SQL statements and will add more test cases later. The test scripts are in the sql folder which are recommended to be placed in a non-root directory. The corresponding results can be found in the expected folder. You can run the tests in the following way:
+We have tested certain typical SQL statements and will add more test cases later. The test scripts are in the sql folder which are recommended to be placed in a non-root directory. The corresponding results can be found in the expected folder.
 
+Against a server that already has the extension installed and preloaded, run every script that has a recorded result and compare:
+
+```sh
+    cd pgrocks-fdw
+
+    PGUSER=postgres scripts/run_tests.sh
+```
+
+Each script runs against a freshly created ```kvtest``` database. ```testddl.sql``` records ```current_timestamp``` values, so its transcript is compared with timestamps masked; the rest are compared byte for byte. After an intentional behaviour change, regenerate the recorded results with ```scripts/run_tests.sh --regenerate``` and review the diff.
+
+You can also run an individual script by hand:
 
 ```sh
     sudo service postgresql restart  

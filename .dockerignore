@@ -1,0 +1,6 @@
+.git
+.github
+test-output
+*.o
+*.so
+*.bc

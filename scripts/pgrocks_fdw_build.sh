@@ -2,7 +2,7 @@
 
 set -e
 
-if [[ -z "$1" ]]; then
+if [[ -z "${1:-}" ]]; then
     PG_CONFIG=/usr/local/pgsql/bin/pg_config make
     sudo PG_CONFIG=/usr/local/pgsql/bin/pg_config make install
 else

@@ -795,10 +795,13 @@ static void KVProcessUtility(PlannedStmt* plannedStmt, const char* queryString,
                 rowCount = KVCopyOutTable(copyStmt, queryString);
             }
 
+            /*
+             * CMDTAG_COPY_FROM is declared with its row count flag off, so it
+             * renders as a bare "COPY FROM" that the client cannot parse.
+             * Core's own COPY reports CMDTAG_COPY in both directions.
+             */
             if (qc != NULL) {
-                qc->commandTag = copyStmt->is_from ? CMDTAG_COPY_FROM :
-                                                     CMDTAG_COPY;
-                qc->nprocessed = rowCount;
+                SetQueryCompletion(qc, CMDTAG_COPY, rowCount);
             }
         } else {
             CALL_PREVIOUS_UTILITY(parseTree, queryString, context,

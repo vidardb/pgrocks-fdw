@@ -11,3 +11,4 @@
 
 src/tools/pgindent/typedefs.list
 .deps
+test-output/

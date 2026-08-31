@@ -2,7 +2,7 @@
 #
 # Built from the repository root, so that the image contains the extension as
 # checked out rather than a tarball downloaded from GitHub.
-FROM postgres:13-bullseye
+FROM postgres:18-trixie
 
 ARG apt_opts
 ARG env_exts
@@ -11,10 +11,10 @@ ARG env_exts
 COPY docker_image/docker-entrypoint.sh /usr/local/bin/
 RUN chmod 777 /usr/local/bin/docker-entrypoint.sh
 
-# Install RocksDB and the extension. bullseye packages RocksDB 6.11.4, the
-# version this is developed against, so it is installed rather than built from
-# source; librocksdb-dev is kept afterwards because kv_fdw.so links against it.
-ENV POSTGRES_VERSION=13
+# Install RocksDB and the extension. trixie packages RocksDB 9.10, so it is
+# installed rather than built from source; librocksdb-dev is kept afterwards
+# because kv_fdw.so links against it.
+ENV POSTGRES_VERSION=18
 COPY . /tmp/pgrocks-fdw
 RUN set -xe && export $env_exts && apt-get $apt_opts update && \
     apt-get $apt_opts install -y --no-install-recommends \

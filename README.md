@@ -10,36 +10,35 @@ RocksDB is a high performance key-value store based on a log-structured merge-tr
 
 This extension can also be used for other systems that have RocksDB-like APIs, but please check the compatibility before you use this extension for other systems.
 
-This extension is developed and maintained by the VidarDB team. Currently only works for PG13. Feel free to report bugs or issues via Github.
+This extension is developed and maintained by the VidarDB team. Currently only works for PG18. Feel free to report bugs or issues via Github.
 
 # Building
 
-We test this foreign data wrapper on Ubuntu Server 20.04 using PostgreSQL-13 together with RocksDB-6.11.4 (built with GCC-9.3.0).
+CI builds this foreign data wrapper two ways: against PostgreSQL 18 with the RocksDB 9.10 that Debian trixie packages, and against PostgreSQL 18.6 with RocksDB 10.10.1 both built from source. It needs a compiler with C++20, because RocksDB 10 uses C++20 in its public headers.
 
 - Install PostgreSQL and the dev library which is required by extensions:
 
   ```sh
-  # add the repository
-  sudo tee /etc/apt/sources.list.d/pgdg.list << END
-  deb http://apt.postgresql.org/pub/repos/apt/ bionic-pgdg main
-  END
-
   # get the signing key and import it
-  wget https://www.postgresql.org/media/keys/ACCC4CF8.asc
-  sudo apt-key add ACCC4CF8.asc
+  curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    | sudo gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+
+  # add the repository, using the codename of the distribution you are on
+  echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+    | sudo tee /etc/apt/sources.list.d/pgdg.list
 
   # fetch the metadata from the new repo
   sudo apt-get update
 
   # install postgresql and the dev library
-  sudo apt-get install postgresql-13
-  sudo apt-get install postgresql-server-dev-13
+  sudo apt-get install postgresql-18
+  sudo apt-get install postgresql-server-dev-18
   ```
 
 - Install [RocksDB](https://github.com/facebook/rocksdb) from source code:
 
   ```sh
-  git clone -b v6.11.4 https://github.com/facebook/rocksdb.git
+  git clone -b v10.10.1 https://github.com/facebook/rocksdb.git
 
   cd rocksdb
 

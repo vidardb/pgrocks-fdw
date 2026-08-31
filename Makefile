@@ -52,7 +52,7 @@ include $(PGXS)
 
 # Users can specify their own configuration
 REGISTRY ?= vidardb
-TAG ?= rocksdb-6.11.4
+TAG ?= rocksdb-9.10
 IMAGE ?= postgresql
 DOCKER ?= docker
 NETWORK ?= default

@@ -14,12 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
-    # Pinned base rather than the runner image: the extension targets
-    # PostgreSQL 13, and bullseye is the newest Debian carrying both a PGDG
-    # postgresql-13 package and librocksdb-dev at 6.11.4, the RocksDB version
-    # this is developed against. Taking both from packages keeps it to a
-    # couple of minutes; build_with_rocksdb covers the from-source path.
-    container: debian:bullseye
+    # Pinned base rather than the runner image: trixie carries both a PGDG
+    # postgresql-18 package and librocksdb-dev at 9.10. Taking both from
+    # packages keeps this job to about a minute, which is what makes it usable
+    # as the per-push check; build_with_rocksdb covers the from-source path
+    # against a newer RocksDB.
+    container: debian:trixie
 
     env:
       OUT_DIR: ${{ github.workspace }}/test-output
@@ -27,7 +27,7 @@ jobs:
       PGUSER: postgres
 
     steps:
-      - name: Install PostgreSQL 13 and RocksDB
+      - name: Install PostgreSQL 18 and RocksDB
         run: |
           set -eux
           export DEBIAN_FRONTEND=noninteractive
@@ -36,10 +36,10 @@ jobs:
             build-essential ca-certificates curl git gnupg librocksdb-dev locales
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
             | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
-          echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt bullseye-pgdg main" \
+          echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt trixie-pgdg main" \
             > /etc/apt/sources.list.d/pgdg.list
           apt-get update -qq
-          apt-get install -y --no-install-recommends postgresql-13 postgresql-server-dev-13
+          apt-get install -y --no-install-recommends postgresql-18 postgresql-server-dev-18
           sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
           locale-gen
 
@@ -64,12 +64,12 @@ jobs:
         run: |
           set -eux
           install -d -o postgres -g postgres /tmp/pgdata
-          su postgres -c "/usr/lib/postgresql/13/bin/initdb -D /tmp/pgdata --auth trust -U postgres"
+          su postgres -c "/usr/lib/postgresql/18/bin/initdb -D /tmp/pgdata --auth trust -U postgres"
           {
             echo "shared_preload_libraries = 'kv_fdw'"
             echo "unix_socket_directories = '/tmp'"
           } >> /tmp/pgdata/postgresql.conf
-          su postgres -c "/usr/lib/postgresql/13/bin/pg_ctl -D /tmp/pgdata -l /tmp/pg.log -w start"
+          su postgres -c "/usr/lib/postgresql/18/bin/pg_ctl -D /tmp/pgdata -l /tmp/pg.log -w start"
           psql -c 'SELECT version()'
 
       # Diffs the full psql transcript of each script against expected/, so a
@@ -92,14 +92,16 @@ jobs:
           if-no-files-found: ignore
 
   build_with_rocksdb:
-    # Pinned rather than ubuntu-latest: RocksDB 6.11.4 does not compile with
-    # gcc 13 on 24.04, where it fails on headers that no longer include
-    # <cstdint> transitively. gcc 11 builds it once warnings-as-errors are off.
-    runs-on: ubuntu-22.04
+    # Builds PostgreSQL and RocksDB from source, so it is slow and runs
+    # alongside build_and_test rather than instead of it. RocksDB 10 is a
+    # newer major than the 9.10 that trixie packages, which is the point: it
+    # is the only job that sees the version this is meant to move to.
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
       - run: |
-          export ROCKSDB_VERSION=6.11.4
+          export ROCKSDB_VERSION=10.10.1
           . ./scripts/install_dependencies.sh
           . ./scripts/postgres_build.sh
           . ./scripts/rocksdb_build.sh
@@ -111,7 +113,9 @@ jobs:
     # the change under test. It still runs on workflow_dispatch, so it can be
     # exercised once the token is rotated; drop this condition to restore it.
     if: ${{ github.event_name == 'workflow_dispatch' }}
-    # Same constraint as above; the engine is a RocksDB fork of the same age.
+    # Still pinned to 22.04: vidardb-engine is a fork of RocksDB 6.x, so it
+    # keeps the constraint the other jobs have now shed, namely that code of
+    # that age does not compile on a current gcc.
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5

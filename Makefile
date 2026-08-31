@@ -81,7 +81,7 @@ docker-image:
 	$(DOCKER) build --no-cache --pull --network $(NETWORK) \
 		--build-arg apt_opts="$(APT_OPTS)" \
 		--build-arg env_exts="$(ENV_EXTS)" \
-		-t $(REGISTRY)/$(IMAGE):$(TAG) docker_image
+		-f docker_image/Dockerfile -t $(REGISTRY)/$(IMAGE):$(TAG) .
 
 .PHONY: indent
 indent:

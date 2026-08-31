@@ -23,6 +23,12 @@ jobs:
           . ./scripts/rocksdb_build.sh
           . ./scripts/pgrocks_fdw_build.sh
   build_with_vidardb:
+    # Temporarily off for push and pull_request: the ACCESS_TOKEN secret no
+    # longer authenticates against vidardb/vidardb-engine, so the job cannot
+    # get past the clone and would fail every build for a reason unrelated to
+    # the change under test. It still runs on workflow_dispatch, so it can be
+    # exercised once the token is rotated; drop this condition to restore it.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     # Same constraint as above; the engine is a RocksDB fork of the same age.
     runs-on: ubuntu-22.04
     steps:

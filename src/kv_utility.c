@@ -65,10 +65,15 @@ typedef struct DroppedObject {
 #define PREVIOUS_UTILITY (PreviousProcessUtilityHook != NULL ? \
                           PreviousProcessUtilityHook : standard_ProcessUtility)
 
+/*
+ * readOnlyTree is passed as false because KVProcessUtility has already taken
+ * its own copy of the statement if one was needed; copying again here would
+ * discard the rewriting that KVCopyOutTable performs.
+ */
 #define CALL_PREVIOUS_UTILITY(parseTree, queryString, context, paramListInfo, \
                               destReceiver, qc) \
-        PREVIOUS_UTILITY(plannedStmt, queryString, context, paramListInfo, \
-                         queryEnvironment, destReceiver, qc)
+        PREVIOUS_UTILITY(plannedStmt, queryString, false, context, \
+                         paramListInfo, queryEnvironment, destReceiver, qc)
 
 
 /*
@@ -81,6 +86,7 @@ static ProcessUtility_hook_type PreviousProcessUtilityHook = NULL;
 
 /* local functions forward declarations */
 static void KVProcessUtility(PlannedStmt* plannedStmt, const char* queryString,
+                             bool readOnlyTree,
                              ProcessUtilityContext context,
                              ParamListInfo paramListInfo,
                              QueryEnvironment* queryEnvironment,
@@ -534,7 +540,7 @@ int DeserializeAttribute(TupleDesc tupleDescriptor, Index index, int offset,
     int typeLength = attributeForm->attlen;
 
     values[index] = fetch_att(current, byValue, typeLength);
-    offset = att_addlength_datum(offset, typeLength, current);
+    offset = att_addlength_pointer(offset, typeLength, current);
 
     if (index == 0) {
         offset = 0;
@@ -579,9 +585,12 @@ static uint64 KVCopyIntoTable(const CopyStmt* copyStmt, const char* queryString)
     /* init state to read from COPY data source */
     ParseState* pstate = make_parsestate(NULL);
     pstate->p_sourcetext = queryString;
-    CopyState copyState = BeginCopyFrom(pstate, relation, copyStmt->filename,
-                                        copyStmt->is_program, NULL,
-                                        copyStmt->attlist, copyStmt->options);
+    CopyFromState copyState = BeginCopyFrom(pstate, relation,
+                                            NULL,  /* no WHERE clause */
+                                            copyStmt->filename,
+                                            copyStmt->is_program, NULL,
+                                            copyStmt->attlist,
+                                            copyStmt->options);
     free_parsestate(pstate);
 
     Oid relationId = RelationGetRelid(relation);
@@ -685,7 +694,7 @@ static uint64 KVCopyOutTable(CopyStmt* copyStmt, const char* queryString) {
                                                      relation->relname);
     StringInfo newQuerySubstring = makeStringInfo();
     appendStringInfo(newQuerySubstring, "select * from %s", qualifiedName);
-    List* queryList = raw_parser(newQuerySubstring->data);
+    List* queryList = raw_parser(newQuerySubstring->data, RAW_PARSE_DEFAULT);
 
     /* take the first parse tree */
     Node* rawQuery = linitial(queryList);
@@ -721,7 +730,7 @@ static uint64 KVCopyOutTable(CopyStmt* copyStmt, const char* queryString) {
  * float <--> integer, which does not deserialize successfully in our case.
  */
 static void KVCheckAlterTable(AlterTableStmt* alterStmt) {
-    ObjectType objectType = alterStmt->relkind;
+    ObjectType objectType = alterStmt->objtype;
     /* we are only interested in foreign table changes */
     if (objectType != OBJECT_TABLE && objectType != OBJECT_FOREIGN_TABLE) {
         return;
@@ -777,11 +786,21 @@ static void KVCheckAlterTable(AlterTableStmt* alterStmt) {
  * utility command via macro CALL_PREVIOUS_UTILITY.
  */
 static void KVProcessUtility(PlannedStmt* plannedStmt, const char* queryString,
+                             bool readOnlyTree,
                              ProcessUtilityContext context,
                              ParamListInfo paramListInfo,
                              QueryEnvironment* queryEnvironment,
                              DestReceiver* destReceiver,
                              QueryCompletion* qc) {
+    /*
+     * KVCopyOutTable rewrites the CopyStmt in place, so the tree has to be
+     * ours to modify. Take a private copy first, the same way
+     * standard_ProcessUtility does.
+     */
+    if (readOnlyTree) {
+        plannedStmt = copyObject(plannedStmt);
+    }
+
     Node* parseTree = plannedStmt->utilityStmt;
     if (nodeTag(parseTree) == T_CopyStmt) {
 

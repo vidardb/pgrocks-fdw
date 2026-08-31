@@ -17,6 +17,7 @@
 #include "kv_api.h"
 
 #include "foreign/fdwapi.h"
+#include "optimizer/appendinfo.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/planmain.h"
 #include "optimizer/restrictinfo.h"
@@ -215,11 +216,14 @@ static void GetForeignPaths(PlannerInfo* root, RelOptInfo* baserel,
     add_path(baserel,
              (Path *) create_foreignscan_path(root, baserel,
                                               NULL,  /* default pathtarget */
-                                              baserel->rows, startupCost,
+                                              baserel->rows,
+                                              0,     /* no disabled nodes */
+                                              startupCost,
                                               totalCost,
                                               NIL,   /* no pathkeys */
                                               NULL,  /* no outer rel either */
                                               NULL,  /* no extra plan */
+                                              NIL,   /* no fdw_restrictinfo */
                                               NIL)); /* no fdw_private data */
 }
 
@@ -720,7 +724,8 @@ static void EndForeignScan(ForeignScanState* scanState) {
     pfree(readState);
 }
 
-static void AddForeignUpdateTargets(Query* parsetree, RangeTblEntry* tableEntry,
+static void AddForeignUpdateTargets(PlannerInfo* root, Index rtindex,
+                                    RangeTblEntry* tableEntry,
                                     Relation targetRelation) {
     printf("\n-----------------%s----------------------\n", __func__);
     /*
@@ -732,17 +737,13 @@ static void AddForeignUpdateTargets(Query* parsetree, RangeTblEntry* tableEntry,
      * columns to the list of columns that are to be retrieved from the
      * foreign table during an UPDATE or DELETE.
      *
-     * To do that, add TargetEntry items to parsetree->targetList, containing
-     * expressions for the extra values to be fetched. Each such entry must be
-     * marked resjunk = true, and must have a distinct resname that will
-     * identify it at execution time. Avoid using names matching ctidN or
-     * wholerowN, as the core system can generate junk columns of these names.
+     * To do that, construct a Var for each extra value needed and hand it to
+     * add_row_identity_var together with a distinct name for the junk column.
+     * Avoid names matching ctidN or wholerowN, as the core system generates
+     * junk columns of those names itself.
      *
-     * This function is called in the rewriter, not the planner, so the
-     * information available is a bit different from that available to the
-     * planning routines. parsetree is the parse tree for the UPDATE or DELETE
-     * command, while target_rte and target_relation describe the target
-     * foreign table.
+     * rtindex is the range table index of the target foreign table, which
+     * target_rte and target_relation describe.
      *
      * If the AddForeignUpdateTargets pointer is set to NULL, no extra target
      * expressions are added. (This will make it impossible to implement
@@ -758,17 +759,10 @@ static void AddForeignUpdateTargets(Query* parsetree, RangeTblEntry* tableEntry,
      */
     Form_pg_attribute attr = TupleDescAttr(RelationGetDescr(targetRelation), 0);
 
-    Var* var = makeVar(parsetree->resultRelation, 1, attr->atttypid,
-                       attr->atttypmod, InvalidOid, 0);
+    Var* var = makeVar(rtindex, 1, attr->atttypid, attr->atttypmod,
+                       InvalidOid, 0);
 
-    /* Wrap it in a TLE with the right name ... */
-    const char* attrname = NameStr(attr->attname);
-    TargetEntry* entry = makeTargetEntry((Expr*) var,
-                                         list_length(parsetree->targetList) + 1,
-                                         pstrdup(attrname), true);
-
-    /* ... and add it to the query's targetlist */
-    parsetree->targetList = lappend(parsetree->targetList, entry);
+    add_row_identity_var(root, var, rtindex, NameStr(attr->attname));
 }
 
 static List* PlanForeignModify(PlannerInfo* root, ModifyTable* plan,

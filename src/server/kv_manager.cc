@@ -226,9 +226,12 @@ static void KVManagerSigHandler(SIGNAL_ARGS) {
 }
 
 /*
- * Entrypoint for kv manager
+ * Entrypoint for kv manager.
+ *
+ * PGDLLEXPORT because PGXS builds extensions with -fvisibility=hidden, and the
+ * postmaster resolves this by name through bgw_function_name.
  */
-extern "C" void KVManagerMain(Datum arg) {
+extern "C" PGDLLEXPORT void KVManagerMain(Datum arg) {
     /* Establish signal handlers before unblocking signals. */
     pqsignal(SIGTERM, KVManagerSigHandler);
 

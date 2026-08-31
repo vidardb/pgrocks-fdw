@@ -1,6 +1,11 @@
 .git
 .github
 test-output
-*.o
-*.so
-*.bc
+
+# Build products, at any depth: a bare *.o only matches the context root, so
+# without the ** these are copied in from a dirty working tree and make links
+# them instead of rebuilding, producing an image built against whatever
+# RocksDB happened to be installed on the build host.
+**/*.o
+**/*.so
+**/*.bc

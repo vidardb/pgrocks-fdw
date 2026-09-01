@@ -1,6 +1,14 @@
 
 MODULE_big     = kv_fdw
 
+# RocksDB 9 needs C++17 for the std::string_view and std::optional in its
+# public headers, and RocksDB 10 builds itself as C++20 and uses defaulted
+# comparison operators in them, so C++20 is the floor for anything current.
+# Kept in one variable because it has to match across the object and bitcode
+# rules; if they disagree, a JIT-enabled server compiles the same source twice
+# under two different standards.
+CXX_STD        = -std=c++20
+
 COMPILE.cxx.bc = $(CLANG) -xc++ -Wno-ignored-attributes $(BITCODE_CXXFLAGS) $(CPPFLAGS) -emit-llvm -c
 
 %.bc : %.cpp
@@ -15,11 +23,11 @@ SHLIB_LINK   = -lrocksdb
 endif
 
 ifeq ($(shell uname -s),Linux)
-    COMPILE.cc   = $(CXX) $(CXXFLAGS) -std=c++11 $(CPPFLAGS) -c
+    COMPILE.cc   = $(CXX) $(CXXFLAGS) $(CXX_STD) $(CPPFLAGS) -c
 endif
 
 ifeq ($(shell uname -s),Darwin)
-COMPILE.cc   = $(CXX) $(CXXFLAGS) -std=c++11 $(CPPFLAGS) -c
+COMPILE.cc   = $(CXX) $(CXXFLAGS) $(CXX_STD) $(CPPFLAGS) -c
 PG_CPPFLAGS += -Wno-deprecated-declarations
 SHLIB_LINK  += -lstdc++
 endif
@@ -44,7 +52,7 @@ include $(PGXS)
 
 # Users can specify their own configuration
 REGISTRY ?= vidardb
-TAG ?= rocksdb-6.11.4
+TAG ?= rocksdb-9.10
 IMAGE ?= postgresql
 DOCKER ?= docker
 NETWORK ?= default
@@ -52,28 +60,28 @@ APT_OPTS ?=
 ENV_EXTS ?=
 
 src/server/kv_storage.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/server/kv_storage.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) $(CXX_STD) -fPIC -c -o $@ src/server/kv_storage.cc
 
 src/ipc/kv_posix.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/ipc/kv_posix.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) $(CXX_STD) -fPIC -c -o $@ src/ipc/kv_posix.cc
 
 src/ipc/kv_message.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/ipc/kv_message.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) $(CXX_STD) -fPIC -c -o $@ src/ipc/kv_message.cc
 
 src/ipc/kv_channel.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/ipc/kv_channel.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) $(CXX_STD) -fPIC -c -o $@ src/ipc/kv_channel.cc
 
 src/ipc/kv_mq.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/ipc/kv_mq.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) $(CXX_STD) -fPIC -c -o $@ src/ipc/kv_mq.cc
 	
 src/client/kv_client.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/client/kv_client.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) $(CXX_STD) -fPIC -c -o $@ src/client/kv_client.cc
 
 src/server/kv_worker.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/server/kv_worker.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) $(CXX_STD) -fPIC -c -o $@ src/server/kv_worker.cc
 
 src/server/kv_manager.bc:
-	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) -std=c++11 -fPIC -c -o $@ src/server/kv_manager.cc
+	$(COMPILE.cxx.bc) $(CCFLAGS) $(CPPFLAGS) $(CXX_STD) -fPIC -c -o $@ src/server/kv_manager.cc
 
 .PHONY: docker-image
 docker-image:

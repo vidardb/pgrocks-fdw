@@ -773,9 +773,12 @@ static void KVWorkerDo(KVWorkerId workerId, KVDatabaseId dbId) {
 }
 
 /*
- * Entrypoint for kv worker
+ * Entrypoint for kv worker.
+ *
+ * PGDLLEXPORT because PGXS builds extensions with -fvisibility=hidden, and the
+ * postmaster resolves this by name through bgw_function_name.
  */
-extern "C" void KVWorkerMain(Datum arg) {
+extern "C" PGDLLEXPORT void KVWorkerMain(Datum arg) {
     KVDatabaseId dbId = (KVDatabaseId) DatumGetObjectId(arg);
     KVWorkerId workerId = *reinterpret_cast<KVWorkerId*>(MyBgworkerEntry->bgw_extra);
 

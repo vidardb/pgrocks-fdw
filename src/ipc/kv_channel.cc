@@ -50,7 +50,8 @@ KVCircularChannel::KVCircularChannel(KVRelationId rid, const char* tag,
         PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0, __func__);
     Fclose(fd, __func__);
 
-    data_->getPos = data_->putPos = 0;
+    data_->putPos = 0;
+    data_->getPos = 0;
     SemInit(&data_->posMutex, 1, 1, __func__);
     SemInit(&data_->putMutex, 1, 1, __func__);
     SemInit(&data_->empty, 1, 0, __func__);

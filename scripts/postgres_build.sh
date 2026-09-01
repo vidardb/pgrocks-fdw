@@ -4,7 +4,7 @@ set -e
 
 export LD_LIBRARY_PATH=/usr/local/pgsql/lib
 export PATH=/usr/local/pgsql/bin:$PATH
-export PG_VERSION=13.2
+export PG_VERSION=18.6
 export PGLOG=${PGLOG:-/tmp/pgsql.log}
 
 wget https://ftp.postgresql.org/pub/source/v${PG_VERSION}/postgresql-${PG_VERSION}.tar.gz

@@ -2,7 +2,7 @@
 
 # pgrocks-fdw 
 
-[![Build Status](https://travis-ci.com/vidardb/pgrocks-fdw.svg?branch=master)](https://travis-ci.com/github/vidardb/pgrocks-fdw)
+[![CI](https://github.com/vidardb/pgrocks-fdw/actions/workflows/main.yml/badge.svg)](https://github.com/vidardb/pgrocks-fdw/actions/workflows/main.yml)
 
 This PostgreSQL extension implements a Foreign Data Wrapper (FDW) for [RocksDB](https://rocksdb.org/). This repo has been listed in PostgreSQL [wiki](https://wiki.postgresql.org/wiki/Foreign_data_wrappers). We are also building an extension to supercharge PostgreSQL analytics. It's not product ready yet, but if you are interested, please contact us at info@vidardb.com to gain access.
 
@@ -10,40 +10,44 @@ RocksDB is a high performance key-value store based on a log-structured merge-tr
 
 This extension can also be used for other systems that have RocksDB-like APIs, but please check the compatibility before you use this extension for other systems.
 
-This extension is developed and maintained by the VidarDB team. Currently only works for PG13. Feel free to report bugs or issues via Github.
+This extension is developed and maintained by the VidarDB team. Currently only works for PG18. Feel free to report bugs or issues via Github.
 
 # Building
 
-We test this foreign data wrapper on Ubuntu Server 20.04 using PostgreSQL-13 together with RocksDB-6.11.4 (built with GCC-9.3.0).
+CI builds this foreign data wrapper two ways: against PostgreSQL 18 with the RocksDB 9.10 that Debian trixie packages, and against PostgreSQL 18.6 with RocksDB 10.10.1 both built from source. It needs a compiler with C++20, because RocksDB 10 uses C++20 in its public headers.
 
 - Install PostgreSQL and the dev library which is required by extensions:
 
   ```sh
-  # add the repository
-  sudo tee /etc/apt/sources.list.d/pgdg.list << END
-  deb http://apt.postgresql.org/pub/repos/apt/ bionic-pgdg main
-  END
-
   # get the signing key and import it
-  wget https://www.postgresql.org/media/keys/ACCC4CF8.asc
-  sudo apt-key add ACCC4CF8.asc
+  curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    | sudo gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+
+  # add the repository, using the codename of the distribution you are on
+  echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+    | sudo tee /etc/apt/sources.list.d/pgdg.list
 
   # fetch the metadata from the new repo
   sudo apt-get update
 
   # install postgresql and the dev library
-  sudo apt-get install postgresql-13
-  sudo apt-get install postgresql-server-dev-13
+  sudo apt-get install postgresql-18
+  sudo apt-get install postgresql-server-dev-18
   ```
 
 - Install [RocksDB](https://github.com/facebook/rocksdb) from source code:
 
   ```sh
-  git clone -b v6.11.4 https://github.com/facebook/rocksdb.git
+  git clone -b v10.10.1 https://github.com/facebook/rocksdb.git
 
   cd rocksdb
 
-  sudo DEBUG_LEVEL=0 make shared_lib install-shared
+  # USE_RTTI=1 is required. RocksDB builds with -fno-rtti by default, which
+  # leaves no typeinfo for its polymorphic classes in the library, and this
+  # extension derives a comparator from rocksdb::Comparator. Without it the
+  # extension links but PostgreSQL refuses to load it, reporting
+  # "undefined symbol: _ZTIN7rocksdb12CustomizableE".
+  sudo DEBUG_LEVEL=0 USE_RTTI=1 make shared_lib install-shared
   
   sudo sh -c "echo /usr/local/lib >> /etc/ld.so.conf"  
  
@@ -67,7 +71,7 @@ We test this foreign data wrapper on Ubuntu Server 20.04 using PostgreSQL-13 tog
 - Before using this foreign data wrapper, we need to add it to `shared_preload_libraries` in the `postgresql.conf`:
 
   ```sh
-  sudo bash -c 'echo "shared_preload_libraries = 'kv_fdw'" >> /etc/postgresql/13/main/postgresql.conf'
+  sudo bash -c 'echo "shared_preload_libraries = 'kv_fdw'" >> /etc/postgresql/18/main/postgresql.conf'
   ```
 
   and restart PostgreSQL:
@@ -169,7 +173,7 @@ If you want to debug the source code, you may need to start PostgreSQL in the de
 ```sh
     sudo service postgresql stop  
 
-    sudo -u postgres /usr/lib/postgresql/13/bin/postgres -d 0 -D /var/lib/postgresql/13/main -c config_file=/etc/postgresql/13/main/postgresql.conf
+    sudo -u postgres /usr/lib/postgresql/18/bin/postgres -d 0 -D /var/lib/postgresql/18/main -c config_file=/etc/postgresql/18/main/postgresql.conf
 ```  
 
 # Docker

@@ -2,7 +2,7 @@
 
 # pgrocks-fdw 
 
-[![Build Status](https://travis-ci.com/vidardb/pgrocks-fdw.svg?branch=master)](https://travis-ci.com/github/vidardb/pgrocks-fdw)
+[![CI](https://github.com/vidardb/pgrocks-fdw/actions/workflows/main.yml/badge.svg)](https://github.com/vidardb/pgrocks-fdw/actions/workflows/main.yml)
 
 This PostgreSQL extension implements a Foreign Data Wrapper (FDW) for [RocksDB](https://rocksdb.org/). This repo has been listed in PostgreSQL [wiki](https://wiki.postgresql.org/wiki/Foreign_data_wrappers). We are also building an extension to supercharge PostgreSQL analytics. It's not product ready yet, but if you are interested, please contact us at info@vidardb.com to gain access.
 
@@ -42,7 +42,12 @@ CI builds this foreign data wrapper two ways: against PostgreSQL 18 with the Roc
 
   cd rocksdb
 
-  sudo DEBUG_LEVEL=0 make shared_lib install-shared
+  # USE_RTTI=1 is required. RocksDB builds with -fno-rtti by default, which
+  # leaves no typeinfo for its polymorphic classes in the library, and this
+  # extension derives a comparator from rocksdb::Comparator. Without it the
+  # extension links but PostgreSQL refuses to load it, reporting
+  # "undefined symbol: _ZTIN7rocksdb12CustomizableE".
+  sudo DEBUG_LEVEL=0 USE_RTTI=1 make shared_lib install-shared
   
   sudo sh -c "echo /usr/local/lib >> /etc/ld.so.conf"  
  
@@ -66,7 +71,7 @@ CI builds this foreign data wrapper two ways: against PostgreSQL 18 with the Roc
 - Before using this foreign data wrapper, we need to add it to `shared_preload_libraries` in the `postgresql.conf`:
 
   ```sh
-  sudo bash -c 'echo "shared_preload_libraries = 'kv_fdw'" >> /etc/postgresql/13/main/postgresql.conf'
+  sudo bash -c 'echo "shared_preload_libraries = 'kv_fdw'" >> /etc/postgresql/18/main/postgresql.conf'
   ```
 
   and restart PostgreSQL:
@@ -168,7 +173,7 @@ If you want to debug the source code, you may need to start PostgreSQL in the de
 ```sh
     sudo service postgresql stop  
 
-    sudo -u postgres /usr/lib/postgresql/13/bin/postgres -d 0 -D /var/lib/postgresql/13/main -c config_file=/etc/postgresql/13/main/postgresql.conf
+    sudo -u postgres /usr/lib/postgresql/18/bin/postgres -d 0 -D /var/lib/postgresql/18/main -c config_file=/etc/postgresql/18/main/postgresql.conf
 ```  
 
 # Docker
